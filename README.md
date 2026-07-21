@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/kimerran/t2p/actions/workflows/ci.yml/badge.svg)](https://github.com/kimerran/t2p/actions/workflows/ci.yml)
 
-A data labeling platform built on Celo MiniPay, rewarding contributors with cUSD for completing tasks.
+A data labeling platform built on Stellar, rewarding contributors with cUSD for completing tasks.
 
 ## Tech Stack
 
