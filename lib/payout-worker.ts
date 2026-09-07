@@ -138,10 +138,7 @@ async function processWithdrawalJob(
   }, HEARTBEAT_REFRESH_MS);
 
   try {
-    const txHash = await payReward(destination, amountUnits, {
-      kind: "payout_job",
-      id: jobId,
-    });
+    const txHash = await payReward(destination, amountUnits);
 
     await prisma.payoutJob.update({
       where: { id: jobId },
@@ -291,10 +288,7 @@ async function processSubmissionPayout(
   }, HEARTBEAT_REFRESH_MS);
 
   try {
-    const txHash = await payReward(walletAddress, amount, {
-      kind: "submission",
-      id: submissionId,
-    });
+    const txHash = await payReward(walletAddress, amount);
 
     await prisma.$transaction(async (tx) => {
       await tx.submission.update({
