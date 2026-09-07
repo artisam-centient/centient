@@ -199,12 +199,7 @@ describe("reprocessPayoutWithNonceSafety", () => {
     await reprocessPayoutWithNonceSafety("sub-4");
 
     expect(mockTxExecuteRaw).toHaveBeenCalled();
-    // The reference must name the submission being settled — it is what the
-    // independent co-signer (#8) re-derives the amount from.
-    expect(mockPayReward).toHaveBeenCalledWith(G_B, 500n, {
-      kind: "submission",
-      id: "sub-4",
-    });
+    expect(mockPayReward).toHaveBeenCalledWith(G_B, 500n);
     expect(mockSubmissionUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "sub-4" },

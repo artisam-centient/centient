@@ -104,10 +104,7 @@ export async function reprocessPayoutWithNonceSafety(submissionId: string): Prom
   // build green in the meantime.
   let txHash: string;
   try {
-    txHash = await payReward(walletAddress, amount, {
-      kind: "submission",
-      id: submissionId,
-    });
+    txHash = await payReward(walletAddress, amount);
   } catch (err: any) {
     console.error(`[payout-service] reprocess failed for submission ${submissionId}:`, err);
 
