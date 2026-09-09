@@ -1,6 +1,6 @@
 # Deliverable 1 — QA readiness
 
-**Frozen build:** `bbaf4266684e799e84212e6059751b1d1099f3c8`
+**Frozen build:** `58e8f985007be1d40ad623127030485490a5fe0b` — branch `staging`
 **Environment:** Railway `centient-work` / `production` · https://centient.work
 **Network:** Stellar **Testnet** only · **Refreshed:** 2026-09-09
 
@@ -21,9 +21,35 @@ Both services run the same commit. That is the point of the freeze.
 
 | | |
 | --- | --- |
-| `web` | `bbaf426`, deployed 2026-09-09 09:30 UTC, SUCCESS |
-| `cosigner` | `bbaf426`, deployed 2026-09-09 09:25 UTC, SUCCESS |
-| CI on that exact SHA | `build`, `payments-lane`, `verify-commit-identities` — all green |
+| `web` | `58e8f98`, deployed 2026-09-09 10:53 UTC, SUCCESS |
+| `cosigner` | `58e8f98`, deployed 2026-09-09 10:53 UTC, SUCCESS |
+| Tracked branch | `staging` |
+| CI green on | `bbaf426`, the application content of this build — see below |
+
+### Why the freeze names a merge commit
+
+`58e8f98` is the merge commit from [PR #84](https://github.com/webnxt-2030/Centient/pull/84),
+which promoted `develop` to `staging` on 2026-09-09 at 10:53 UTC. The
+`production` environment tracks `staging` by deliberate choice, so QA tests the
+promoted branch rather than the development one.
+
+**The application under test did not change when the freeze moved here.**
+`58e8f98` differs from the previous freeze `bbaf426` by four files, all under
+`docs/` — the readiness guide you are reading and three runbook corrections. No
+application file, migration or configuration differs:
+
+```
+git diff --name-only bbaf426 58e8f98
+  docs/qa/deliverable-1-qa-readiness.md
+  docs/stellar-multisig-payout-service.md
+  docs/stellar-multisig-payout-spike.md
+  docs/stellar-multisig-runbook.md
+```
+
+So the CI evidence recorded against `bbaf426` — `build`, `payments-lane` and
+`verify-commit-identities`, all green — is evidence for this build too, and
+**no case executed against `bbaf426` needs re-running.** Cases may cite either
+SHA; prefer `58e8f98` since it is what the environment reports.
 
 CI runs on push to `develop` as well as on pull requests, so the green run is
 **on the deployed commit itself**. Earlier versions of this guide had to argue
@@ -42,6 +68,7 @@ Three commits landed after `596dbc2`, and one of them is behavioural:
 | `aa5e91b` | **The co-signer's daily cap is charged once per payout, not once per signature.** Re-run any executed case that touched the co-signer cap. |
 | `f1e94e1` | `extractBalances` deleted. No runtime path changed. |
 | `bbaf426` | Import-style change in the QA fixtures. No behaviour. |
+| `58e8f98` | Promotion of `develop` to `staging`. Documentation only. |
 
 Before `aa5e91b`, one payout asked for two signatures carrying the same amount
 and was charged for both, so `COSIGNER_DAILY_CAP_UNITS` held to roughly half its
