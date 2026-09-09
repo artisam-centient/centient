@@ -47,6 +47,36 @@ logged before anything else starts. A cliff on the panel with a fresh boot line
 under it is a deploy, not a crash — and the payout worker, reconciler, and
 co-signer restarting together will show as correlated steps across services.
 
+## What the 2026-09-09 panel actually was
+
+Settled against the Railway deployment ledger and metrics rather than inferred:
+
+- **The spikes were deploys.** `web` deploys from `develop` (now `staging`), so
+  every merge replaces the container. There were **19 deployments between
+  2026-09-08 03:55Z and 2026-09-09 10:53Z** — the dense spike cluster on the
+  right of the panel is that, one narrow spike per cutover as the new container
+  overlaps the old and `preDeployCommand` runs the Prisma CLI.
+- **The cosigner series only exists on the right** because that service was
+  first deployed 2026-09-08 05:54Z (#75). It could not have been graphed earlier.
+- **The long ramp was one very old process.** The deployment before that storm
+  was **2026-07-07 13:34Z** — so the process drifting from 0.9 GB to 1.85 GB had
+  been up for roughly **62 days**. It was replaced by a deploy, not killed.
+- **Nothing was ever OOM-killed.** No `CRASHED` deployment in the service's
+  history; the one `FAILED` (2026-09-08 16:38Z) was a build failure.
+- **Headroom is enormous.** `MEMORY_LIMIT_GB` is **24**. The 7-day peak of
+  1.85 GB is 7.7% of it.
+
+So the drift is case 2 above — a heap V8 has no reason to collect, on a box with
+24 GB and therefore no memory pressure at all — and at that rate it is not a
+near-term risk. The bound that would actually bite first is **V8's own** old-space
+ceiling (~4 GB by default), not the container's 24 GB; reaching it from 1.85 GB
+would take several more months of uninterrupted uptime.
+
+**The thing that would change this verdict:** right-sizing the container down.
+At 24 GB the drift is free; at 1 GB the same process would be killed in under a
+fortnight. Check `containerLimitMb` in the log line before shrinking it, and size
+the heap ceiling at the same time.
+
 ## Already ruled out (2026-09-09)
 
 Measured against a production build, a real Postgres and Redis, and a stubbed
