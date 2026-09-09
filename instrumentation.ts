@@ -3,11 +3,33 @@ import * as Sentry from "@sentry/nextjs";
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./sentry.server.config");
+    await reportMemory();
     await assertPayoutSigningSeparation();
     await startBackgroundWorkers();
   }
   if (process.env.NEXT_RUNTIME === "edge") {
     await import("./sentry.edge.config");
+  }
+}
+
+/**
+ * Report this process's own memory on an interval, starting at boot.
+ *
+ * The web server is long-lived and runs the payout worker and reconciler inside
+ * itself (below), so its memory is the memory of the whole payout rail. A
+ * container memory panel alone cannot say whether a rising line is retention, a
+ * heap V8 has no reason to collect, or a redeploy — see `lib/memory-report.ts`
+ * for which figure answers which. Reported before anything else starts so the
+ * boot line is the process's own floor.
+ *
+ * Never allowed to fail a boot: this only observes.
+ */
+async function reportMemory() {
+  try {
+    const { startMemoryReporter } = await import("./lib/memory-report");
+    startMemoryReporter();
+  } catch (err) {
+    console.error("[instrumentation] memory reporting unavailable:", err);
   }
 }
 
