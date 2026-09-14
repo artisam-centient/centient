@@ -23,6 +23,7 @@ export const PAYMENTS_LANE_TEST_GLOBS = [
   "lib/__tests__/health-monitor.test.ts",
   "lib/__tests__/reconciler.test.ts",
   "lib/__tests__/sponsored-trustline.test.ts",
+  "lib/__tests__/sponsorship-reclaim.test.ts",
   // The money ledger the rail settles against.
   "lib/__tests__/campaign-balance.test.ts",
   "lib/__tests__/user-balance.test.ts",
