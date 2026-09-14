@@ -236,13 +236,21 @@ model Dispute {
 }
 
 model WalletNonce {
-  id            String    @id @default(uuid())
-  walletAddress String
-  nonce         String    @unique
-  expiresAt     DateTime
-  createdAt     DateTime  @default(now())
+  id                String   @id @default(uuid())
+  walletAddress     String
+  nonce             String   @unique
+  // Which flow issued the challenge: "link-payout-address" (/api/me/wallet) or
+  // "prove-stellar-address" (wallet sign-in, #25). Every query is scoped by it,
+  // so neither flow can delete or satisfy the other's challenges.
+  action            String   @default("link-payout-address")
+  // Bound at issue for sign-in challenges; the link flow leaves it null.
+  networkPassphrase String?
+  issuedAt          DateTime @default(now())
+  expiresAt         DateTime
+  createdAt         DateTime @default(now())
 
   @@index([walletAddress])
+  @@unique([walletAddress, action])
   @@index([expiresAt])
   @@map("wallet_nonces")
 }

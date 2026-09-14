@@ -61,12 +61,14 @@ function sign(message: string): string {
   return KP.sign(sep53Digest(message)).toString("base64");
 }
 
+/** Build a wallet-link challenge request for an optional address. */
 function getReq(address?: string): NextRequest {
   const url = new URL("http://localhost/api/me/wallet");
   if (address !== undefined) url.searchParams.set("address", address);
   return new NextRequest(url, { method: "GET" });
 }
 
+/** Build a wallet-link verification request with a JSON body. */
 function postReq(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/me/wallet", {
     method: "POST",
@@ -78,7 +80,7 @@ function postReq(body: unknown): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSession.mockResolvedValue(USER_ID);
-  mockNonceDeleteMany.mockResolvedValue({ count: 0 });
+  mockNonceDeleteMany.mockResolvedValue({ count: 1 });
   mockNonceCreate.mockResolvedValue({});
   mockUserUpdate.mockResolvedValue({});
   mockHasTrustline.mockResolvedValue(true);
@@ -105,9 +107,52 @@ describe("GET /api/me/wallet (challenge)", () => {
     const body = await res.json();
     expect(body.message).toContain(G);
     expect(body.message).toContain(body.nonce);
+    // Scoped to the link flow, so a pending wallet sign-in challenge for the
+    // same address survives.
+    expect(mockNonceDeleteMany).toHaveBeenCalledWith({
+      where: {
+        walletAddress: G,
+        action: "link-payout-address",
+        expiresAt: { lte: expect.any(Date) },
+      },
+    });
     expect(mockNonceCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ walletAddress: G }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ walletAddress: G, action: "link-payout-address" }),
+      }),
     );
+  });
+
+  it("reuses the committed link challenge when a concurrent create loses P2002", async () => {
+    mockNonceCreate.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+    mockNonceFindFirst.mockResolvedValueOnce({ nonce: NONCE, walletAddress: G });
+
+    const res = await GET(getReq(G));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ message: buildWalletLinkMessage(G, NONCE), nonce: NONCE });
+  });
+
+  it("retries issuance when the challenge that caused P2002 has already expired", async () => {
+    mockNonceCreate
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+          code: "P2002",
+          clientVersion: "test",
+        }),
+      )
+      .mockResolvedValueOnce({});
+    mockNonceFindFirst.mockResolvedValueOnce(null);
+
+    const res = await GET(getReq(G));
+
+    expect(res.status).toBe(200);
+    expect(mockNonceCreate).toHaveBeenCalledTimes(2);
   });
 
   it("429s and issues no nonce when the per-address rate limit trips", async () => {
@@ -149,6 +194,26 @@ describe("POST /api/me/wallet (link + prove)", () => {
     expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 
+  it("400 challenge_expired when the verified nonce is no longer live at consumption", async () => {
+    mockNonceDeleteMany.mockResolvedValueOnce({ count: 0 });
+
+    const res = await POST(
+      postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("challenge_expired");
+    expect(mockNonceDeleteMany).toHaveBeenCalledWith({
+      where: {
+        nonce: NONCE,
+        walletAddress: G,
+        action: "link-payout-address",
+        expiresAt: { gt: expect.any(Date) },
+      },
+    });
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
   it("409 no_trustline when the proven address holds no USDC trustline", async () => {
     mockHasTrustline.mockResolvedValueOnce(false);
     const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
@@ -163,7 +228,20 @@ describe("POST /api/me/wallet (link + prove)", () => {
     const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ linked: true, walletAddress: G });
-    expect(mockNonceDeleteMany).toHaveBeenCalledWith({ where: { walletAddress: G } });
+    expect(mockNonceDeleteMany).toHaveBeenCalledWith({
+      where: {
+        nonce: NONCE,
+        walletAddress: G,
+        action: "link-payout-address",
+        expiresAt: { gt: expect.any(Date) },
+      },
+    });
+    // A sign-in challenge row can never be used to link an address.
+    expect(mockNonceFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ walletAddress: G, action: "link-payout-address" }),
+      }),
+    );
     expect(mockUserUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: USER_ID },

@@ -7,6 +7,7 @@ import { getLabelerSession, requireLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress, verify } from "@/lib/stellar/signature";
 import { accountHasUsdcTrustline } from "@/lib/stellar/client";
 import { checkWalletRateLimit } from "@/lib/rate-limit";
+import { WALLET_LINK_ACTION } from "@/lib/stellar/challenge-message";
 
 /**
  * ST-4b (#300) — link + prove a Stellar `G…` payout address.
@@ -37,6 +38,37 @@ export function buildWalletLinkMessage(address: string, nonce: string): string {
   ].join("\n");
 }
 
+/** Persist one live payout-link challenge, reusing the winner of an issuance race. */
+async function issueWalletLinkChallenge(address: string): Promise<string> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const now = new Date();
+    const nonce = randomUUID().replace(/-/g, "");
+    const expiresAt = new Date(now.getTime() + NONCE_TTL_MS);
+
+    await prisma.walletNonce.deleteMany({
+      where: { walletAddress: address, action: WALLET_LINK_ACTION, expiresAt: { lte: now } },
+    });
+
+    try {
+      await prisma.walletNonce.create({
+        data: { walletAddress: address, action: WALLET_LINK_ACTION, nonce, expiresAt },
+      });
+      return nonce;
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
+      const readAt = new Date();
+      const committed = await prisma.walletNonce.findFirst({
+        where: { walletAddress: address, action: WALLET_LINK_ACTION, expiresAt: { gt: readAt } },
+      });
+      if (committed) return committed.nonce;
+      if (attempt === 1) throw err;
+    }
+  }
+
+  throw new Error("issueWalletLinkChallenge: unreachable");
+}
+
+/** Issue or reuse the authenticated contributor's live payout-link challenge. */
 export async function GET(req: NextRequest) {
   const userId = await getLabelerSession(req);
   const unauthorized = requireLabelerSession(userId);
@@ -49,25 +81,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "invalid_address" }, { status: 400 });
   }
 
-  // Throttle challenge issuance per candidate address: each GET prunes the prior
-  // nonce and writes a new one, so an unthrottled loop would churn Prisma
-  // transactions. Distinct from the sponsor-build key so the two flows don't
-  // collide when the same address hits both in quick succession.
+  // Throttle challenge issuance per candidate address. A live row is reused,
+  // but an unthrottled caller could still churn expiry checks and replacement
+  // writes. Distinct from the sponsor-build key so the two flows do not collide.
   if (await checkWalletRateLimit(`link:${address}`)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const nonce = randomUUID().replace(/-/g, "");
-  const expiresAt = new Date(Date.now() + NONCE_TTL_MS);
-
-  await prisma.$transaction([
-    prisma.walletNonce.deleteMany({ where: { walletAddress: address } }),
-    prisma.walletNonce.create({ data: { walletAddress: address, nonce, expiresAt } }),
-  ]);
+  // Scoped to this flow: the same address may hold a pending wallet sign-in
+  // challenge (#25), which a link request must not delete. A live challenge is
+  // reused when another request wins the unique-constraint race.
+  const nonce = await issueWalletLinkChallenge(address);
 
   return NextResponse.json({ message: buildWalletLinkMessage(address, nonce), nonce });
 }
 
+/** Verify and consume a payout-link proof, then bind its address to the session user. */
 export async function POST(req: NextRequest) {
   const userId = await getLabelerSession(req);
   const unauthorized = requireLabelerSession(userId);
@@ -92,7 +121,7 @@ export async function POST(req: NextRequest) {
 
   // Look up the most recent unexpired challenge for this exact address.
   const nonceRow = await prisma.walletNonce.findFirst({
-    where: { walletAddress: stellarAddress, expiresAt: { gt: new Date() } },
+    where: { walletAddress: stellarAddress, action: WALLET_LINK_ACTION, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
   });
   if (!nonceRow) {
@@ -104,8 +133,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
   }
 
-  // One-time use: consume every challenge for this address regardless of outcome.
-  await prisma.walletNonce.deleteMany({ where: { walletAddress: stellarAddress } });
+  // Claim only the proof that was verified, while it is still live. If expiry
+  // or a concurrent request removed it, this proof no longer grants access and
+  // must not consume a replacement challenge for the same address.
+  const consumed = await prisma.walletNonce.deleteMany({
+    where: {
+      nonce: nonceRow.nonce,
+      walletAddress: stellarAddress,
+      action: WALLET_LINK_ACTION,
+      expiresAt: { gt: new Date() },
+    },
+  });
+  if (consumed.count === 0) {
+    return NextResponse.json({ error: "challenge_expired" }, { status: 400 });
+  }
 
   // USDC-trustline precheck — an untrusted `G…` would fail the payout with a
   // silent `op_no_trust`. Reject up front with guidance instead. (ST-4e turns

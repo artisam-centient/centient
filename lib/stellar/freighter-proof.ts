@@ -29,6 +29,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { networkPassphrase, server, usdcAsset } from "./config";
 import { isValidStellarAddress, verify } from "./signature";
+import { CHALLENGE_TTL_MS, buildChallengeMessage, type ChallengeFields } from "./challenge-message";
 import { friendbotFund } from "../qa-fixtures/friendbot";
 
 /** True only when the harness is explicitly switched on and pointed at testnet. */
@@ -52,36 +53,17 @@ export class HarnessError extends Error {
 // Ownership proof
 // ---------------------------------------------------------------------------
 
-export const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-export const PROOF_ACTION = "prove-stellar-address";
-
-export interface ChallengeFields {
-  address: string;
-  networkPassphrase: string;
-  nonce: string;
-  issuedAt: Date;
-  expiresAt: Date;
-}
+// The signed format is shared with production sign-in (#25); see
+// challenge-message.ts. Re-exported so harness callers keep one import.
+export {
+  CHALLENGE_TTL_MS,
+  PROOF_ACTION,
+  buildChallengeMessage,
+  type ChallengeFields,
+} from "./challenge-message";
 
 export interface IssuedChallenge extends ChallengeFields {
   message: string;
-}
-
-/**
- * The exact text Freighter signs. SEP-53 has no network or domain field of its
- * own, so every binding the verifier relies on has to live in the message.
- */
-export function buildChallengeMessage(fields: ChallengeFields): string {
-  return [
-    "Centient: prove you control this Stellar address.",
-    "",
-    `Address: ${fields.address}`,
-    `Network: ${fields.networkPassphrase}`,
-    `Action: ${PROOF_ACTION}`,
-    `Nonce: ${fields.nonce}`,
-    `Issued At: ${fields.issuedAt.toISOString()}`,
-    `Expires At: ${fields.expiresAt.toISOString()}`,
-  ].join("\n");
 }
 
 export type ProofRejection =
