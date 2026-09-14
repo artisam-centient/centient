@@ -115,6 +115,16 @@ describe("issueSignInChallenge", () => {
     expect(await signInRows(address)).toBe(1);
   });
 
+  it("replaces a challenge at its exact expiration timestamp", async () => {
+    const address = Keypair.random().publicKey();
+    const first = await issueSignInChallenge(address, new Date("2026-09-14T06:00:00.000Z"));
+
+    const replacement = await issueSignInChallenge(address, first.expiresAt);
+
+    expect(replacement.nonce).not.toBe(first.nonce);
+    expect(await signInRows(address)).toBe(1);
+  });
+
   it("leaves the same address's pending payout-link challenge alone", async () => {
     const address = Keypair.random().publicKey();
     const link = await seedLinkChallenge(address, new Date(Date.now() + CHALLENGE_TTL_MS));
@@ -198,6 +208,19 @@ describe("consumeSignInChallenge", () => {
       nonce: c.nonce,
       signature: sign(c.kp, c.message),
       now: new Date(c.expiresAt.getTime() + 1),
+    });
+
+    expect(result).toEqual({ ok: false, reason: "challenge_expired" });
+    expect(await signInRows(c.address)).toBe(0);
+  });
+
+  it("refuses a challenge at its exact expiration timestamp", async () => {
+    const c = await issued();
+    const result = await consumeSignInChallenge({
+      address: c.address,
+      nonce: c.nonce,
+      signature: sign(c.kp, c.message),
+      now: c.expiresAt,
     });
 
     expect(result).toEqual({ ok: false, reason: "challenge_expired" });

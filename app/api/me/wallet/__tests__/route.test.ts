@@ -113,7 +113,7 @@ describe("GET /api/me/wallet (challenge)", () => {
       where: {
         walletAddress: G,
         action: "link-payout-address",
-        expiresAt: { lt: expect.any(Date) },
+        expiresAt: { lte: expect.any(Date) },
       },
     });
     expect(mockNonceCreate).toHaveBeenCalledWith(

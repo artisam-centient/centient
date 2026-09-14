@@ -76,7 +76,7 @@ export async function issueSignInChallenge(
     await prisma.walletNonce.deleteMany({
       where: {
         OR: [
-          { expiresAt: { lt: issuedAt } },
+          { expiresAt: { lte: issuedAt } },
           {
             walletAddress: address,
             action: PROOF_ACTION,
@@ -106,7 +106,7 @@ export async function issueSignInChallenge(
           walletAddress: address,
           action: PROOF_ACTION,
           networkPassphrase: passphrase,
-          expiresAt: { gte: readAt },
+          expiresAt: { gt: readAt },
         },
       });
       if (committed) return issuedChallengeFrom(committed);
@@ -164,7 +164,7 @@ export async function consumeSignInChallenge({
     throw err;
   }
 
-  if (now.getTime() > row.expiresAt.getTime()) return { ok: false, reason: "challenge_expired" };
+  if (now.getTime() >= row.expiresAt.getTime()) return { ok: false, reason: "challenge_expired" };
   if (row.walletAddress !== address) return { ok: false, reason: "wrong_address" };
 
   const passphrase = networkPassphrase();

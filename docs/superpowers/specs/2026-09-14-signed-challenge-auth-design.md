@@ -90,7 +90,7 @@ returns `{ ok: true, address }` or `{ ok: false, reason }`.
 
 | # | Check | Reason on failure |
 | --- | --- | --- |
-| 1 | `now` is not after the row's `expiresAt` | `challenge_expired` |
+| 1 | `now` is strictly before the row's `expiresAt` | `challenge_expired` |
 | 2 | The row's `walletAddress` equals `address`, compared exactly, never normalized | `wrong_address` |
 | 3 | The row's `networkPassphrase` equals the server's current passphrase | `wrong_network` |
 | 4 | `signerAddress`, when sent, equals `address` | `wrong_signer` |

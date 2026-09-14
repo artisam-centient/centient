@@ -46,7 +46,7 @@ async function issueWalletLinkChallenge(address: string): Promise<string> {
     const expiresAt = new Date(now.getTime() + NONCE_TTL_MS);
 
     await prisma.walletNonce.deleteMany({
-      where: { walletAddress: address, action: WALLET_LINK_ACTION, expiresAt: { lt: now } },
+      where: { walletAddress: address, action: WALLET_LINK_ACTION, expiresAt: { lte: now } },
     });
 
     try {
@@ -58,7 +58,7 @@ async function issueWalletLinkChallenge(address: string): Promise<string> {
       if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
       const readAt = new Date();
       const committed = await prisma.walletNonce.findFirst({
-        where: { walletAddress: address, action: WALLET_LINK_ACTION, expiresAt: { gte: readAt } },
+        where: { walletAddress: address, action: WALLET_LINK_ACTION, expiresAt: { gt: readAt } },
       });
       if (committed) return committed.nonce;
       if (attempt === 1) throw err;
