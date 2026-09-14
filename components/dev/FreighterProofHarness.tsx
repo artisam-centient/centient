@@ -36,8 +36,10 @@ interface Props {
 
 type Body = Record<string, unknown>;
 
+/** Loads the browser-only Freighter API after the client component mounts. */
 const loadFreighter = () => import("@stellar/freighter-api");
 
+/** Calls one proof-harness action and preserves both its HTTP status and JSON body. */
 async function callHarness(action: string, payload: Body): Promise<{ status: number; body: Body }> {
   const res = await fetch("/api/dev/freighter-proof", {
     method: "POST",
@@ -64,6 +66,7 @@ function signatureToBase64(value: unknown): { base64: string; rawType: string } 
   throw new Error(`Freighter returned no signature (${value === null ? "null" : typeof value}).`);
 }
 
+/** Renders a consistently styled action button for a proof step. */
 function StepButton({
   onClick,
   disabled,
@@ -85,6 +88,7 @@ function StepButton({
   );
 }
 
+/** Groups one numbered proof action with its controls and evidence. */
 function Step({ index, title, children }: { index: number; title: string; children: ReactNode }) {
   return (
     <section className="rounded-2xl border border-outline-variant bg-surface-container-low p-5">
@@ -96,6 +100,7 @@ function Step({ index, title, children }: { index: number; title: string; childr
   );
 }
 
+/** Displays the server-side acceptance and rejection checks for an envelope. */
 function CheckList({ checks }: { checks: Check[] }) {
   return (
     <ul className="space-y-1.5">
@@ -122,6 +127,7 @@ function CheckList({ checks }: { checks: Check[] }) {
   );
 }
 
+/** Displays a labelled evidence value using the harness's compact layout. */
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="grid grid-cols-[8rem_1fr] gap-2">
@@ -131,6 +137,7 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+/** Drives the manual Freighter signing proof and records exportable evidence. */
 export default function FreighterProofHarness({ networkPassphrase, explorerBase }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -146,9 +153,11 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
   const [submitOutcome, setSubmitOutcome] = useState<Body | null>(null);
   const [copied, setCopied] = useState(false);
 
+  /** Appends a timestamped result to the evidence log. */
   const record = (step: string, data: unknown) =>
     setLog((entries) => [...entries, { at: new Date().toISOString(), step, data }]);
 
+  /** Runs a harness action while exposing its busy and failure states in the UI. */
   async function run(step: string, action: () => Promise<void>) {
     setBusy(step);
     setError(null);
@@ -163,6 +172,7 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
     }
   }
 
+  /** Records whether Freighter is available and connected to the expected network. */
   const detect = () =>
     run("environment", async () => {
       const freighter = await loadFreighter();
@@ -180,6 +190,7 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
       record("environment", result);
     });
 
+  /** Requests wallet access and records the selected account's Horizon status. */
   const connectWallet = () =>
     run("connect", async () => {
       const freighter = await loadFreighter();
@@ -191,6 +202,7 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
       record("connect", { address: access.address, horizon: status.body });
     });
 
+  /** Signs and verifies a one-time SEP-53 ownership challenge. */
   const proveOwnership = () =>
     run("challenge", async () => {
       if (!address) throw new Error("Connect Freighter first.");
@@ -221,6 +233,7 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
       });
     });
 
+  /** Replays the last proof to demonstrate single-use challenge enforcement. */
   const replayProof = () =>
     run("challenge.replay", async () => {
       if (!address || !proof) throw new Error("Prove ownership first.");
@@ -234,6 +247,7 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
       record("challenge.replay", outcome);
     });
 
+  /** Records Freighter's response when the user rejects message signing. */
   const rejectChallenge = () =>
     run("challenge.reject", async () => {
       if (!address) throw new Error("Connect Freighter first.");
@@ -248,6 +262,7 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
       });
     });
 
+  /** Builds and records the sponsor-signed onboarding transaction. */
   const buildSponsorship = () =>
     run("sponsorship.build", async () => {
       if (!address) throw new Error("Connect Freighter first.");
@@ -259,6 +274,7 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
       record("sponsorship.build", rest);
     });
 
+  /** Requests the recipient signature, validates it, and submits the onboarding transaction. */
   const coSignAndSubmit = () =>
     run("sponsorship.submit", async () => {
       if (!address || !sponsorship) throw new Error("Build the sponsored transaction first.");
@@ -284,6 +300,7 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
       });
     });
 
+  /** Records Freighter's response when the user rejects transaction signing. */
   const rejectSponsorship = () =>
     run("sponsorship.reject", async () => {
       if (!address || !sponsorship) throw new Error("Build the sponsored transaction first.");
@@ -305,12 +322,14 @@ export default function FreighterProofHarness({ networkPassphrase, explorerBase 
     entries: log,
   };
 
-  const copyEvidence = async () => {
-    const stamped = { ...evidence, generatedAt: new Date().toISOString() };
-    await navigator.clipboard.writeText(JSON.stringify(stamped, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  /** Copies timestamped evidence and surfaces clipboard permission failures. */
+  const copyEvidence = () =>
+    run("evidence.copy", async () => {
+      const stamped = { ...evidence, generatedAt: new Date().toISOString() };
+      await navigator.clipboard.writeText(JSON.stringify(stamped, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
 
   const disabled = busy !== null;
   const proofChecks = (proofOutcome?.checks as Check[] | undefined) ?? null;
