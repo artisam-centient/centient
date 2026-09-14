@@ -156,8 +156,8 @@ export default function StellarWalletLink({
 
       showToast(result.error ?? "Wallet linking failed", "error");
     } catch (err) {
-      // connect()/signOwnership() throw on rejection, no extension, or a non-SEP-53
-      // wallet (Albedo) — surface the message so the labeler knows what to do.
+      // connect()/signOwnership() throw on rejection or a missing Freighter
+      // extension — surface the message so the labeler knows what to do.
       showToast(err instanceof Error ? err.message : "Wallet linking failed", "error");
     } finally {
       setLinking(false);

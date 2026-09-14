@@ -38,7 +38,7 @@ GoCent!123
 | Database | PostgreSQL + Prisma 7 |
 | **Settlement** | **Stellar** classic (Horizon) payments via `@stellar/stellar-sdk` 16 |
 | **Asset** | **USDC** — Circle's Stellar-issued asset (7-decimal units) |
-| Wallets (withdrawal) | Freighter / Albedo (`@stellar/freighter-api`, `@albedo-link/intent`) |
+| Wallet | Freighter (`@stellar/freighter-api`) — Albedo descoped, see ADR-0003 |
 | Rate limiting | Redis (`ioredis`) |
 | Email | Resend |
 | Observability | Sentry |

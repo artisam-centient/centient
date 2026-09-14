@@ -87,6 +87,8 @@ export const HORIZON_SUBMIT_ALLOWLIST: Readonly<Record<string, string>> = {
     "one-off QA fixture provisioning; submits a changeTrust signed by the recipient's own freshly generated keypair, builds no payment operation, and never reads a platform or payout signer secret",
   "scripts/qa-sponsor-recipient.ts":
     "mints the zero-XLM sponsored QA recipient for D1-TC-006; a CAP-33 sponsorship sandwich asserted by buildSponsoredRecipientTx to carry no payment operation, so it moves XLM reserves and never contributor USDC",
+  "lib/stellar/freighter-proof.ts":
+    "issue #24's testnet-only Freighter proof harness, off unless WALLET_PROOF_HARNESS=1; submits only after inspectCoSignedEnvelope proves the exact onboarding sandwich (no payment operation) carries exactly the throwaway sponsor's and the recipient's signatures, and it never reads a platform or payout signer secret",
 };
 
 /**
