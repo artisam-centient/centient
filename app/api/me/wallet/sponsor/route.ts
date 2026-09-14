@@ -86,6 +86,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * Submit a recipient-co-signed sponsorship envelope. Validates it, records the
+ * intent, broadcasts, then settles the row with whatever Horizon actually said.
+ */
 export async function POST(req: NextRequest) {
   const userId = await getLabelerSession(req);
   const unauthorized = requireLabelerSession(userId);
@@ -168,6 +172,7 @@ export async function POST(req: NextRequest) {
   return established();
 }
 
+/** The #330 gate's refusal: 429 at the cap, 409 when another user holds the address. */
 function gateRefusal(reason: "cap_reached" | "address_sponsored_by_other") {
   return NextResponse.json(
     { error: reason === "cap_reached" ? "sponsorship_cap_reached" : "address_in_use" },
@@ -175,6 +180,7 @@ function gateRefusal(reason: "cap_reached" | "address_sponsored_by_other") {
   );
 }
 
+/** The address holds its sponsored account and trustline. */
 function established() {
   return NextResponse.json({ established: true });
 }

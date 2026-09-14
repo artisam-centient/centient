@@ -47,6 +47,7 @@ export async function GET() {
   });
 }
 
+/** The ledger's sponsorship liability, or null when the ledger cannot be read. */
 async function readLiability(): Promise<SponsorshipLiability | null> {
   try {
     return await sponsorshipLiability();

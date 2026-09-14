@@ -70,15 +70,18 @@ beforeEach(() => {
   mockFail.mockResolvedValue(undefined);
 });
 
+/** A GET build request for `address`. */
 function getReq(address: string) {
   return new NextRequest(`http://localhost/api/me/wallet/sponsor?address=${encodeURIComponent(address)}`);
 }
+/** A POST submit request carrying `body` as JSON. */
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/me/wallet/sponsor", {
     method: "POST",
     body: JSON.stringify(body),
   });
 }
+/** Submit a signed envelope for ADDR. */
 const post = () => POST(postReq({ address: ADDR, signedXdr: "SIGNED" }));
 
 describe("GET /api/me/wallet/sponsor", () => {
@@ -285,6 +288,7 @@ describe("POST /api/me/wallet/sponsor", () => {
   });
 
   describe("an ambiguous submit (Horizon timeout)", () => {
+    /** The error the client raises when a submit's outcome is unknown. */
     const unknown = () => new StellarPaymentError("timeout", "submission_unknown", false);
 
     it("answers established when the hash turns out to have landed", async () => {

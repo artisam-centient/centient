@@ -131,6 +131,10 @@ export default function StellarWalletLink({
     return false;
   };
 
+  /**
+   * Connect, make sure the address can receive USDC, then prove ownership and
+   * link it. Every failure ends in a toast; nothing here throws to the caller.
+   */
   const handleLink = async () => {
     if (linking) return;
     setLinking(true);
