@@ -35,9 +35,11 @@ afterEach(() => {
 const sign = (keypair: Keypair, message: string) =>
   keypair.sign(sep53Digest(message)).toString("base64");
 
+/** Count sign-in challenges without including the wallet-link flow. */
 const signInRows = (walletAddress: string) =>
   prisma.walletNonce.count({ where: { walletAddress, action: PROOF_ACTION } });
 
+/** Seed a payout-link challenge to exercise action isolation. */
 async function seedLinkChallenge(walletAddress: string, expiresAt: Date) {
   return prisma.walletNonce.create({
     data: {
@@ -84,8 +86,33 @@ describe("issueSignInChallenge", () => {
     const second = await issueSignInChallenge(address);
 
     expect(await signInRows(address)).toBe(1);
-    expect(await prisma.walletNonce.findUnique({ where: { nonce: first.nonce } })).toBeNull();
-    expect(await prisma.walletNonce.findUnique({ where: { nonce: second.nonce } })).not.toBeNull();
+    expect(second).toEqual(first);
+    expect(await prisma.walletNonce.findUnique({ where: { nonce: first.nonce } })).not.toBeNull();
+  });
+
+  it("returns one committed challenge when issuers race for the same address", async () => {
+    const address = Keypair.random().publicKey();
+
+    const challenges = await Promise.all([
+      issueSignInChallenge(address),
+      issueSignInChallenge(address),
+      issueSignInChallenge(address),
+    ]);
+
+    expect(await signInRows(address)).toBe(1);
+    expect(new Set(challenges.map((challenge) => challenge.nonce))).toHaveLength(1);
+  });
+
+  it("replaces a live challenge that was issued for a different network", async () => {
+    const address = Keypair.random().publicKey();
+    const testnet = await issueSignInChallenge(address);
+
+    process.env.STELLAR_NETWORK = "public";
+    const publicNetwork = await issueSignInChallenge(address);
+
+    expect(publicNetwork.nonce).not.toBe(testnet.nonce);
+    expect(publicNetwork.message).toContain(`Network: ${Networks.PUBLIC}`);
+    expect(await signInRows(address)).toBe(1);
   });
 
   it("leaves the same address's pending payout-link challenge alone", async () => {

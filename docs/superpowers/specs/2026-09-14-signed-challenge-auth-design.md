@@ -39,9 +39,9 @@ The signature is SEP-53: ed25519 over
 `verify()` in `lib/stellar/signature.ts`.
 
 `buildChallengeMessage`, `PROOF_ACTION` and `CHALLENGE_TTL_MS` move from
-`lib/stellar/freighter-proof.ts` into `lib/stellar/auth-challenge.ts`. The
-harness imports them from there, so the harness and production cannot drift
-apart on the signed bytes.
+`lib/stellar/freighter-proof.ts` into `lib/stellar/challenge-message.ts`.
+`lib/stellar/freighter-proof.ts` re-exports them, so the harness and
+production cannot drift apart on the signed bytes.
 
 ## Storage
 
@@ -55,20 +55,23 @@ apart on the signed bytes.
 | `networkPassphrase` | `TEXT NULL` | none | The passphrase bound at issue. Required for sign-in rows; the link flow does not set it. |
 | `issuedAt` | `TIMESTAMP(3) NOT NULL` | `CURRENT_TIMESTAMP` | Rebuilds the exact signed message. |
 
-It also adds an index on `(walletAddress, action)`. The existing unique index on
+It also adds a unique constraint on `(walletAddress, action)`, after removing
+older duplicate rows from populated databases. The existing unique index on
 `nonce` stays.
 
 ### Issuing
 
-`issueSignInChallenge(address, now)` runs one transaction:
+`issueSignInChallenge(address, now)`:
 
-1. Delete sign-in challenges for this address (`action = 'prove-stellar-address'`),
-   so each address has at most one outstanding.
-2. Delete every expired row, of either action.
-3. Insert the new row with `action`, `networkPassphrase` (the server's current
-   one), `nonce`, `issuedAt` and `expiresAt`.
+1. Deletes every expired row, of either action.
+2. Inserts a row with `action`, `networkPassphrase` (the server's current one),
+   `nonce`, `issuedAt` and `expiresAt`.
+3. If another live challenge for the same address/action wins the unique-index
+   race, reads and returns that committed row instead.
 
-It returns `{ nonce, message, expiresAt }`.
+It returns `{ nonce, message, expiresAt }`. Sequential and concurrent issuers
+therefore reuse one live challenge rather than invalidating a response another
+caller may already be signing.
 
 ### Verifying
 
@@ -99,11 +102,12 @@ row is gone rather than remembered. It is refused either way.
 
 ### Payout-link flow
 
-`/api/me/wallet` is Deliverable 1 code that passed QA, so it changes only
-where the tables overlap. Its `deleteMany` and `findFirst` gain
-`action: 'link-payout-address'`, so issuing a link challenge cannot delete a
-pending sign-in challenge, and a sign-in row can never be used to link an
-address. Its message format, verifier and responses do not change.
+`/api/me/wallet` is Deliverable 1 code that passed QA, so its message format,
+verifier and responses do not change. Its nonce queries gain
+`action: 'link-payout-address'`, so the two flows stay isolated. Issuance also
+uses the shared `(walletAddress, action)` uniqueness rule: it reuses a live
+link challenge after P2002, or retries if the conflicting row expired before
+it could be read.
 
 ## Routes
 

@@ -20,17 +20,40 @@ export interface IssuedSignInChallenge {
   expiresAt: Date;
 }
 
+type StoredSignInChallenge = {
+  walletAddress: string;
+  networkPassphrase: string | null;
+  nonce: string;
+  issuedAt: Date;
+  expiresAt: Date;
+};
+
+/** Rebuild the public challenge response from the row that won issuance. */
+function issuedChallengeFrom(row: StoredSignInChallenge): IssuedSignInChallenge {
+  if (!row.networkPassphrase) {
+    throw new Error("issueSignInChallenge: stored sign-in challenge has no network passphrase");
+  }
+  const fields = {
+    address: row.walletAddress,
+    networkPassphrase: row.networkPassphrase,
+    nonce: row.nonce,
+    issuedAt: row.issuedAt,
+    expiresAt: row.expiresAt,
+  };
+  return { nonce: row.nonce, message: buildChallengeMessage(fields), expiresAt: row.expiresAt };
+}
+
 /**
  * Issue a sign-in challenge for `address`.
  *
- * Replaces any earlier sign-in challenge for the same address, so each address
- * has at most one outstanding, and prunes every expired row while it is here,
- * so the table stays proportional to live challenges. Payout-link challenges
+ * Reuses an earlier live sign-in challenge for the same address, so concurrent
+ * callers all receive the one row protected by the database constraint. It
+ * prunes expired rows before creating a replacement. Payout-link challenges
  * that have not expired are left alone.
  */
 export async function issueSignInChallenge(
   address: string,
-  now: Date = new Date(),
+  now?: Date,
 ): Promise<IssuedSignInChallenge> {
   // Callers validate first; this is the backstop. Never normalize: StrKey is
   // case-sensitive, and a lowercased key is a different, invalid key.
@@ -38,30 +61,60 @@ export async function issueSignInChallenge(
     throw new Error("issueSignInChallenge: address is not a valid Stellar G… key");
   }
 
-  const fields = {
-    address,
-    networkPassphrase: networkPassphrase(),
-    nonce: randomBytes(16).toString("hex"),
-    issuedAt: now,
-    expiresAt: new Date(now.getTime() + CHALLENGE_TTL_MS),
-  };
+  const passphrase = networkPassphrase();
 
-  await prisma.$transaction([
-    prisma.walletNonce.deleteMany({ where: { walletAddress: address, action: PROOF_ACTION } }),
-    prisma.walletNonce.deleteMany({ where: { expiresAt: { lt: now } } }),
-    prisma.walletNonce.create({
-      data: {
-        walletAddress: fields.address,
-        action: PROOF_ACTION,
-        networkPassphrase: fields.networkPassphrase,
-        nonce: fields.nonce,
-        issuedAt: fields.issuedAt,
-        expiresAt: fields.expiresAt,
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const issuedAt = now ?? new Date();
+    const fields = {
+      address,
+      networkPassphrase: passphrase,
+      nonce: randomBytes(16).toString("hex"),
+      issuedAt,
+      expiresAt: new Date(issuedAt.getTime() + CHALLENGE_TTL_MS),
+    };
+
+    await prisma.walletNonce.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: issuedAt } },
+          {
+            walletAddress: address,
+            action: PROOF_ACTION,
+            NOT: { networkPassphrase: passphrase },
+          },
+        ],
       },
-    }),
-  ]);
+    });
 
-  return { nonce: fields.nonce, message: buildChallengeMessage(fields), expiresAt: fields.expiresAt };
+    try {
+      const row = await prisma.walletNonce.create({
+        data: {
+          walletAddress: fields.address,
+          action: PROOF_ACTION,
+          networkPassphrase: fields.networkPassphrase,
+          nonce: fields.nonce,
+          issuedAt: fields.issuedAt,
+          expiresAt: fields.expiresAt,
+        },
+      });
+      return issuedChallengeFrom(row);
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
+      const readAt = now ?? new Date();
+      const committed = await prisma.walletNonce.findFirst({
+        where: {
+          walletAddress: address,
+          action: PROOF_ACTION,
+          networkPassphrase: passphrase,
+          expiresAt: { gte: readAt },
+        },
+      });
+      if (committed) return issuedChallengeFrom(committed);
+      if (attempt === 2) throw err;
+    }
+  }
+
+  throw new Error("issueSignInChallenge: unreachable");
 }
 
 export type SignInRejection =

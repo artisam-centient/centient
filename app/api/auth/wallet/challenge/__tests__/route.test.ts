@@ -12,6 +12,7 @@ import { prisma, truncateAll } from "@/tests/helpers/db";
 const IP = "203.0.113.7";
 const ORIGINAL_NETWORK = process.env.STELLAR_NETWORK;
 
+/** Build a challenge-route request with the trusted-proxy test address. */
 function makeReq(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/auth/wallet/challenge", {
     method: "POST",

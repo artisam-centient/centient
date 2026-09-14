@@ -20,7 +20,7 @@
 - **Check order after the claim:** expiry → address → network → signer → signature.
 - **Rejection codes, exactly:** `challenge_not_found`, `challenge_expired`, `wrong_address`, `wrong_network`, `wrong_signer`, `bad_signature` (all 401). The 400s are `invalid_body` and `invalid_address`, and a 400 never consumes a challenge.
 - **Sessions** use the existing `signLabelerJWT` + `setLabelerSessionCookie` from `lib/labeler-auth.ts`. No new cookie or JWT shape.
-- **`/api/me/wallet`** changes only by scoping its queries to `action: "link-payout-address"`. Its message, verifier and responses are untouched.
+- **`/api/me/wallet`** scopes queries to `action: "link-payout-address"` and reuses the live row selected by the `(walletAddress, action)` constraint. Its message, verifier and responses are untouched.
 - **Out of scope:** any UI, Freighter `code: -4` handling (#26), moving the link flow onto this format, WalletConnect.
 - **Next.js.** This repo's Next.js differs from older versions. Before writing route code, read `node_modules/next/dist/docs/01-app/01-getting-started/15-route-handlers.md`. The handlers here use only `POST(req: NextRequest)` and `NextResponse.json`, matching `app/api/auth/login/route.ts`.
 - **Commits.** Author `cemmacabales <carlmacabales31@gmail.com>` only. **No trailers of any kind** (no `Co-Authored-By`, no generated-by lines); CI's `verify-commit-identities` and `single-contributor/verified` checks enforce this. Commits are atomic: each leaves the branch valid.
@@ -33,6 +33,7 @@ Three implementation choices the spec left open or stated loosely. None changes 
 1. **The message format lives in its own pure module, `lib/stellar/challenge-message.ts`, not in `auth-challenge.ts`.** `lib/prisma.ts` constructs a `PrismaClient` at import time. If the harness imported the format from `auth-challenge.ts`, the testnet harness would load Prisma for no reason. `auth-challenge.ts` imports from it too.
 2. **Identity resolution is find → create → re-read on `P2002`, not `upsert`.** Prisma can run an `upsert` as a native `INSERT … ON CONFLICT`, which never reports whether it created the row, so the response's `created` flag could not be derived. The race handling the spec requires is unchanged.
 3. **The new tests run against the real test database, not mocked Prisma.** The properties under test are the atomic delete and the unique index, and mocks cannot prove either. This is the pattern `app/api/auth/login/__tests__/route.test.ts` already uses. Only `@/lib/rate-limit` is mocked. The existing mocked `/api/me/wallet` tests stay mocked.
+4. **Post-review issuance uses database uniqueness and challenge reuse.** `WalletNonce` has a unique `(walletAddress, action)` constraint. Concurrent issuers reuse the committed live row after P2002; if it expired or was consumed before the reread, issuance retries. A sign-in challenge from another network is replaced.
 
 ## File map
 
@@ -41,9 +42,9 @@ Three implementation choices the spec left open or stated loosely. None changes 
 | `lib/stellar/challenge-message.ts` | Create | The pure signed-message format and the action and TTL constants |
 | `lib/stellar/__tests__/challenge-message.test.ts` | Create | Pins the exact signed bytes; proves the harness shares them |
 | `lib/stellar/freighter-proof.ts` | Modify | Imports and re-exports the format instead of defining it |
-| `prisma/schema.prisma` | Modify | `WalletNonce` gains `action`, `networkPassphrase`, `issuedAt`, and an index |
-| `prisma/migrations/20260914120000_add_wallet_nonce_action/migration.sql` | Create | The matching SQL |
-| `app/api/me/wallet/route.ts` | Modify | Scopes link-flow queries to `WALLET_LINK_ACTION` |
+| `prisma/schema.prisma` | Modify | `WalletNonce` gains `action`, `networkPassphrase`, `issuedAt`, and a unique wallet/action constraint |
+| `prisma/migrations/20260914120000_add_wallet_nonce_action/migration.sql` | Create | Adds the fields, deduplicates existing rows, and installs the constraint atomically |
+| `app/api/me/wallet/route.ts` | Modify | Scopes link-flow queries and reuses the committed challenge after P2002 |
 | `app/api/me/wallet/__tests__/route.test.ts` | Modify | Asserts the scoping |
 | `lib/stellar/auth-challenge.ts` | Create | `issueSignInChallenge`, `consumeSignInChallenge`, `findOrCreateWalletUser` |
 | `lib/stellar/__tests__/auth-challenge.test.ts` | Create | Module tests against the real database |
@@ -303,7 +304,7 @@ git commit -m "refactor(wallet): share the ownership-proof message format with p
 - Consumes: `WALLET_LINK_ACTION` from Task 1.
 - Produces:
   - the `WalletNonce` fields `action: string` (default `"link-payout-address"`), `networkPassphrase: string | null` and `issuedAt: Date` (default now), in the generated client;
-  - the index `wallet_nonces_walletAddress_action_idx`.
+  - the unique constraint `wallet_nonces_walletAddress_action_key`.
 
 - [ ] **Step 1: Change the schema**
 
@@ -341,7 +342,7 @@ model WalletNonce {
   createdAt         DateTime @default(now())
 
   @@index([walletAddress])
-  @@index([walletAddress, action])
+  @@unique([walletAddress, action])
   @@index([expiresAt])
   @@map("wallet_nonces")
 }
@@ -364,7 +365,9 @@ ALTER TABLE "wallet_nonces"
     ADD COLUMN "networkPassphrase" TEXT,
     ADD COLUMN "issuedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
-CREATE INDEX "wallet_nonces_walletAddress_action_idx" ON "wallet_nonces"("walletAddress", "action");
+-- The final migration wraps column creation, deduplication, and this index in
+-- one explicit transaction so legacy writers cannot insert between the steps.
+CREATE UNIQUE INDEX "wallet_nonces_walletAddress_action_key" ON "wallet_nonces"("walletAddress", "action");
 ```
 
 - [ ] **Step 3: Prove the migration matches the schema on a fresh database**
@@ -846,6 +849,12 @@ Run: `npx vitest run lib/stellar/__tests__/auth-challenge.test.ts`
 Expected: FAIL. `@/lib/stellar/auth-challenge` cannot be resolved.
 
 - [ ] **Step 3: Implement the module**
+
+> **Post-review amendment:** The issuance portion of the original implementation
+> snippet below is superseded by refinement 4 above and the checked-in module:
+> live challenges are reused under the composite unique constraint, conflict
+> rereads use a fresh clock, and missing/expired/consumed winners trigger a
+> bounded retry. The verification and identity-resolution portions are unchanged.
 
 Create `lib/stellar/auth-challenge.ts`:
 

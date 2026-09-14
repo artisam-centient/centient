@@ -38,6 +38,37 @@ export function buildWalletLinkMessage(address: string, nonce: string): string {
   ].join("\n");
 }
 
+/** Persist one live payout-link challenge, reusing the winner of an issuance race. */
+async function issueWalletLinkChallenge(address: string): Promise<string> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const now = new Date();
+    const nonce = randomUUID().replace(/-/g, "");
+    const expiresAt = new Date(now.getTime() + NONCE_TTL_MS);
+
+    await prisma.walletNonce.deleteMany({
+      where: { walletAddress: address, action: WALLET_LINK_ACTION, expiresAt: { lt: now } },
+    });
+
+    try {
+      await prisma.walletNonce.create({
+        data: { walletAddress: address, action: WALLET_LINK_ACTION, nonce, expiresAt },
+      });
+      return nonce;
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
+      const readAt = new Date();
+      const committed = await prisma.walletNonce.findFirst({
+        where: { walletAddress: address, action: WALLET_LINK_ACTION, expiresAt: { gte: readAt } },
+      });
+      if (committed) return committed.nonce;
+      if (attempt === 1) throw err;
+    }
+  }
+
+  throw new Error("issueWalletLinkChallenge: unreachable");
+}
+
+/** Issue or reuse the authenticated contributor's live payout-link challenge. */
 export async function GET(req: NextRequest) {
   const userId = await getLabelerSession(req);
   const unauthorized = requireLabelerSession(userId);
@@ -50,29 +81,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "invalid_address" }, { status: 400 });
   }
 
-  // Throttle challenge issuance per candidate address: each GET prunes the prior
-  // nonce and writes a new one, so an unthrottled loop would churn Prisma
-  // transactions. Distinct from the sponsor-build key so the two flows don't
-  // collide when the same address hits both in quick succession.
+  // Throttle challenge issuance per candidate address. A live row is reused,
+  // but an unthrottled caller could still churn expiry checks and replacement
+  // writes. Distinct from the sponsor-build key so the two flows do not collide.
   if (await checkWalletRateLimit(`link:${address}`)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const nonce = randomUUID().replace(/-/g, "");
-  const expiresAt = new Date(Date.now() + NONCE_TTL_MS);
-
   // Scoped to this flow: the same address may hold a pending wallet sign-in
-  // challenge (#25), which a link request must not delete.
-  await prisma.$transaction([
-    prisma.walletNonce.deleteMany({ where: { walletAddress: address, action: WALLET_LINK_ACTION } }),
-    prisma.walletNonce.create({
-      data: { walletAddress: address, action: WALLET_LINK_ACTION, nonce, expiresAt },
-    }),
-  ]);
+  // challenge (#25), which a link request must not delete. A live challenge is
+  // reused when another request wins the unique-constraint race.
+  const nonce = await issueWalletLinkChallenge(address);
 
   return NextResponse.json({ message: buildWalletLinkMessage(address, nonce), nonce });
 }
 
+/** Verify and consume a payout-link proof, then bind its address to the session user. */
 export async function POST(req: NextRequest) {
   const userId = await getLabelerSession(req);
   const unauthorized = requireLabelerSession(userId);

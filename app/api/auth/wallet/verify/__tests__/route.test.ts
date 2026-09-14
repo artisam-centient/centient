@@ -25,6 +25,7 @@ afterEach(() => {
 
 const sign = (kp: Keypair, message: string) => kp.sign(sep53Digest(message)).toString("base64");
 
+/** Build a verification request, optionally carrying an existing session. */
 function makeReq(body: unknown, cookie?: string): NextRequest {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (cookie) headers.cookie = cookie;
@@ -35,10 +36,12 @@ function makeReq(body: unknown, cookie?: string): NextRequest {
   });
 }
 
+/** Return only the labeler-session cookies emitted by a route response. */
 function sessionCookies(res: Response): string[] {
   return res.headers.getSetCookie().filter((c) => c.startsWith("labeler_session="));
 }
 
+/** Decode the contributor id from the response's labeler-session cookie. */
 async function sessionUserId(res: Response): Promise<string | undefined> {
   const [cookie] = sessionCookies(res);
   if (!cookie) return undefined;

@@ -3,6 +3,7 @@ import { isValidStellarAddress } from "@/lib/stellar/signature";
 import { issueSignInChallenge } from "@/lib/stellar/auth-challenge";
 import { checkWalletRateLimit } from "@/lib/rate-limit";
 
+/** Read the client address supplied by the trusted deployment proxy. */
 function clientIp(req: NextRequest): string {
   // x-real-ip is set by Railway's proxy and cannot be overridden by the client;
   // the first x-forwarded-for entry can. Same reasoning as /api/auth/login.

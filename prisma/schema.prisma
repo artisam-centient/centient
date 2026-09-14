@@ -250,7 +250,7 @@ model WalletNonce {
   createdAt         DateTime @default(now())
 
   @@index([walletAddress])
-  @@index([walletAddress, action])
+  @@unique([walletAddress, action])
   @@index([expiresAt])
   @@map("wallet_nonces")
 }

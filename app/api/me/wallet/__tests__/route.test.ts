@@ -61,12 +61,14 @@ function sign(message: string): string {
   return KP.sign(sep53Digest(message)).toString("base64");
 }
 
+/** Build a wallet-link challenge request for an optional address. */
 function getReq(address?: string): NextRequest {
   const url = new URL("http://localhost/api/me/wallet");
   if (address !== undefined) url.searchParams.set("address", address);
   return new NextRequest(url, { method: "GET" });
 }
 
+/** Build a wallet-link verification request with a JSON body. */
 function postReq(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/me/wallet", {
     method: "POST",
@@ -108,13 +110,49 @@ describe("GET /api/me/wallet (challenge)", () => {
     // Scoped to the link flow, so a pending wallet sign-in challenge for the
     // same address survives.
     expect(mockNonceDeleteMany).toHaveBeenCalledWith({
-      where: { walletAddress: G, action: "link-payout-address" },
+      where: {
+        walletAddress: G,
+        action: "link-payout-address",
+        expiresAt: { lt: expect.any(Date) },
+      },
     });
     expect(mockNonceCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ walletAddress: G, action: "link-payout-address" }),
       }),
     );
+  });
+
+  it("reuses the committed link challenge when a concurrent create loses P2002", async () => {
+    mockNonceCreate.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+    mockNonceFindFirst.mockResolvedValueOnce({ nonce: NONCE, walletAddress: G });
+
+    const res = await GET(getReq(G));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ message: buildWalletLinkMessage(G, NONCE), nonce: NONCE });
+  });
+
+  it("retries issuance when the challenge that caused P2002 has already expired", async () => {
+    mockNonceCreate
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+          code: "P2002",
+          clientVersion: "test",
+        }),
+      )
+      .mockResolvedValueOnce({});
+    mockNonceFindFirst.mockResolvedValueOnce(null);
+
+    const res = await GET(getReq(G));
+
+    expect(res.status).toBe(200);
+    expect(mockNonceCreate).toHaveBeenCalledTimes(2);
   });
 
   it("429s and issues no nonce when the per-address rate limit trips", async () => {
