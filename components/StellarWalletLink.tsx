@@ -7,6 +7,19 @@ const SPONSOR_UNAVAILABLE_MESSAGE = "Payouts are temporarily unavailable. Please
 const SPONSOR_PENDING_MESSAGE =
   "Your payout wallet setup is still confirming on the network. Try again in a minute.";
 
+/**
+ * #28: shown while Freighter asks for the sponsorship signature. Freighter
+ * summarises the envelope as "USDC · Add Trustline" and shows its inner fee, which
+ * the sponsor's fee bump pays instead. Without this, a contributor holding no XLM
+ * may reasonably decline a fee they cannot pay.
+ */
+const SPONSOR_SIGNING_NOTICE: Record<"trustline" | "account+trustline", string> = {
+  trustline:
+    "Approve in Freighter to add USDC to your wallet. Centient pays the network fee and the reserve — the fee Freighter shows is not charged to you, and you need no XLM.",
+  "account+trustline":
+    "Approve in Freighter to create your Stellar account and add USDC. Centient pays the network fee and the reserves — the fee Freighter shows is not charged to you, and you need no XLM.",
+};
+
 interface StellarWalletLinkProps {
   /**
    * Whether a valid `G…` Stellar payout address is already linked. Driven by the
@@ -35,6 +48,7 @@ export default function StellarWalletLink({
   showToast,
 }: StellarWalletLinkProps) {
   const [linking, setLinking] = useState(false);
+  const [signingNotice, setSigningNotice] = useState<string | null>(null);
 
   /**
    * Ensure `address` holds a USDC trustline, sponsoring it (CAP-33) if not. The
@@ -80,6 +94,7 @@ export default function StellarWalletLink({
       }
 
       let signedXdr: string;
+      setSigningNotice(SPONSOR_SIGNING_NOTICE[data.kind as keyof typeof SPONSOR_SIGNING_NOTICE] ?? SPONSOR_SIGNING_NOTICE.trustline);
       try {
         signedXdr = await signTransaction(data.xdr, address);
       } catch (err) {
@@ -90,6 +105,8 @@ export default function StellarWalletLink({
           return false;
         }
         throw err;
+      } finally {
+        setSigningNotice(null);
       }
       const submit = await fetch("/api/me/wallet/sponsor", {
         method: "POST",
@@ -201,17 +218,24 @@ export default function StellarWalletLink({
   };
 
   return (
-    <button
-      type="button"
-      onClick={handleLink}
-      disabled={linking}
-      className="mt-2 rounded-xl border border-outline px-5 py-2 font-label text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container-high focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-50"
-    >
-      {linking
-        ? "Linking..."
-        : isLinked
-          ? "Change payout wallet"
-          : "Link payout wallet"}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleLink}
+        disabled={linking}
+        className="mt-2 rounded-xl border border-outline px-5 py-2 font-label text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container-high focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-50"
+      >
+        {linking
+          ? "Linking..."
+          : isLinked
+            ? "Change payout wallet"
+            : "Link payout wallet"}
+      </button>
+      {signingNotice && (
+        <p role="status" aria-live="polite" className="mt-2 max-w-prose font-body text-sm text-on-surface-variant">
+          {signingNotice}
+        </p>
+      )}
+    </>
   );
 }
