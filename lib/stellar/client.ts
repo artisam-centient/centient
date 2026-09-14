@@ -311,6 +311,7 @@ async function assertSponsorCanCover(
   }
 }
 
+/** Throw the non-retryable `invalid_sponsor_tx` the route answers with a 400. */
 function rejectSponsorTx(why: string): never {
   throw new StellarPaymentError(`submitSponsoredTrustline: ${why}`, "invalid_sponsor_tx", false);
 }
@@ -375,7 +376,9 @@ function assertSponsoredTrustlineShape(
   if (createAccount && createAccount.destination !== sponsored) {
     rejectSponsorTx("createAccount destination does not match sponsoredId");
   }
-  if (createAccount && xlmToStroops(createAccount.startingBalance ?? "") !== 0n) {
+  // Compared as text, not parsed: the XDR can carry a negative amount, which the
+  // XLM parser rejects with a plain Error that would escape as a 502.
+  if (createAccount && !/^0(?:\.0{1,7})?$/.test(createAccount.startingBalance ?? "")) {
     rejectSponsorTx(`createAccount starting balance ${createAccount.startingBalance} is not 0`);
   }
   // Fix 4: the endSponsoringFutureReserves op must be sourced by the recipient
@@ -482,6 +485,10 @@ export async function submitSponsoredTrustline(
   return { hash, kind: prepared.kind };
 }
 
+/**
+ * Submit an already-validated envelope and classify any failure as definite
+ * (`op_low_reserve`, `tx_bad_seq`, `sponsor_tx_rejected`) or `submission_unknown`.
+ */
 async function broadcastSponsorship(tx: Transaction, hash: string): Promise<{ hash: string }> {
   try {
     await server().submitTransaction(tx);

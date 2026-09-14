@@ -169,6 +169,7 @@ export async function openSponsorshipIntent(
   }
 }
 
+/** One read-then-write pass of {@link openSponsorshipIntent}; a racing writer surfaces as P2002. */
 async function decideIntent(
   intent: SponsorshipIntent,
   txStatus: TxStatusLookup,
@@ -196,6 +197,7 @@ async function decideIntent(
   return { action: "submit", id: await createPending(intent) };
 }
 
+/** Insert the pending row for `intent` and return its id. The unique index may refuse it. */
 async function createPending(intent: SponsorshipIntent): Promise<string> {
   const row = await prisma.sponsoredTrustline.create({
     data: { ...intent, status: "pending" },
@@ -204,6 +206,7 @@ async function createPending(intent: SponsorshipIntent): Promise<string> {
   return row.id;
 }
 
+/** True for Prisma's unique-constraint violation (P2002). */
 function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: unknown })?.code === "P2002";
 }
@@ -262,6 +265,11 @@ export async function sponsorshipLiability(): Promise<SponsorshipLiability> {
     },
   };
   for (const group of groups) {
+    // `kind` is unconstrained TEXT. An unrecognised value has no known reserve
+    // cost, and skipping it would understate the liability, so refuse to report.
+    if (!Object.prototype.hasOwnProperty.call(SPONSORSHIP_RESERVE_UNITS, group.kind)) {
+      throw new Error(`sponsorshipLiability: unknown sponsored trustline kind "${group.kind}"`);
+    }
     const kind = group.kind as SponsorshipKind;
     const status = group.status === "pending" ? "pending" : "confirmed";
     const count = group._count._all;

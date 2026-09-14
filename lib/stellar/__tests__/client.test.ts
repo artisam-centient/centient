@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { Account, Asset, Keypair, Operation, Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
+import { Account, Asset, Keypair, Operation, Transaction, TransactionBuilder, xdr } from "@stellar/stellar-sdk";
 
 // Real throwaway keypairs — only the signing/address machinery is exercised; all
 // network I/O is mocked at the `server()` boundary below. Never funded.
@@ -29,14 +29,19 @@ import {
 
 const mockedServer = vi.mocked(server);
 
+/** Resolve after `ms`. */
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** A Horizon rejection carrying `result_codes`, in the shape the SDK rethrows. */
 function horizonError(result_codes: { transaction?: string; operations?: string[] }) {
   return { response: { data: { extras: { result_codes } } } };
 }
+/** Horizon's stale-sequence rejection. */
 const badSeqError = () => horizonError({ transaction: "tx_bad_seq" });
+/** Horizon's rejection for a destination account that does not exist. */
 const opNoDestError = () =>
   horizonError({ transaction: "tx_failed", operations: ["op_no_destination"] });
+/** Horizon's rejection for a destination without the asset's trustline. */
 const opNoTrustError = () =>
   horizonError({ transaction: "tx_failed", operations: ["op_no_trust"] });
 
@@ -58,6 +63,7 @@ function horizonAccount(pub: string, xlm = "100.0000000") {
   });
 }
 
+/** A fake Horizon: funded accounts, a 100-stroop base fee, and a 0.5 XLM base reserve. */
 function makeServer(opts: {
   submitTransaction?: ReturnType<typeof vi.fn>;
   call?: () => Promise<unknown>;
@@ -121,7 +127,7 @@ describe("getTxStatus", () => {
   });
 });
 
-// Horizon 404 shape (account not found).
+/** Horizon 404 shape (account not found). */
 const notFound = () => ({ response: { status: 404 } });
 
 describe("buildSponsoredTrustlineTx", () => {
@@ -175,9 +181,10 @@ describe("buildSponsoredTrustlineTx", () => {
 
 import { networkPassphrase } from "../config";
 
-// Build a valid recipient-signed-looking sandwich XDR for submit tests. Platform
-// + recipient both sign so the envelope parses; Horizon is mocked so real
-// signature verification never runs.
+/**
+ * A valid trustline-only sandwich XDR for submit tests. Platform and recipient
+ * both sign, so it passes the guard; Horizon is mocked, so it is never sent.
+ */
 function sandwichXdr(recipient: Keypair): string {
   const account = new Account(platformKp.publicKey(), "1000");
   const tx = new TransactionBuilder(account, {
@@ -192,10 +199,11 @@ function sandwichXdr(recipient: Keypair): string {
   tx.sign(platformKp, recipient);
   return tx.toXDR();
 }
+/** The USDC asset for the issuer this suite configures. */
 function makeUsdc() {
   return new Asset("USDC", process.env.STELLAR_USDC_ISSUER!);
 }
-// A tampered envelope: an extra payment op the platform never sponsored.
+/** A tampered envelope: an extra payment op the platform never sponsored. */
 function tamperedXdr(recipient: Keypair): string {
   const account = new Account(platformKp.publicKey(), "1000");
   const tx = new TransactionBuilder(account, {
@@ -209,8 +217,10 @@ function tamperedXdr(recipient: Keypair): string {
   tx.sign(platformKp);
   return tx.toXDR();
 }
-// A sandwich where endSponsoringFutureReserves.source is a DIFFERENT key than the
-// sponsored recipient. Fix 4 ensures this is rejected before submit.
+/**
+ * A sandwich where endSponsoringFutureReserves.source is a DIFFERENT key than the
+ * sponsored recipient. Fix 4 ensures this is rejected before submit.
+ */
 function wrongEndSponsoringXdr(recipient: Keypair): string {
   const wrongKey = Keypair.random().publicKey();
   const account = new Account(platformKp.publicKey(), "1000");
@@ -226,9 +236,11 @@ function wrongEndSponsoringXdr(recipient: Keypair): string {
   tx.sign(platformKp, recipient);
   return tx.toXDR();
 }
-// A crafted 4-op sandwich where createAccount targets a DIFFERENT account than
-// the sponsoredId (and changeTrust.source). This must be rejected by
-// assertSponsoredTrustlineShape before submit.
+/**
+ * A crafted 4-op sandwich where createAccount targets a DIFFERENT account than
+ * the sponsoredId (and changeTrust.source). This must be rejected by
+ * assertSponsoredTrustlineShape before submit.
+ */
 function mismatchedCreateAccountXdr(recipient: Keypair): string {
   const otherAccount = Keypair.random().publicKey();
   const account = new Account(platformKp.publicKey(), "1000");
@@ -246,6 +258,7 @@ function mismatchedCreateAccountXdr(recipient: Keypair): string {
   return tx.toXDR();
 }
 
+/** Horizon's rejection when the sponsor cannot fund the sponsored reserves. */
 const lowReserveError = () =>
   horizonError({ transaction: "tx_failed", operations: ["op_low_reserve"] });
 
@@ -343,9 +356,11 @@ describe("submitSponsoredTrustline", () => {
   });
 });
 
-// #27 — the account-creation envelope a brand-new, zero-XLM contributor co-signs.
-// Each variant differs from what `buildSponsoredTrustlineTx` produces in exactly
-// one field, so a rejection names the field the guard exists for.
+/**
+ * #27 — the account-creation envelope a brand-new, zero-XLM contributor co-signs.
+ * Each variant differs from what `buildSponsoredTrustlineTx` produces in exactly
+ * one field, so a rejection names the field the guard exists for.
+ */
 function accountEnvelope(
   recipient: Keypair,
   o: {
@@ -415,14 +430,27 @@ describe("prepareSponsoredTrustline", () => {
     expect(prepareSponsoredTrustline(tx.toXDR(), recipient.publicKey()).kind).toBe("account+trustline");
   });
 
-  const rejects = (xdr: string, recipient: Keypair) =>
-    expect(() => prepareSponsoredTrustline(xdr, recipient.publicKey())).toThrow(
+  /** Assert `prepareSponsoredTrustline` refuses `signedXdr` as `invalid_sponsor_tx`. */
+  const rejects = (signedXdr: string, recipient: Keypair) =>
+    expect(() => prepareSponsoredTrustline(signedXdr, recipient.publicKey())).toThrow(
       expect.objectContaining({ code: "invalid_sponsor_tx", retryable: false }),
     );
 
   it("rejects a createAccount that would fund the account with XLM", () => {
     const recipient = Keypair.random();
     rejects(accountEnvelope(recipient, { startingBalance: "1" }), recipient);
+  });
+
+  it("rejects a negative starting balance as an invalid envelope, not a server error", () => {
+    const recipient = Keypair.random();
+    // The SDK refuses to build this, but the XDR can carry it and decodes as "-1.0000000".
+    const envelope = (TransactionBuilder.fromXDR(accountEnvelope(recipient), networkPassphrase()) as Transaction).toEnvelope();
+    envelope.v1().tx().operations()[1].body().createAccountOp().startingBalance(xdr.Int64.fromString("-10000000"));
+    envelope.v1().signatures([]);
+    const tampered = new Transaction(envelope, networkPassphrase());
+    tampered.sign(platformKp, recipient);
+
+    rejects(tampered.toXDR(), recipient);
   });
 
   it("rejects an envelope sourced by the contributor, who would then pay the fee", () => {
@@ -470,6 +498,7 @@ describe("prepareSponsoredTrustline", () => {
 });
 
 describe("submitSponsoredTrustline — telling an ambiguous submit from a definite one", () => {
+  /** Submit a valid envelope to a Horizon that throws `error`. */
   const submitWith = async (error: unknown) => {
     const recipient = Keypair.random();
     mockedServer.mockReturnValue(
@@ -510,6 +539,7 @@ describe("submitSponsoredTrustline — telling an ambiguous submit from a defini
 });
 
 describe("buildSponsoredTrustlineTx — sponsor reserve pre-check", () => {
+  /** A fake Horizon whose sponsor holds `xlm`, and where `recipient` exists or 404s. */
   const serverWithSponsorXlm = (recipient: string, xlm: string, exists: boolean) => {
     const srv = makeServer({});
     srv.loadAccount = vi.fn(async (pub: string) => {

@@ -20,6 +20,7 @@ import { createUser } from "@/tests/helpers/factories";
 // allows one outstanding sponsorship per address. Every case runs against the
 // real database, because the index is the guard under test.
 
+/** A fresh, never-funded `G…` address. */
 const G = () => Keypair.random().publicKey();
 const NOW = new Date("2026-09-15T01:00:00.000Z");
 const LATER = new Date(NOW.getTime() + 180_000);
@@ -220,6 +221,7 @@ describe("the outstanding-address unique index", () => {
 });
 
 describe("openSponsorshipIntent", () => {
+  /** An intent for `txHash`, expiring at LATER. */
   const intent = (userId: string, address: string, txHash: string, kind: Kind = "account+trustline") => ({
     userId,
     address,
@@ -482,6 +484,16 @@ describe("sponsorshipLiability", () => {
         "account+trustline": { confirmed: 1, pending: 1 },
       },
     });
+  });
+
+  it("refuses to report when an outstanding row has a kind with no known reserve cost", async () => {
+    const a = await createUser();
+    await seedRow({ userId: a.id, kind: "account+trustline" });
+    await prisma.sponsoredTrustline.create({
+      data: { userId: a.id, address: G(), kind: "legacy-kind", txHash: "h-legacy", status: "confirmed" },
+    });
+
+    await expect(sponsorshipLiability()).rejects.toThrow('unknown sponsored trustline kind "legacy-kind"');
   });
 
   it("is all zeros on an empty ledger", async () => {
