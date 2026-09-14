@@ -79,11 +79,12 @@ let _sponsorKeypair: Keypair | null = null;
  * payout signer and `assertCustodyBelowThreshold` still refuses to pay out.
  *
  * This key signs only the sponsorship sandwich — a shape asserted to contain no
- * payment operation — and the fee bump around it, so it needs XLM for reserves
- * and fees and no payout authority at all. `assertSponsorNotPayoutSigner`
- * enforces that separation.
+ * payment operation — the fee bump around it, and the revocation that reclaims
+ * the reserve (#29, `sponsorship-reclaim.ts`, whose shape is asserted the same
+ * way). It needs XLM for reserves and fees and no payout authority at all.
+ * `assertSponsorNotPayoutSigner` enforces that separation.
  */
-function sponsorKeypair(): Keypair {
+export function sponsorKeypair(): Keypair {
   if (_sponsorKeypair) return _sponsorKeypair;
 
   const sponsorSecret = process.env.STELLAR_SPONSOR_SECRET?.trim();
