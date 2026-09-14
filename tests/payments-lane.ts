@@ -23,6 +23,7 @@ export const PAYMENTS_LANE_TEST_GLOBS = [
   "lib/__tests__/health-monitor.test.ts",
   "lib/__tests__/reconciler.test.ts",
   "lib/__tests__/sponsored-trustline.test.ts",
+  "lib/__tests__/sponsorship-reclaim.test.ts",
   // The money ledger the rail settles against.
   "lib/__tests__/campaign-balance.test.ts",
   "lib/__tests__/user-balance.test.ts",
@@ -75,6 +76,8 @@ export const HORIZON_SUBMIT_ALLOWLIST: Readonly<Record<string, string>> = {
     "the sanctioned payout submit; assertPayoutFullySigned runs against both the inner payment and the fee bump before this line is reached",
   "lib/stellar/client.ts":
     "submitSponsoredTrustline — a recipient-signed sponsorship sandwich whose shape is asserted to carry no payment operation, wrapped in a fee bump the sponsor pays, so it moves XLM reserves and fees and never contributor USDC",
+  "lib/stellar/sponsorship-reclaim.ts":
+    "prepareRevocation — the sponsor's revokeSponsorship of one address's trustline and account entries, asserted by assertRevocationShape to carry only those operations and only the sponsor's signature (a key key-custody.ts requires is no payout signer); it moves base reserves between sponsor and owner and never USDC",
   "scripts/stellar-multisig-setup.ts":
     "one-off operator ceremony that installs the 2-of-3 thresholds on the payout account; run by hand and unreachable from any request or worker path",
   "scripts/stellar-cold-reserve-setup.ts":

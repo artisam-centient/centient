@@ -5,8 +5,8 @@
 // recipient's behalf. The sponsor route authenticates the session but the only
 // spend-shaped throttle is a per-address rate limit — a labeler can loop fresh
 // keypairs to bypass it and drive the platform toward `op_low_reserve`, halting
-// ALL real USDC payouts (an economic DoS on mainnet). Reserves are only
-// recoverable by a revocation/reclaim job that does not exist yet.
+// ALL real USDC payouts (an economic DoS on mainnet). Reserves are recovered by
+// reserve reclaim (#29, `lib/sponsorship-reclaim.ts`), which works from these rows.
 //
 // This module enforces two gates, backed by the `sponsored_trustlines` table:
 //   1. a hard cap on OUTSTANDING sponsorships per user, and
