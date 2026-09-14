@@ -105,8 +105,15 @@ describe("GET /api/me/wallet (challenge)", () => {
     const body = await res.json();
     expect(body.message).toContain(G);
     expect(body.message).toContain(body.nonce);
+    // Scoped to the link flow, so a pending wallet sign-in challenge for the
+    // same address survives.
+    expect(mockNonceDeleteMany).toHaveBeenCalledWith({
+      where: { walletAddress: G, action: "link-payout-address" },
+    });
     expect(mockNonceCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ walletAddress: G }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ walletAddress: G, action: "link-payout-address" }),
+      }),
     );
   });
 
@@ -163,7 +170,15 @@ describe("POST /api/me/wallet (link + prove)", () => {
     const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ linked: true, walletAddress: G });
-    expect(mockNonceDeleteMany).toHaveBeenCalledWith({ where: { walletAddress: G } });
+    expect(mockNonceDeleteMany).toHaveBeenCalledWith({
+      where: { walletAddress: G, action: "link-payout-address" },
+    });
+    // A sign-in challenge row can never be used to link an address.
+    expect(mockNonceFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ walletAddress: G, action: "link-payout-address" }),
+      }),
+    );
     expect(mockUserUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: USER_ID },

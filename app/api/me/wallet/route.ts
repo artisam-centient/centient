@@ -7,6 +7,7 @@ import { getLabelerSession, requireLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress, verify } from "@/lib/stellar/signature";
 import { accountHasUsdcTrustline } from "@/lib/stellar/client";
 import { checkWalletRateLimit } from "@/lib/rate-limit";
+import { WALLET_LINK_ACTION } from "@/lib/stellar/challenge-message";
 
 /**
  * ST-4b (#300) — link + prove a Stellar `G…` payout address.
@@ -60,9 +61,13 @@ export async function GET(req: NextRequest) {
   const nonce = randomUUID().replace(/-/g, "");
   const expiresAt = new Date(Date.now() + NONCE_TTL_MS);
 
+  // Scoped to this flow: the same address may hold a pending wallet sign-in
+  // challenge (#25), which a link request must not delete.
   await prisma.$transaction([
-    prisma.walletNonce.deleteMany({ where: { walletAddress: address } }),
-    prisma.walletNonce.create({ data: { walletAddress: address, nonce, expiresAt } }),
+    prisma.walletNonce.deleteMany({ where: { walletAddress: address, action: WALLET_LINK_ACTION } }),
+    prisma.walletNonce.create({
+      data: { walletAddress: address, action: WALLET_LINK_ACTION, nonce, expiresAt },
+    }),
   ]);
 
   return NextResponse.json({ message: buildWalletLinkMessage(address, nonce), nonce });
@@ -92,7 +97,7 @@ export async function POST(req: NextRequest) {
 
   // Look up the most recent unexpired challenge for this exact address.
   const nonceRow = await prisma.walletNonce.findFirst({
-    where: { walletAddress: stellarAddress, expiresAt: { gt: new Date() } },
+    where: { walletAddress: stellarAddress, action: WALLET_LINK_ACTION, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
   });
   if (!nonceRow) {
@@ -105,7 +110,9 @@ export async function POST(req: NextRequest) {
   }
 
   // One-time use: consume every challenge for this address regardless of outcome.
-  await prisma.walletNonce.deleteMany({ where: { walletAddress: stellarAddress } });
+  await prisma.walletNonce.deleteMany({
+    where: { walletAddress: stellarAddress, action: WALLET_LINK_ACTION },
+  });
 
   // USDC-trustline precheck — an untrusted `G…` would fail the payout with a
   // silent `op_no_trust`. Reject up front with guidance instead. (ST-4e turns
