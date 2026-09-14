@@ -3,22 +3,27 @@ import { Keypair, hash } from "@stellar/stellar-sdk";
 
 process.env.STELLAR_USDC_ISSUER = Keypair.random().publicKey();
 
-const { mockIsConnected, mockSignTransaction } = vi.hoisted(() => ({
-  mockIsConnected: vi.fn(),
-  mockSignTransaction: vi.fn(),
-}));
+const { mockIsConnected, mockSignTransaction, mockRequestAccess, mockSignMessage } =
+  vi.hoisted(() => ({
+    mockIsConnected: vi.fn(),
+    mockSignTransaction: vi.fn(),
+    mockRequestAccess: vi.fn(),
+    mockSignMessage: vi.fn(),
+  }));
 
 vi.mock("@stellar/freighter-api", () => ({
   isConnected: mockIsConnected,
   signTransaction: mockSignTransaction,
-  requestAccess: vi.fn(),
-  signMessage: vi.fn(),
+  requestAccess: mockRequestAccess,
+  signMessage: mockSignMessage,
 }));
 
 import {
   freighterSignatureToBase64,
-  albedoSignatureToBase64,
+  connect,
+  signOwnership,
   signTransaction,
+  FREIGHTER_REQUIRED_MESSAGE,
 } from "@/lib/stellar/wallet";
 import { verify } from "@/lib/stellar/signature";
 
@@ -59,15 +64,6 @@ describe("freighterSignatureToBase64", () => {
   });
 });
 
-describe("albedoSignatureToBase64", () => {
-  it("converts a hex ed25519 signature to base64", () => {
-    const sig = sep53Sign(MESSAGE);
-    expect(albedoSignatureToBase64(sig.toString("hex"))).toBe(
-      sig.toString("base64"),
-    );
-  });
-});
-
 describe("interop with server verify (SEP-53)", () => {
   it("a Freighter V4 base64 signature verifies after normalization", () => {
     const normalized = freighterSignatureToBase64(
@@ -79,6 +75,36 @@ describe("interop with server verify (SEP-53)", () => {
   it("a Freighter V3 Buffer signature verifies after normalization", () => {
     const normalized = freighterSignatureToBase64(sep53Sign(MESSAGE));
     expect(verify(kp.publicKey(), MESSAGE, normalized)).toBe(true);
+  });
+});
+
+describe("connect", () => {
+  it("returns the Freighter address when access is granted", async () => {
+    mockRequestAccess.mockResolvedValue({ address: ADDR });
+    await expect(connect()).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+  });
+
+  it("throws install guidance when Freighter is unavailable — there is no fallback wallet", async () => {
+    mockIsConnected.mockResolvedValue({ isConnected: false });
+    await expect(connect()).rejects.toThrow(FREIGHTER_REQUIRED_MESSAGE);
+    expect(mockRequestAccess).not.toHaveBeenCalled();
+  });
+});
+
+describe("signOwnership", () => {
+  it("returns a SEP-53 proof that the server verifies", async () => {
+    mockSignMessage.mockResolvedValue({
+      signedMessage: sep53Sign(MESSAGE).toString("base64"),
+      signerAddress: kp.publicKey(),
+    });
+    const proof = await signOwnership(MESSAGE, kp.publicKey());
+    expect(proof).toMatchObject({ scheme: "sep53", wallet: "freighter" });
+    expect(verify(kp.publicKey(), MESSAGE, proof.signature)).toBe(true);
+  });
+
+  it("throws install guidance when Freighter is unavailable", async () => {
+    mockIsConnected.mockResolvedValue({ isConnected: false });
+    await expect(signOwnership(MESSAGE, ADDR)).rejects.toThrow(FREIGHTER_REQUIRED_MESSAGE);
   });
 });
 
@@ -99,8 +125,8 @@ describe("signTransaction", () => {
     await expect(signTransaction("UNSIGNED_XDR", ADDR)).rejects.toThrow(/user declined/);
   });
 
-  it("throws guidance when Freighter is unavailable (Albedo-only)", async () => {
+  it("throws install guidance when Freighter is unavailable", async () => {
     mockIsConnected.mockResolvedValue({ isConnected: false });
-    await expect(signTransaction("UNSIGNED_XDR", ADDR)).rejects.toThrow(/Freighter/);
+    await expect(signTransaction("UNSIGNED_XDR", ADDR)).rejects.toThrow(FREIGHTER_REQUIRED_MESSAGE);
   });
 });

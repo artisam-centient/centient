@@ -3,8 +3,10 @@
 // stays email/password — this is not a login mechanism. The server verifies what
 // is produced here in lib/stellar/signature.ts.
 //
-// Two wallets are supported, with Freighter primary and Albedo as the fallback
-// when Freighter isn't installed:
+// Freighter is the only supported wallet. Albedo was descoped from Deliverable 2
+// (ADR-0003): it was only ever wired as a connect-only fallback, so a user who
+// connected with it could never sign the ownership proof or the sponsored
+// trustline this module exists to produce.
 //
 //   • Freighter (`@stellar/freighter-api`) signs per **SEP-53** and returns a
 //     base64 ed25519 signature (newer "V4") or a Buffer ("V3", older). Its
@@ -14,31 +16,22 @@
 //     `freighterSignatureToBase64` normalizes both to base64. signerAddress is
 //     the G… signer.
 //
-//   • Albedo (`@albedo-link/intent`) does **NOT** use SEP-53 — its `signMessage`
-//     signs a proprietary `signed_message` (derived from pubkey + message) and
-//     returns a **hex** `message_signature`. So an Albedo signature is NOT
-//     verifiable by the SEP-53 `verify()` server-side. We therefore tag every
-//     result with its `scheme`; the withdrawal verifier (ST-4b) must branch on
-//     it. Until an Albedo verification path exists server-side, Albedo is wired
-//     as a **connect-only** fallback and `signOwnership` throws for it rather
-//     than returning a signature the server would silently reject.
-//
 // SEP-10 fallback (issue note): SEP-53 message signing proved consistent for
 // Freighter (confirmed shape above), so we did NOT need the SEP-10
 // challenge-transaction fallback. Revisit only if a target wallet lacks
 // SEP-53 `signMessage`.
 //
-// Wallet SDKs are loaded with dynamic `import()` inside each call so this module
+// The wallet SDK is loaded with dynamic `import()` inside each call so this module
 // is import-safe under SSR (no `window` access at module load) and the wallet
-// bundles stay out of the server build.
+// bundle stays out of the server build.
 import { isValidStellarAddress } from "./signature";
 import { networkPassphrase } from "./config";
 
 /** Which signing scheme produced a signature — selects the server verify path. */
-export type SignatureScheme = "sep53" | "albedo";
+export type SignatureScheme = "sep53";
 
 /** Which browser wallet a connection/signature came from. */
-export type StellarWallet = "freighter" | "albedo";
+export type StellarWallet = "freighter";
 
 /** A connected wallet address plus the wallet it came from. */
 export interface StellarConnection {
@@ -53,6 +46,10 @@ export interface StellarSignedMessage {
   scheme: SignatureScheme;
   wallet: StellarWallet;
 }
+
+/** Shown whenever an action needs Freighter and the extension is not reachable. */
+export const FREIGHTER_REQUIRED_MESSAGE =
+  "Freighter is required. Install the Freighter browser extension, then try again.";
 
 /**
  * Normalize a Freighter `signMessage` `signedMessage` to a base64 string.
@@ -75,11 +72,6 @@ export function freighterSignatureToBase64(
   ).toString("base64");
 }
 
-/** Convert Albedo's hex `message_signature` to base64. */
-export function albedoSignatureToBase64(hexSignature: string): string {
-  return Buffer.from(hexSignature, "hex").toString("base64");
-}
-
 /** True if the Freighter extension is installed and reachable. */
 export async function isFreighterAvailable(): Promise<boolean> {
   try {
@@ -92,30 +84,24 @@ export async function isFreighterAvailable(): Promise<boolean> {
 }
 
 /**
- * Connect a browser wallet and return its `G…` address. Tries Freighter first
- * (prompting for access), falling back to Albedo's `publicKey` intent when
- * Freighter isn't installed.
+ * Connect Freighter and return its `G…` address, prompting for access. Throws
+ * {@link FREIGHTER_REQUIRED_MESSAGE} when the extension is not reachable.
  */
 export async function connect(): Promise<StellarConnection> {
-  if (await isFreighterAvailable()) {
-    const { requestAccess } = await import("@stellar/freighter-api");
-    const { address, error } = await requestAccess();
-    if (error) throw new Error(`Freighter access denied: ${error.message}`);
-    assertAddress(address);
-    return { address, wallet: "freighter" };
+  if (!(await isFreighterAvailable())) {
+    throw new Error(FREIGHTER_REQUIRED_MESSAGE);
   }
 
-  const albedo = (await import("@albedo-link/intent")).default;
-  const { pubkey } = await albedo.publicKey({});
-  assertAddress(pubkey);
-  return { address: pubkey, wallet: "albedo" };
+  const { requestAccess } = await import("@stellar/freighter-api");
+  const { address, error } = await requestAccess();
+  if (error) throw new Error(`Freighter access denied: ${error.message}`);
+  assertAddress(address);
+  return { address, wallet: "freighter" };
 }
 
 /**
- * Prove ownership of `expectedAddress` by signing `message` with the connected
- * wallet. Only the Freighter SEP-53 path yields a server-verifiable signature
- * today; Albedo's non-SEP-53 scheme is rejected here rather than returning a
- * signature the server would silently fail to verify (see module header).
+ * Prove ownership of `expectedAddress` by signing `message` with Freighter
+ * (SEP-53), producing a signature the server verifies in signature.ts.
  *
  * @param message         The server-issued challenge string to sign.
  * @param expectedAddress The G… address the proof must be bound to — the signer
@@ -128,10 +114,7 @@ export async function signOwnership(
   assertAddress(expectedAddress);
 
   if (!(await isFreighterAvailable())) {
-    throw new Error(
-      "Albedo does not produce SEP-53 signatures, so it cannot prove address " +
-        "ownership server-side yet. Install Freighter to link a withdrawal address.",
-    );
+    throw new Error(FREIGHTER_REQUIRED_MESSAGE);
   }
 
   const { signMessage } = await import("@stellar/freighter-api");
@@ -151,11 +134,9 @@ export async function signOwnership(
 }
 
 /**
- * Co-sign a server-built transaction XDR with the connected wallet and return the
- * signed XDR. Used for the ST-4e sponsored-trustline flow: the platform has
- * already signed as sponsor; the recipient adds their signature here. Freighter
- * only — Albedo stays connect-only (no server-orchestrated signing path yet), so
- * it throws the same guidance as `signOwnership`.
+ * Co-sign a server-built transaction XDR with Freighter and return the signed
+ * XDR. Used for the ST-4e sponsored-trustline flow: the platform has already
+ * signed as sponsor; the recipient adds their signature here.
  *
  * @param xdr             The platform-signed transaction envelope (base64 XDR).
  * @param expectedAddress The G… address whose signature is required; the wallet
@@ -168,10 +149,7 @@ export async function signTransaction(
   assertAddress(expectedAddress);
 
   if (!(await isFreighterAvailable())) {
-    throw new Error(
-      "Albedo cannot co-sign a sponsored trustline server-side yet. " +
-        "Install Freighter to set up USDC payouts.",
-    );
+    throw new Error(FREIGHTER_REQUIRED_MESSAGE);
   }
 
   const { signTransaction: freighterSign } = await import("@stellar/freighter-api");
