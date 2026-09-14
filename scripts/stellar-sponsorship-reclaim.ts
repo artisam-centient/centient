@@ -15,6 +15,7 @@
 // against that environment's `DATABASE_URL`. Exits 2 when any sponsorship ended
 // `failed`, so a run that needs attention does not look like a clean one.
 import "dotenv/config";
+import prisma from "../lib/prisma";
 import { runSponsorshipReclaim, type ReclaimMode } from "../lib/sponsorship-reclaim";
 import { stellarNetwork } from "../lib/stellar/config";
 
@@ -52,10 +53,15 @@ async function main(): Promise<void> {
       `${totals.lockedReserveUnits} reserve units still locked` +
       (report.runId ? `, run ${report.runId}` : ""),
   );
-  process.exit((totals.byDisposition.failed ?? 0) > 0 ? 2 : 0);
+  // Not process.exit(): stdout to a pipe is written asynchronously, and exiting
+  // here could truncate the report an operator is capturing with `| tee`.
+  process.exitCode = (totals.byDisposition.failed ?? 0) > 0 ? 2 : 0;
 }
 
-main().catch((error) => {
-  console.error("SPONSORSHIP RECLAIM FAILED:", error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+main()
+  .catch((error) => {
+    console.error("SPONSORSHIP RECLAIM FAILED:", error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  })
+  // The database pool would otherwise keep the process alive after the report.
+  .finally(() => prisma.$disconnect());
