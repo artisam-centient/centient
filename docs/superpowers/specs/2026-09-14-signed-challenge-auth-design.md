@@ -107,7 +107,8 @@ verifier and responses do not change. Its nonce queries gain
 `action: 'link-payout-address'`, so the two flows stay isolated. Issuance also
 uses the shared `(walletAddress, action)` uniqueness rule: it reuses a live
 link challenge after P2002, or retries if the conflicting row expired before
-it could be read.
+it could be read. Verification conditionally consumes only the exact nonce it
+verified while that row is still unexpired, so it cannot consume a replacement.
 
 ## Routes
 

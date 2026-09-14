@@ -133,10 +133,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
   }
 
-  // One-time use: consume every challenge for this address regardless of outcome.
-  await prisma.walletNonce.deleteMany({
-    where: { walletAddress: stellarAddress, action: WALLET_LINK_ACTION },
+  // Claim only the proof that was verified, while it is still live. If expiry
+  // or a concurrent request removed it, this proof no longer grants access and
+  // must not consume a replacement challenge for the same address.
+  const consumed = await prisma.walletNonce.deleteMany({
+    where: {
+      nonce: nonceRow.nonce,
+      walletAddress: stellarAddress,
+      action: WALLET_LINK_ACTION,
+      expiresAt: { gt: new Date() },
+    },
   });
+  if (consumed.count === 0) {
+    return NextResponse.json({ error: "challenge_expired" }, { status: 400 });
+  }
 
   // USDC-trustline precheck — an untrusted `G…` would fail the payout with a
   // silent `op_no_trust`. Reject up front with guidance instead. (ST-4e turns

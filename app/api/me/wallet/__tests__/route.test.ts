@@ -80,7 +80,7 @@ function postReq(body: unknown): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSession.mockResolvedValue(USER_ID);
-  mockNonceDeleteMany.mockResolvedValue({ count: 0 });
+  mockNonceDeleteMany.mockResolvedValue({ count: 1 });
   mockNonceCreate.mockResolvedValue({});
   mockUserUpdate.mockResolvedValue({});
   mockHasTrustline.mockResolvedValue(true);
@@ -194,6 +194,26 @@ describe("POST /api/me/wallet (link + prove)", () => {
     expect(mockUserUpdate).not.toHaveBeenCalled();
   });
 
+  it("400 challenge_expired when the verified nonce is no longer live at consumption", async () => {
+    mockNonceDeleteMany.mockResolvedValueOnce({ count: 0 });
+
+    const res = await POST(
+      postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("challenge_expired");
+    expect(mockNonceDeleteMany).toHaveBeenCalledWith({
+      where: {
+        nonce: NONCE,
+        walletAddress: G,
+        action: "link-payout-address",
+        expiresAt: { gt: expect.any(Date) },
+      },
+    });
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
   it("409 no_trustline when the proven address holds no USDC trustline", async () => {
     mockHasTrustline.mockResolvedValueOnce(false);
     const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
@@ -209,7 +229,12 @@ describe("POST /api/me/wallet (link + prove)", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ linked: true, walletAddress: G });
     expect(mockNonceDeleteMany).toHaveBeenCalledWith({
-      where: { walletAddress: G, action: "link-payout-address" },
+      where: {
+        nonce: NONCE,
+        walletAddress: G,
+        action: "link-payout-address",
+        expiresAt: { gt: expect.any(Date) },
+      },
     });
     // A sign-in challenge row can never be used to link an address.
     expect(mockNonceFindFirst).toHaveBeenCalledWith(
