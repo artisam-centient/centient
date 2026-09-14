@@ -21,6 +21,7 @@
     "stellar:payout:proof": "tsx scripts/stellar-payout-service-proof.ts",
     "stellar:reserve:setup": "tsx scripts/stellar-cold-reserve-setup.ts",
     "stellar:reserve:refill": "tsx scripts/stellar-reserve-refill.ts",
+    "stellar:sponsorship:reclaim": "tsx scripts/stellar-sponsorship-reclaim.ts",
     "test": "vitest run",
     "test:payments": "vitest run --config vitest.payments.config.ts",
     "typecheck": "tsc --noEmit",
