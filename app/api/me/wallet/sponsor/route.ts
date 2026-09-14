@@ -163,11 +163,21 @@ export async function POST(req: NextRequest) {
   }
 
   const settle = { id: decision.id, hash: prepared.hash, userId: userId!, address };
+  let sent: { hash: string; feeBumpHash: string };
   try {
-    await prepared.submit();
+    sent = await prepared.submit();
   } catch (err) {
     return settleFailedSubmit(err, settle);
   }
+  // #28: the row keeps the hash the contributor signed, which Horizon resolves to
+  // whichever fee bump carried it. The bump's own hash is logged, not stored.
+  console.info("[sponsor] sponsorship broadcast", {
+    userId: settle.userId,
+    address,
+    hash: sent.hash,
+    feeBumpHash: sent.feeBumpHash,
+    kind: prepared.kind,
+  });
   await confirm(settle);
   return established();
 }
@@ -196,7 +206,8 @@ type Settle = { id: string; hash: string; userId: string; address: string };
 async function settleFailedSubmit(err: unknown, settle: Settle): Promise<NextResponse> {
   const code = err instanceof StellarPaymentError ? err.code : "submission_unknown";
 
-  if (code === "op_low_reserve") {
+  // #28: `sponsor_low_reserve` here is the fee bump refused for want of XLM to pay it.
+  if (code === "op_low_reserve" || code === "sponsor_low_reserve") {
     await release(settle);
     Sentry.captureException(err, { extra: { context: "sponsor-trustline-submit", userId: settle.userId } });
     return NextResponse.json({ error: "sponsorship_unavailable" }, { status: 503 });
