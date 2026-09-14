@@ -260,6 +260,15 @@ describe("POST /api/me/wallet/sponsor", () => {
     expect(mockFail).toHaveBeenCalledWith("row-1", "H");
   });
 
+  it("503 sponsorship_unavailable when the sponsor cannot pay the fee bump, and releases the intent (#28)", async () => {
+    mockBroadcast.mockRejectedValue(new StellarPaymentError("x", "sponsor_low_reserve", false));
+    const res = await post();
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe("sponsorship_unavailable");
+    expect(mockFail).toHaveBeenCalledWith("row-1", "H");
+    expect(mockTxStatus).not.toHaveBeenCalled();
+  });
+
   it("409 retry on tx_bad_seq when the envelope never landed, and releases the intent", async () => {
     mockBroadcast.mockRejectedValue(new StellarPaymentError("x", "tx_bad_seq", true));
     mockTxStatus.mockResolvedValue("not_found");

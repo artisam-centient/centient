@@ -74,7 +74,7 @@ export const HORIZON_SUBMIT_ALLOWLIST: Readonly<Record<string, string>> = {
   "lib/stellar/payout-submitter.ts":
     "the sanctioned payout submit; assertPayoutFullySigned runs against both the inner payment and the fee bump before this line is reached",
   "lib/stellar/client.ts":
-    "submitSponsoredTrustline — a recipient-signed sponsorship sandwich whose shape is asserted to carry no payment operation, so it moves XLM reserves and never contributor USDC",
+    "submitSponsoredTrustline — a recipient-signed sponsorship sandwich whose shape is asserted to carry no payment operation, wrapped in a fee bump the sponsor pays, so it moves XLM reserves and fees and never contributor USDC",
   "scripts/stellar-multisig-setup.ts":
     "one-off operator ceremony that installs the 2-of-3 thresholds on the payout account; run by hand and unreachable from any request or worker path",
   "scripts/stellar-cold-reserve-setup.ts":
