@@ -13,18 +13,39 @@
 // USDC is an issued asset, so each recipient must hold a USDC trustline before
 // they can be paid — see `op_no_trust` below and `buildSponsoredTrustlineTx`.
 import {
-  Account,
   BASE_FEE,
+  Horizon,
   Keypair,
   Operation,
   Transaction,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
+import { calculateSpendableXlm, xlmToStroops } from "./balance";
 import { server, networkPassphrase, usdcAsset } from "./config";
 import { assertSponsorNotPayoutSigner } from "./key-custody";
 
 /** How long a built transaction stays valid before Horizon rejects it. */
 const TX_TIMEOUT_SECONDS = 180;
+
+/**
+ * The most the sponsor pays per operation: 0.01 XLM. The builder clamps the
+ * network's base fee to it and the submit guard rejects anything above it.
+ */
+export const SPONSOR_MAX_FEE_PER_OP_STROOPS = 100_000;
+
+/** Clock skew tolerated between the builder that set `maxTime` and the guard. */
+const TIME_BOUND_SKEW_SECONDS = 60;
+
+/** `changeTrust`'s limit when none is given: the int64 maximum, as the SDK decodes it. */
+const DEFAULT_TRUST_LIMIT = "922337203685.4775807";
+
+type SponsorshipKind = "trustline" | "account+trustline";
+
+/** Base reserves a sponsorship adds to the sponsor: two per account entry, one per trustline. */
+const SPONSORED_RESERVE_UNITS: Readonly<Record<SponsorshipKind, bigint>> = {
+  trustline: 1n,
+  "account+trustline": 3n,
+};
 
 /**
  * A payment failure surfaced to the caller. `retryable: false` means the caller
@@ -82,6 +103,19 @@ function sponsorKeypair(): Keypair {
   );
   _sponsorKeypair = Keypair.fromSecret(platformSecret);
   return _sponsorKeypair;
+}
+
+/**
+ * Public key of the account that sponsors trustlines, or null when no usable
+ * sponsorship key is configured. Lets wallet health tell whether the account it
+ * monitors is the one whose `num_sponsoring` the ledger should explain.
+ */
+export function sponsorPublicKey(): string | null {
+  try {
+    return sponsorKeypair().publicKey();
+  } catch {
+    return null;
+  }
 }
 
 /** Horizon error → `{ transaction, operations }` result codes (ST-0 #290 shapes). */
@@ -195,15 +229,23 @@ async function accountExists(address: string): Promise<boolean> {
  * (after the recipient signs in-browser), so a concurrent multisig payout may consume it
  * first → tx_bad_seq at submit; the caller re-runs the flow (simple strategy,
  * ST-4e #314). Returns the base64 XDR for the browser to co-sign.
+ *
+ * #27: refuses with `sponsor_low_reserve` before anything is offered when the
+ * sponsor cannot cover the reserves this sponsorship would add plus its fee.
+ * Otherwise the contributor would sign, and only then learn at submit
+ * (`op_low_reserve`) that it could never have worked.
  */
 export async function buildSponsoredTrustlineTx(
   recipientG: string,
-): Promise<{ xdr: string; kind: "trustline" | "account+trustline" }> {
+): Promise<{ xdr: string; kind: SponsorshipKind }> {
   const kp = sponsorKeypair();
   const srv = server();
   const account = await srv.loadAccount(kp.publicKey());
-  const fee = await srv.fetchBaseFee().catch(() => Number(BASE_FEE));
+  const networkFee = await srv.fetchBaseFee().catch(() => Number(BASE_FEE));
+  const fee = Math.min(networkFee, SPONSOR_MAX_FEE_PER_OP_STROOPS);
   const exists = await accountExists(recipientG);
+  const kind: SponsorshipKind = exists ? "trustline" : "account+trustline";
+  await assertSponsorCanCover(srv, account, kind, BigInt(fee) * BigInt(exists ? 3 : 4));
 
   const builder = new TransactionBuilder(account, {
     fee: String(fee),
@@ -223,36 +265,90 @@ export async function buildSponsoredTrustlineTx(
     .build();
   tx.sign(kp);
 
-  return { xdr: tx.toXDR(), kind: exists ? "trustline" : "account+trustline" };
+  return { xdr: tx.toXDR(), kind };
+}
+
+/** A Horizon balance line, as far as the reserve pre-check reads it. */
+interface NativeBalanceLine {
+  asset_type: string;
+  balance: string;
+  selling_liabilities?: string;
+}
+
+/**
+ * Throw `sponsor_low_reserve` unless the sponsor's spendable XLM covers the
+ * base reserves a `kind` sponsorship adds and the transaction fee. Spendable is
+ * computed the way wallet health computes it, from the live base reserve.
+ */
+async function assertSponsorCanCover(
+  srv: Horizon.Server,
+  account: Horizon.AccountResponse,
+  kind: SponsorshipKind,
+  feeStroops: bigint,
+): Promise<void> {
+  const ledgers = await srv.ledgers().order("desc").limit(1).call();
+  const latest = ledgers.records[0];
+  const native = (account.balances as NativeBalanceLine[]).find((b) => b.asset_type === "native");
+  if (!latest || !native) {
+    throw new Error("buildSponsoredTrustlineTx: Horizon sponsor account or latest ledger is incomplete");
+  }
+  const baseReserveStroops = BigInt(latest.base_reserve_in_stroops);
+  const { spendableStroops } = calculateSpendableXlm({
+    totalStroops: xlmToStroops(native.balance),
+    sellingLiabilitiesStroops: xlmToStroops(native.selling_liabilities ?? "0"),
+    baseReserveStroops,
+    subentryCount: account.subentry_count,
+    numSponsoring: account.num_sponsoring ?? 0,
+    numSponsored: account.num_sponsored ?? 0,
+  });
+  const requiredStroops = baseReserveStroops * SPONSORED_RESERVE_UNITS[kind] + feeStroops;
+  if (spendableStroops < requiredStroops) {
+    throw new StellarPaymentError(
+      `buildSponsoredTrustlineTx: sponsor has ${spendableStroops} spendable stroops, needs ${requiredStroops} for a ${kind} sponsorship`,
+      "sponsor_low_reserve",
+      false,
+    );
+  }
+}
+
+/** Throw the non-retryable `invalid_sponsor_tx` the route answers with a 400. */
+function rejectSponsorTx(why: string): never {
+  throw new StellarPaymentError(`submitSponsoredTrustline: ${why}`, "invalid_sponsor_tx", false);
 }
 
 /**
  * Assert `xdr` is exactly a platform-sponsored USDC-trustline sandwich for a
  * single recipient — begin / [createAccount] / changeTrust(USDC) / end, no other
- * op types (esp. no payment). Defense in depth: the platform already signed a
- * fixed envelope (tampering invalidates that signature), but we re-check the
- * sponsored target + asset before submitting. Throws `invalid_sponsor_tx`.
+ * op types (esp. no payment, and no setOptions that could add a signer to the
+ * contributor's account). Throws `invalid_sponsor_tx`.
  *
  * Fix 2: also asserts `beginSponsoringFutureReserves.sponsoredId === expectedRecipient`.
  * Fix 4: also asserts `endSponsoringFutureReserves.source === sponsored`.
+ *
+ * #27 pins the fields that make "the contributor pays nothing and owns the
+ * account" true of the envelope itself, not just of the builder that made it:
+ * the sponsor is the transaction source (so it pays the fee and sequence) and
+ * validly signed it; `createAccount` funds 0 XLM; the trustline has the default
+ * limit; the fee is bounded; and the envelope has a time bound no later than the
+ * builder issues, so a stalled one is known to expire.
  */
-function assertSponsoredTrustlineShape(tx: Transaction, expectedRecipient: string): void {
+function assertSponsoredTrustlineShape(
+  tx: Transaction,
+  expectedRecipient: string,
+  sponsor: Keypair,
+  nowMs: number,
+): void {
   const types = tx.operations.map((o) => o.type);
   const withAccount = ["beginSponsoringFutureReserves", "createAccount", "changeTrust", "endSponsoringFutureReserves"];
   const withoutAccount = ["beginSponsoringFutureReserves", "changeTrust", "endSponsoringFutureReserves"];
   const ok =
     JSON.stringify(types) === JSON.stringify(withAccount) ||
     JSON.stringify(types) === JSON.stringify(withoutAccount);
-  if (!ok) {
-    throw new StellarPaymentError(
-      `submitSponsoredTrustline: unexpected op shape [${types.join(", ")}]`,
-      "invalid_sponsor_tx",
-      false,
-    );
-  }
+  if (!ok) rejectSponsorTx(`unexpected op shape [${types.join(", ")}]`);
+
   const begin = tx.operations[0] as { sponsoredId?: string };
   const changeTrust = tx.operations.find((o) => o.type === "changeTrust") as
-    | { source?: string; line?: { code?: string; issuer?: string } }
+    | { source?: string; limit?: string; line?: { code?: string; issuer?: string } }
     | undefined;
   const asset = usdcAsset();
   const sponsored = begin.sponsoredId;
@@ -263,32 +359,27 @@ function assertSponsoredTrustlineShape(tx: Transaction, expectedRecipient: strin
     changeTrust.line?.code !== asset.getCode() ||
     changeTrust.line?.issuer !== asset.getIssuer()
   ) {
-    throw new StellarPaymentError(
-      "submitSponsoredTrustline: sponsored target / asset mismatch",
-      "invalid_sponsor_tx",
-      false,
-    );
+    rejectSponsorTx("sponsored target / asset mismatch");
   }
   // Fix 2: the envelope's sponsoredId must match the address the route validated.
   // Guards against an injected envelope targeting a different account while reusing
-  // a valid shape (the platform signature check is defense-in-depth; this is an
-  // additional semantic guard).
+  // a valid shape.
   if (sponsored !== expectedRecipient) {
-    throw new StellarPaymentError(
-      "submitSponsoredTrustline: sponsored target does not match expected recipient",
-      "invalid_sponsor_tx",
-      false,
-    );
+    rejectSponsorTx("sponsored target does not match expected recipient");
+  }
+  if (changeTrust.limit !== DEFAULT_TRUST_LIMIT) {
+    rejectSponsorTx(`changeTrust limit ${changeTrust.limit} is not the default`);
   }
   const createAccount = tx.operations.find((o) => o.type === "createAccount") as
-    | { destination?: string }
+    | { destination?: string; startingBalance?: string }
     | undefined;
   if (createAccount && createAccount.destination !== sponsored) {
-    throw new StellarPaymentError(
-      "submitSponsoredTrustline: createAccount destination does not match sponsoredId",
-      "invalid_sponsor_tx",
-      false,
-    );
+    rejectSponsorTx("createAccount destination does not match sponsoredId");
+  }
+  // Compared as text, not parsed: the XDR can carry a negative amount, which the
+  // XLM parser rejects with a plain Error that would escape as a 502.
+  if (createAccount && !/^0(?:\.0{1,7})?$/.test(createAccount.startingBalance ?? "")) {
+    rejectSponsorTx(`createAccount starting balance ${createAccount.startingBalance} is not 0`);
   }
   // Fix 4: the endSponsoringFutureReserves op must be sourced by the recipient
   // (sponsored), not some other party.
@@ -296,22 +387,90 @@ function assertSponsoredTrustlineShape(tx: Transaction, expectedRecipient: strin
     | { source?: string }
     | undefined;
   if (!endSponsoring || endSponsoring.source !== sponsored) {
-    throw new StellarPaymentError(
-      "submitSponsoredTrustline: endSponsoringFutureReserves.source does not match sponsored",
-      "invalid_sponsor_tx",
-      false,
-    );
+    rejectSponsorTx("endSponsoringFutureReserves.source does not match sponsored");
   }
+
+  if (tx.source !== sponsor.publicKey()) {
+    rejectSponsorTx("transaction source is not the sponsor account");
+  }
+  if (BigInt(tx.fee) > BigInt(SPONSOR_MAX_FEE_PER_OP_STROOPS * tx.operations.length)) {
+    rejectSponsorTx(`fee ${tx.fee} exceeds the sponsor's bound`);
+  }
+  const maxTime = Number(tx.timeBounds?.maxTime ?? 0);
+  if (maxTime === 0) rejectSponsorTx("envelope has no upper time bound");
+  if (maxTime > Math.floor(nowMs / 1000) + TX_TIMEOUT_SECONDS + TIME_BOUND_SKEW_SECONDS) {
+    rejectSponsorTx("envelope is valid for longer than the sponsor issues");
+  }
+  // The recipient cannot alter a sponsor-signed envelope without invalidating
+  // this signature, so checking it proves the envelope is one the sponsor built.
+  const hash = tx.hash();
+  const sponsorSigned = tx.signatures.some(
+    (sig) => sig.hint().equals(sponsor.signatureHint()) && sponsor.verify(hash, sig.signature()),
+  );
+  if (!sponsorSigned) rejectSponsorTx("envelope does not carry a valid sponsor signature");
+}
+
+/** A validated sponsorship envelope, ready to broadcast. */
+export interface PreparedSponsorship {
+  /** Hex hash of the envelope — known before broadcast, so it can be recorded first. */
+  hash: string;
+  kind: SponsorshipKind;
+  /** The envelope's `maxTime`: after it, the envelope can no longer apply. */
+  expiresAt: Date;
+  /** Broadcast the envelope. Errors are classified; see {@link submitSponsoredTrustline}. */
+  submit(): Promise<{ hash: string }>;
 }
 
 /**
- * Submit a recipient-co-signed sponsored-trustline XDR (from
- * {@link buildSponsoredTrustlineTx}). Validates the op shape and asserts the
- * envelope targets `expectedRecipient`, then submits.
+ * Parse and validate a recipient-co-signed sponsorship XDR without touching the
+ * network. The only way to broadcast it is the returned `submit`, so nothing
+ * unvalidated can reach Horizon, while the caller still learns the hash and
+ * expiry in time to record its intent before the irreversible step.
+ */
+export function prepareSponsoredTrustline(
+  signedXdr: string,
+  expectedRecipient: string,
+): PreparedSponsorship {
+  // Fix 3: wrap XDR parse so garbage input / fee-bump envelopes become
+  // `invalid_sponsor_tx` (→ 400) instead of a raw JS error (→ 502).
+  let tx: Transaction;
+  try {
+    const parsed = TransactionBuilder.fromXDR(signedXdr, networkPassphrase());
+    if (!(parsed instanceof Transaction)) {
+      rejectSponsorTx("fee-bump or non-standard envelope not accepted");
+    }
+    tx = parsed;
+  } catch (err) {
+    if (err instanceof StellarPaymentError) throw err;
+    rejectSponsorTx("could not parse XDR (malformed or garbage input)");
+  }
+  assertSponsoredTrustlineShape(tx, expectedRecipient, sponsorKeypair(), Date.now());
+
+  const hash = tx.hash().toString("hex");
+  // Derived from the validated shape so the caller can record which reserve kind
+  // was locked (#330): account-creation + trustline (~1.5 XLM) vs trustline only.
+  const kind: SponsorshipKind = tx.operations.some((o) => o.type === "createAccount")
+    ? "account+trustline"
+    : "trustline";
+  return {
+    hash,
+    kind,
+    expiresAt: new Date(Number(tx.timeBounds!.maxTime) * 1000),
+    submit: () => broadcastSponsorship(tx, hash),
+  };
+}
+
+/**
+ * Validate and submit a recipient-co-signed sponsored-trustline XDR (from
+ * {@link buildSponsoredTrustlineTx}) in one step.
+ *
  * Maps: `op_low_reserve` → non-retryable (platform lacks XLM for the sponsored
- * reserves); `tx_bad_seq` → retryable (caller re-runs the flow); shape mismatch
- * or garbage input → non-retryable `invalid_sponsor_tx` (→ 400 at the route).
- * A `changeTrust` on an already-trusting line is idempotent.
+ * reserves); `tx_bad_seq` → retryable (the sequence was consumed, so this
+ * envelope cannot apply unless it is what consumed it); any other Horizon
+ * verdict, or a 4xx → `sponsor_tx_rejected` (definite: it did not apply);
+ * a timeout, 5xx or network failure → `submission_unknown` (it may still
+ * apply — resolve by hash, never by rebuilding). Shape mismatch or garbage input
+ * → non-retryable `invalid_sponsor_tx` (→ 400 at the route).
  *
  * NOTE: the sponsor path is intentionally NOT serialized with the payout
  * submitter's sequence lock (simple strategy; the multisig payout path rebuilds
@@ -320,42 +479,21 @@ function assertSponsoredTrustlineShape(tx: Transaction, expectedRecipient: strin
 export async function submitSponsoredTrustline(
   signedXdr: string,
   expectedRecipient: string,
-): Promise<{ hash: string; kind: "trustline" | "account+trustline" }> {
-  // Fix 3: wrap XDR parse so garbage input / fee-bump envelopes become
-  // `invalid_sponsor_tx` (→ 400) instead of a raw JS error (→ 502).
-  let tx: Transaction;
+): Promise<{ hash: string; kind: SponsorshipKind }> {
+  const prepared = prepareSponsoredTrustline(signedXdr, expectedRecipient);
+  const { hash } = await prepared.submit();
+  return { hash, kind: prepared.kind };
+}
+
+/**
+ * Submit an already-validated envelope and classify any failure as definite
+ * (`op_low_reserve`, `tx_bad_seq`, `sponsor_tx_rejected`) or `submission_unknown`.
+ */
+async function broadcastSponsorship(tx: Transaction, hash: string): Promise<{ hash: string }> {
   try {
-    const parsed = TransactionBuilder.fromXDR(signedXdr, networkPassphrase());
-    if (!(parsed instanceof Transaction)) {
-      throw new StellarPaymentError(
-        "submitSponsoredTrustline: fee-bump or non-standard envelope not accepted",
-        "invalid_sponsor_tx",
-        false,
-      );
-    }
-    tx = parsed;
+    await server().submitTransaction(tx);
+    return { hash };
   } catch (err) {
-    if (err instanceof StellarPaymentError) throw err;
-    throw new StellarPaymentError(
-      "submitSponsoredTrustline: could not parse XDR (malformed or garbage input)",
-      "invalid_sponsor_tx",
-      false,
-    );
-  }
-  // Fix 2 + Fix 4: validate shape, recipient match, and end-sponsoring source.
-  assertSponsoredTrustlineShape(tx, expectedRecipient);
-  // Derived from the validated shape so the caller can record which reserve kind
-  // was locked (#330): account-creation + trustline (~1.5 XLM) vs trustline only.
-  const kind: "trustline" | "account+trustline" = tx.operations.some(
-    (o) => o.type === "createAccount",
-  )
-    ? "account+trustline"
-    : "trustline";
-  try {
-    const res = await server().submitTransaction(tx);
-    return { hash: res.hash, kind };
-  } catch (err) {
-    if (err instanceof StellarPaymentError) throw err;
     const codes = resultCodes(err);
     if (codes.operations?.includes("op_low_reserve")) {
       throw new StellarPaymentError(
@@ -371,6 +509,19 @@ export async function submitSponsoredTrustline(
         true,
       );
     }
-    throw err;
+    const status = (err as { response?: { status?: unknown } })?.response?.status;
+    const answered = codes.transaction !== undefined || (codes.operations?.length ?? 0) > 0;
+    if (answered || (typeof status === "number" && status >= 400 && status < 500)) {
+      throw new StellarPaymentError(
+        `submitSponsoredTrustline: Horizon rejected ${hash} (${describeStellarError(err)})`,
+        "sponsor_tx_rejected",
+        false,
+      );
+    }
+    throw new StellarPaymentError(
+      `submitSponsoredTrustline: outcome of ${hash} unknown (${describeStellarError(err)}) — resolve it by hash before building another`,
+      "submission_unknown",
+      false,
+    );
   }
 }

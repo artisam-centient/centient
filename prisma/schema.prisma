@@ -60,6 +60,12 @@ model SponsoredTrustline {
   address   String
   kind      String    // "trustline" | "account+trustline"
   txHash    String
+  // #27: "pending" is written before broadcast, "confirmed" once Horizon accepts,
+  // "failed" only when the envelope can never apply. Pending counts as outstanding.
+  status      String    @default("confirmed")
+  confirmedAt DateTime?
+  // The envelope's maxTime: after it, an unreported pending envelope cannot land.
+  expiresAt   DateTime?
   createdAt DateTime  @default(now())
   revokedAt DateTime?
 
@@ -67,6 +73,7 @@ model SponsoredTrustline {
 
   @@index([userId])
   @@index([address])
+  @@unique([address], name: "sponsored_trustlines_outstanding_address_key", map: "sponsored_trustlines_outstanding_address_key", where: raw("\"revokedAt\" IS NULL AND \"status\" <> 'failed'"))
   @@map("sponsored_trustlines")
 }
 

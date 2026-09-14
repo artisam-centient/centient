@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { connect, signOwnership, signTransaction } from "@/lib/stellar/wallet";
+import { connect, signOwnership, signTransaction, WalletError } from "@/lib/stellar/wallet";
+
+const SPONSOR_UNAVAILABLE_MESSAGE = "Payouts are temporarily unavailable. Please try again shortly.";
+const SPONSOR_PENDING_MESSAGE =
+  "Your payout wallet setup is still confirming on the network. Try again in a minute.";
 
 interface StellarWalletLinkProps {
   /**
@@ -58,6 +62,14 @@ export default function StellarWalletLink({
           showToast("This Stellar address is already set up for another account.", "error");
           return false;
         }
+        if (res.status === 409 && data.error === "submission_pending") {
+          showToast(SPONSOR_PENDING_MESSAGE, "error");
+          return false;
+        }
+        if (res.status === 503) {
+          showToast(SPONSOR_UNAVAILABLE_MESSAGE, "error");
+          return false;
+        }
         showToast(data.error ?? "Could not set up USDC payouts", "error");
         return false;
       }
@@ -67,12 +79,28 @@ export default function StellarWalletLink({
         return false;
       }
 
-      const signedXdr = await signTransaction(data.xdr, address);
+      let signedXdr: string;
+      try {
+        signedXdr = await signTransaction(data.xdr, address);
+      } catch (err) {
+        // #27: a declined envelope is never re-offered. Nothing was submitted, and
+        // the next attempt builds a fresh one.
+        if (err instanceof WalletError && err.code === "rejected") {
+          showToast("Payout wallet setup cancelled. Nothing was submitted — link again when you're ready.", "error");
+          return false;
+        }
+        throw err;
+      }
       const submit = await fetch("/api/me/wallet/sponsor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, signedXdr }),
       });
+      // 202: the submit's outcome is not known yet. Rebuilding now could sponsor twice.
+      if (submit.status === 202) {
+        showToast(SPONSOR_PENDING_MESSAGE, "error");
+        return false;
+      }
       if (submit.ok) return true;
 
       const err = await submit.json();
@@ -88,8 +116,12 @@ export default function StellarWalletLink({
         showToast("This Stellar address is already set up for another account.", "error");
         return false;
       }
+      if (submit.status === 409 && err.error === "submission_pending") {
+        showToast(SPONSOR_PENDING_MESSAGE, "error");
+        return false;
+      }
       if (submit.status === 503) {
-        showToast("Payouts are temporarily unavailable. Please try again shortly.", "error");
+        showToast(SPONSOR_UNAVAILABLE_MESSAGE, "error");
         return false;
       }
       showToast(err.error ?? "Could not set up USDC payouts", "error");
@@ -99,6 +131,10 @@ export default function StellarWalletLink({
     return false;
   };
 
+  /**
+   * Connect, make sure the address can receive USDC, then prove ownership and
+   * link it. Every failure ends in a toast; nothing here throws to the caller.
+   */
   const handleLink = async () => {
     if (linking) return;
     setLinking(true);

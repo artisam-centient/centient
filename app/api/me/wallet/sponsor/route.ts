@@ -5,11 +5,20 @@ import { isValidStellarAddress } from "@/lib/stellar/signature";
 import {
   accountHasUsdcTrustline,
   buildSponsoredTrustlineTx,
-  submitSponsoredTrustline,
+  getTxStatus,
+  prepareSponsoredTrustline,
   StellarPaymentError,
+  type PreparedSponsorship,
 } from "@/lib/stellar/client";
 import { checkWalletRateLimit } from "@/lib/rate-limit";
-import { checkSponsorAllowed, recordSponsorship } from "@/lib/sponsored-trustline";
+import {
+  checkSponsorAllowed,
+  confirmSponsorship,
+  failSponsorship,
+  livePendingSponsorship,
+  openSponsorshipIntent,
+  type SponsorshipIntentDecision,
+} from "@/lib/sponsored-trustline";
 
 /**
  * ST-4e (#314) — platform-sponsored USDC trustlines (CAP-33).
@@ -23,6 +32,11 @@ import { checkSponsorAllowed, recordSponsorship } from "@/lib/sponsored-trustlin
  *
  * Replaces ST-4b's hard `no_trustline` reject with an in-app funded flow. StrKey
  * is case-sensitive — the address is never lowercased.
+ *
+ * #27 — POST records a pending sponsorship before broadcasting, and answers only
+ * what it knows. `retry` means the envelope provably cannot land, so the client
+ * may rebuild. A submit whose outcome is unknown answers 202 `pending` and keeps
+ * the row, because rebuilding then could sponsor the address twice.
  */
 export async function GET(req: NextRequest) {
   const userId = await getLabelerSession(req);
@@ -55,20 +69,27 @@ export async function GET(req: NextRequest) {
     // receives an XDR. Only reached when a sponsorship would actually be created
     // (needed=true), so re-linking an already-trusting address never consumes it.
     const gate = await checkSponsorAllowed(userId!, address);
-    if (!gate.ok) {
-      return NextResponse.json(
-        { error: gate.reason === "cap_reached" ? "sponsorship_cap_reached" : "address_in_use" },
-        { status: gate.reason === "cap_reached" ? 429 : 409 },
-      );
+    if (!gate.ok) return gateRefusal(gate.reason);
+    // #27: don't ask for a signature on an envelope POST would refuse to send.
+    if (await livePendingSponsorship(address)) {
+      return NextResponse.json({ error: "submission_pending" }, { status: 409 });
     }
     const { xdr, kind } = await buildSponsoredTrustlineTx(address);
     return NextResponse.json({ needed: true, xdr, kind });
   } catch (err) {
+    if (err instanceof StellarPaymentError && err.code === "sponsor_low_reserve") {
+      Sentry.captureException(err, { extra: { context: "sponsor-trustline-low-reserve", userId } });
+      return NextResponse.json({ error: "sponsorship_unavailable" }, { status: 503 });
+    }
     Sentry.captureException(err, { extra: { context: "sponsor-trustline-build", userId } });
     return NextResponse.json({ error: "build_failed" }, { status: 502 });
   }
 }
 
+/**
+ * Submit a recipient-co-signed sponsorship envelope. Validates it, records the
+ * intent, broadcasts, then settles the row with whatever Horizon actually said.
+ */
 export async function POST(req: NextRequest) {
   const userId = await getLabelerSession(req);
   const unauthorized = requireLabelerSession(userId);
@@ -98,40 +119,141 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  // #330: authoritative per-user outstanding cap + cross-user address lock,
-  // re-checked here (not just at build) so a client that skips GET can't bypass it.
+  // #330: per-user outstanding cap + cross-user address lock, re-checked here
+  // (not just at build) so a client that skips GET can't bypass it.
   const gate = await checkSponsorAllowed(userId!, address);
-  if (!gate.ok) {
-    return NextResponse.json(
-      { error: gate.reason === "cap_reached" ? "sponsorship_cap_reached" : "address_in_use" },
-      { status: gate.reason === "cap_reached" ? 429 : 409 },
-    );
+  if (!gate.ok) return gateRefusal(gate.reason);
+
+  let prepared: PreparedSponsorship;
+  try {
+    prepared = prepareSponsoredTrustline(signedXdr, address);
+  } catch (err) {
+    if (err instanceof StellarPaymentError && err.code === "invalid_sponsor_tx") {
+      return NextResponse.json({ error: "invalid_sponsor_tx" }, { status: 400 });
+    }
+    Sentry.captureException(err, { extra: { context: "sponsor-trustline-prepare", userId } });
+    return NextResponse.json({ error: "submit_failed" }, { status: 502 });
   }
 
+  // Written BEFORE the irreversible step. If this fails, nothing is broadcast.
+  let decision: SponsorshipIntentDecision;
   try {
-    const { hash, kind } = await submitSponsoredTrustline(signedXdr, address);
-    // Record the locked reserve so it counts against the cap. Best-effort: the
-    // trustline IS established on-chain even if this write fails, so don't fail the
-    // request — but surface it, since an unrecorded sponsorship under-counts the cap.
-    try {
-      await recordSponsorship({ userId: userId!, address, kind, txHash: hash });
-    } catch (recordErr) {
-      Sentry.captureException(recordErr, { extra: { context: "sponsor-record", userId, address } });
-    }
-    return NextResponse.json({ established: true });
+    decision = await openSponsorshipIntent(
+      {
+        userId: userId!,
+        address,
+        kind: prepared.kind,
+        txHash: prepared.hash,
+        expiresAt: prepared.expiresAt,
+      },
+      { txStatus: getTxStatus },
+    );
   } catch (err) {
-    if (err instanceof StellarPaymentError) {
-      if (err.code === "tx_bad_seq") {
-        return NextResponse.json({ error: "retry" }, { status: 409 });
-      }
-      if (err.code === "op_low_reserve") {
-        return NextResponse.json({ error: "sponsorship_unavailable" }, { status: 503 });
-      }
-      if (err.code === "invalid_sponsor_tx") {
-        return NextResponse.json({ error: "invalid_sponsor_tx" }, { status: 400 });
-      }
-    }
-    Sentry.captureException(err, { extra: { context: "sponsor-trustline-submit", userId } });
+    Sentry.captureException(err, { extra: { context: "sponsor-intent", userId, address } });
     return NextResponse.json({ error: "submit_failed" }, { status: 502 });
+  }
+
+  switch (decision.action) {
+    case "address_in_use":
+      return NextResponse.json({ error: "address_in_use" }, { status: 409 });
+    case "already_confirmed":
+      return established();
+    case "prior_pending":
+      return NextResponse.json({ error: "submission_pending" }, { status: 409 });
+  }
+
+  const settle = { id: decision.id, hash: prepared.hash, userId: userId!, address };
+  try {
+    await prepared.submit();
+  } catch (err) {
+    return settleFailedSubmit(err, settle);
+  }
+  await confirm(settle);
+  return established();
+}
+
+/** The #330 gate's refusal: 429 at the cap, 409 when another user holds the address. */
+function gateRefusal(reason: "cap_reached" | "address_sponsored_by_other") {
+  return NextResponse.json(
+    { error: reason === "cap_reached" ? "sponsorship_cap_reached" : "address_in_use" },
+    { status: reason === "cap_reached" ? 429 : 409 },
+  );
+}
+
+/** The address holds its sponsored account and trustline. */
+function established() {
+  return NextResponse.json({ established: true });
+}
+
+type Settle = { id: string; hash: string; userId: string; address: string };
+
+/**
+ * Answer a broadcast that threw, settling the intent only on a definite result.
+ * `tx_bad_seq` and an unknown outcome are both resolved by asking Horizon about
+ * the hash: a stale sequence can only belong to an envelope that already landed,
+ * and a timed-out one may land yet.
+ */
+async function settleFailedSubmit(err: unknown, settle: Settle): Promise<NextResponse> {
+  const code = err instanceof StellarPaymentError ? err.code : "submission_unknown";
+
+  if (code === "op_low_reserve") {
+    await release(settle);
+    Sentry.captureException(err, { extra: { context: "sponsor-trustline-submit", userId: settle.userId } });
+    return NextResponse.json({ error: "sponsorship_unavailable" }, { status: 503 });
+  }
+  if (code !== "tx_bad_seq" && code !== "submission_unknown") {
+    await release(settle);
+    Sentry.captureException(err, { extra: { context: "sponsor-trustline-submit", userId: settle.userId } });
+    return NextResponse.json({ error: "submit_failed" }, { status: 502 });
+  }
+
+  let status: Awaited<ReturnType<typeof getTxStatus>>;
+  try {
+    status = await getTxStatus(settle.hash);
+  } catch (lookupErr) {
+    Sentry.captureException(lookupErr, { extra: { context: "sponsor-status-lookup", ...settle } });
+    return pending();
+  }
+
+  if (status === "confirmed") {
+    await confirm(settle);
+    return established();
+  }
+  if (code === "tx_bad_seq") {
+    await release(settle);
+    return NextResponse.json({ error: "retry" }, { status: 409 });
+  }
+  if (status === "failed") {
+    await release(settle);
+    Sentry.captureException(err, { extra: { context: "sponsor-trustline-submit", userId: settle.userId } });
+    return NextResponse.json({ error: "submit_failed" }, { status: 502 });
+  }
+  Sentry.captureException(err, { extra: { context: "sponsor-submission-unknown", ...settle } });
+  return pending();
+}
+
+/** The envelope may still land. The pending row stays, and counts, until it is resolved. */
+function pending() {
+  return NextResponse.json({ established: false, pending: true }, { status: 202 });
+}
+
+/**
+ * Best-effort: the sponsorship is on-chain whether or not this write lands. A
+ * row left pending still counts against the cap and can be reconciled by hash.
+ */
+async function confirm(settle: Settle): Promise<void> {
+  try {
+    await confirmSponsorship(settle.id, settle.hash);
+  } catch (err) {
+    Sentry.captureException(err, { extra: { context: "sponsor-confirm", ...settle } });
+  }
+}
+
+/** Best-effort: a row left pending only over-counts until its envelope expires. */
+async function release(settle: Settle): Promise<void> {
+  try {
+    await failSponsorship(settle.id, settle.hash);
+  } catch (err) {
+    Sentry.captureException(err, { extra: { context: "sponsor-release", ...settle } });
   }
 }
