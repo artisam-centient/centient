@@ -7,8 +7,8 @@
 // the 2-of-3 payout account, collects two independent signatures, fee-bumps, and
 // submits under its own sequence lock. Nothing in this module can move funds
 // with one signature: `sponsorKeypair()` signs only the sponsorship sandwich
-// for a recipient's trustline, and is required to be a key that is not a signer
-// on the payout account at all (F-01).
+// for a recipient's trustline and the fee bump that carries it (#28), and is
+// required to be a key that is not a signer on the payout account at all (F-01).
 //
 // USDC is an issued asset, so each recipient must hold a USDC trustline before
 // they can be paid — see `op_no_trust` below and `buildSponsoredTrustlineTx`.
@@ -28,8 +28,8 @@ import { assertSponsorNotPayoutSigner } from "./key-custody";
 const TX_TIMEOUT_SECONDS = 180;
 
 /**
- * The most the sponsor pays per operation: 0.01 XLM. The builder clamps the
- * network's base fee to it and the submit guard rejects anything above it.
+ * The most the sponsor pays per operation: 0.01 XLM. The fee bump's bid is
+ * clamped to it at submit, and the submit guard rejects an inner envelope above it.
  */
 export const SPONSOR_MAX_FEE_PER_OP_STROOPS = 100_000;
 
@@ -79,8 +79,9 @@ let _sponsorKeypair: Keypair | null = null;
  * payout signer and `assertCustodyBelowThreshold` still refuses to pay out.
  *
  * This key signs only the sponsorship sandwich — a shape asserted to contain no
- * payment operation — so it needs XLM for reserves and no payout authority at
- * all. `assertSponsorNotPayoutSigner` enforces that separation.
+ * payment operation — and the fee bump around it, so it needs XLM for reserves
+ * and fees and no payout authority at all. `assertSponsorNotPayoutSigner`
+ * enforces that separation.
  */
 function sponsorKeypair(): Keypair {
   if (_sponsorKeypair) return _sponsorKeypair;
@@ -118,11 +119,20 @@ export function sponsorPublicKey(): string | null {
   }
 }
 
-/** Horizon error → `{ transaction, operations }` result codes (ST-0 #290 shapes). */
-export function resultCodes(err: unknown): { transaction?: string; operations?: string[] } {
+/**
+ * Horizon error → result codes (ST-0 #290 shapes). A fee bump whose inner
+ * transaction failed answers `transaction: "tx_fee_bump_inner_failed"` and puts
+ * the inner verdict in `inner_transaction`; `operations` holds the inner
+ * operations' codes either way.
+ */
+export function resultCodes(err: unknown): {
+  transaction?: string;
+  inner_transaction?: string;
+  operations?: string[];
+} {
   const extras = (err as { response?: { data?: { extras?: { result_codes?: unknown } } } })
     ?.response?.data?.extras?.result_codes;
-  return (extras as { transaction?: string; operations?: string[] }) ?? {};
+  return (extras as { transaction?: string; inner_transaction?: string; operations?: string[] }) ?? {};
 }
 
 /**
@@ -141,6 +151,7 @@ export function describeStellarError(err: unknown): string {
   const codes = resultCodes(err);
   const parts: string[] = [];
   if (codes.transaction) parts.push(codes.transaction);
+  if (codes.inner_transaction) parts.push(codes.inner_transaction);
   if (codes.operations?.length) {
     // Horizon pads the array with "op_success" for operations that did apply;
     // keeping those buries the one code that explains the failure.
@@ -155,6 +166,9 @@ export function describeStellarError(err: unknown): string {
  * Look up a transaction by hash and map it to a coarse status for the reconciler
  * (ST-3b): `confirmed` (Horizon `successful: true`), `failed` (explicit
  * failure), or `not_found` (404 — not yet visible or never submitted).
+ *
+ * An inner transaction's hash resolves to the fee bump that carried it, so a
+ * sponsorship is looked up by the hash the contributor signed.
  */
 export async function getTxStatus(
   hash: string,
@@ -220,8 +234,8 @@ async function accountExists(address: string): Promise<boolean> {
 
 /**
  * Build a CAP-33 platform-sponsored USDC-trustline transaction for `recipientG`
- * and platform-sign it. The platform is the transaction source (sequence + fee)
- * and the sponsor; the recipient owns (and must also sign) the `changeTrust` and
+ * and platform-sign it. The platform is the transaction source (sequence) and
+ * the sponsor; the recipient owns (and must also sign) the `changeTrust` and
  * `endSponsoring` ops, but pays no reserve. If the recipient account does not yet
  * exist, a sponsored `createAccount(recipient, "0")` is prepended.
  *
@@ -234,6 +248,12 @@ async function accountExists(address: string): Promise<boolean> {
  * sponsor cannot cover the reserves this sponsorship would add plus its fee.
  * Otherwise the contributor would sign, and only then learn at submit
  * (`op_low_reserve`) that it could never have worked.
+ *
+ * #28: the envelope carries the minimum fee. The sponsor's fee bump makes the
+ * real bid when it is submitted, so a fee that rises while the contributor is
+ * signing never needs a second signature, and the fee Freighter shows stays the
+ * smallest it can be. The pre-check prices that bump: the network fee across
+ * the inner operations plus the bump's own.
  */
 export async function buildSponsoredTrustlineTx(
   recipientG: string,
@@ -241,14 +261,14 @@ export async function buildSponsoredTrustlineTx(
   const kp = sponsorKeypair();
   const srv = server();
   const account = await srv.loadAccount(kp.publicKey());
-  const networkFee = await srv.fetchBaseFee().catch(() => Number(BASE_FEE));
-  const fee = Math.min(networkFee, SPONSOR_MAX_FEE_PER_OP_STROOPS);
+  const bidPerOp = await feeBumpBidPerOp(srv, 0);
   const exists = await accountExists(recipientG);
   const kind: SponsorshipKind = exists ? "trustline" : "account+trustline";
-  await assertSponsorCanCover(srv, account, kind, BigInt(fee) * BigInt(exists ? 3 : 4));
+  const bumpOperations = (exists ? 3 : 4) + 1;
+  await assertSponsorCanCover(srv, account, kind, BigInt(bidPerOp) * BigInt(bumpOperations));
 
   const builder = new TransactionBuilder(account, {
-    fee: String(fee),
+    fee: BASE_FEE,
     networkPassphrase: networkPassphrase(),
   }).addOperation(Operation.beginSponsoringFutureReserves({ sponsoredId: recipientG }));
 
@@ -266,6 +286,17 @@ export async function buildSponsoredTrustlineTx(
   tx.sign(kp);
 
   return { xdr: tx.toXDR(), kind };
+}
+
+/**
+ * The per-operation fee the sponsor's fee bump bids: the network's current base
+ * fee, clamped to {@link SPONSOR_MAX_FEE_PER_OP_STROOPS}, and never below the
+ * protocol minimum or `innerRate` (a fee bump may not bid less per operation
+ * than the transaction it carries). A failed fee lookup bids the minimum.
+ */
+async function feeBumpBidPerOp(srv: Horizon.Server, innerRate: number): Promise<number> {
+  const networkFee = await srv.fetchBaseFee().catch(() => Number(BASE_FEE));
+  return Math.max(Math.min(networkFee, SPONSOR_MAX_FEE_PER_OP_STROOPS), innerRate, Number(BASE_FEE));
 }
 
 /** A Horizon balance line, as far as the reserve pre-check reads it. */
@@ -316,6 +347,13 @@ function rejectSponsorTx(why: string): never {
   throw new StellarPaymentError(`submitSponsoredTrustline: ${why}`, "invalid_sponsor_tx", false);
 }
 
+/** Does `tx` carry a signature by `signer` over `hash`, the hash for this network? */
+function signedBy(tx: Transaction, hash: Buffer, signer: Keypair): boolean {
+  return tx.signatures.some(
+    (sig) => sig.hint().equals(signer.signatureHint()) && signer.verify(hash, sig.signature()),
+  );
+}
+
 /**
  * Assert `xdr` is exactly a platform-sponsored USDC-trustline sandwich for a
  * single recipient — begin / [createAccount] / changeTrust(USDC) / end, no other
@@ -327,10 +365,15 @@ function rejectSponsorTx(why: string): never {
  *
  * #27 pins the fields that make "the contributor pays nothing and owns the
  * account" true of the envelope itself, not just of the builder that made it:
- * the sponsor is the transaction source (so it pays the fee and sequence) and
- * validly signed it; `createAccount` funds 0 XLM; the trustline has the default
- * limit; the fee is bounded; and the envelope has a time bound no later than the
+ * the sponsor is the transaction source (so it pays the sequence) and validly
+ * signed it; `createAccount` funds 0 XLM; the trustline has the default limit;
+ * the fee is bounded; and the envelope has a time bound no later than the
  * builder issues, so a stalled one is known to expire.
+ *
+ * #28 pins the signatures: exactly the sponsor's and the contributor's, both
+ * valid for this network. A signature Freighter made for the other network, or
+ * one riding along, is refused here with a reason rather than by Horizon after
+ * the intent is recorded.
  */
 function assertSponsoredTrustlineShape(
   tx: Transaction,
@@ -403,22 +446,33 @@ function assertSponsoredTrustlineShape(
   }
   // The recipient cannot alter a sponsor-signed envelope without invalidating
   // this signature, so checking it proves the envelope is one the sponsor built.
+  // The hash commits to the network passphrase, so it also proves the network.
   const hash = tx.hash();
-  const sponsorSigned = tx.signatures.some(
-    (sig) => sig.hint().equals(sponsor.signatureHint()) && sponsor.verify(hash, sig.signature()),
-  );
-  if (!sponsorSigned) rejectSponsorTx("envelope does not carry a valid sponsor signature");
+  if (!signedBy(tx, hash, sponsor)) rejectSponsorTx("envelope does not carry a valid sponsor signature");
+  if (!signedBy(tx, hash, Keypair.fromPublicKey(sponsored))) {
+    rejectSponsorTx("envelope does not carry the contributor's signature for this network");
+  }
+  if (tx.signatures.length !== 2) {
+    rejectSponsorTx(`envelope carries ${tx.signatures.length} signatures, not only the sponsor's and the contributor's`);
+  }
 }
 
 /** A validated sponsorship envelope, ready to broadcast. */
 export interface PreparedSponsorship {
-  /** Hex hash of the envelope — known before broadcast, so it can be recorded first. */
+  /**
+   * Hex hash of the envelope the contributor signed — known before broadcast, so
+   * it can be recorded first. It names the sponsorship whatever fee bump carries it.
+   */
   hash: string;
   kind: SponsorshipKind;
   /** The envelope's `maxTime`: after it, the envelope can no longer apply. */
   expiresAt: Date;
-  /** Broadcast the envelope. Errors are classified; see {@link submitSponsoredTrustline}. */
-  submit(): Promise<{ hash: string }>;
+  /**
+   * Wrap the envelope in the sponsor's fee bump and broadcast it. Resolves with
+   * the envelope's hash and the fee bump's. Errors are classified; see
+   * {@link submitSponsoredTrustline}.
+   */
+  submit(): Promise<{ hash: string; feeBumpHash: string }>;
 }
 
 /**
@@ -432,7 +486,8 @@ export function prepareSponsoredTrustline(
   expectedRecipient: string,
 ): PreparedSponsorship {
   // Fix 3: wrap XDR parse so garbage input / fee-bump envelopes become
-  // `invalid_sponsor_tx` (→ 400) instead of a raw JS error (→ 502).
+  // `invalid_sponsor_tx` (→ 400) instead of a raw JS error (→ 502). Only the
+  // server wraps an envelope in a fee bump (#28); a client-supplied one is refused.
   let tx: Transaction;
   try {
     const parsed = TransactionBuilder.fromXDR(signedXdr, networkPassphrase());
@@ -462,15 +517,18 @@ export function prepareSponsoredTrustline(
 
 /**
  * Validate and submit a recipient-co-signed sponsored-trustline XDR (from
- * {@link buildSponsoredTrustlineTx}) in one step.
+ * {@link buildSponsoredTrustlineTx}) in one step, inside the sponsor's fee bump.
  *
- * Maps: `op_low_reserve` → non-retryable (platform lacks XLM for the sponsored
- * reserves); `tx_bad_seq` → retryable (the sequence was consumed, so this
- * envelope cannot apply unless it is what consumed it); any other Horizon
- * verdict, or a 4xx → `sponsor_tx_rejected` (definite: it did not apply);
- * a timeout, 5xx or network failure → `submission_unknown` (it may still
- * apply — resolve by hash, never by rebuilding). Shape mismatch or garbage input
- * → non-retryable `invalid_sponsor_tx` (→ 400 at the route).
+ * Maps, reading a fee bump's inner verdict where Horizon puts it:
+ * `op_low_reserve` → non-retryable (platform lacks XLM for the sponsored
+ * reserves); `tx_insufficient_balance` on the bump → non-retryable
+ * `sponsor_low_reserve` (the sponsor cannot pay the fee); `tx_bad_seq` →
+ * retryable (the sequence was consumed, so this envelope cannot apply unless it
+ * is what consumed it); any other Horizon verdict, or a 4xx →
+ * `sponsor_tx_rejected` (definite: it did not apply); a timeout, 5xx or network
+ * failure → `submission_unknown` (it may still apply — resolve by hash, never by
+ * rebuilding). Shape mismatch or garbage input → non-retryable
+ * `invalid_sponsor_tx` (→ 400 at the route).
  *
  * NOTE: the sponsor path is intentionally NOT serialized with the payout
  * submitter's sequence lock (simple strategy; the multisig payout path rebuilds
@@ -479,22 +537,44 @@ export function prepareSponsoredTrustline(
 export async function submitSponsoredTrustline(
   signedXdr: string,
   expectedRecipient: string,
-): Promise<{ hash: string; kind: SponsorshipKind }> {
+): Promise<{ hash: string; feeBumpHash: string; kind: SponsorshipKind }> {
   const prepared = prepareSponsoredTrustline(signedXdr, expectedRecipient);
-  const { hash } = await prepared.submit();
-  return { hash, kind: prepared.kind };
+  const { hash, feeBumpHash } = await prepared.submit();
+  return { hash, feeBumpHash, kind: prepared.kind };
 }
 
 /**
- * Submit an already-validated envelope and classify any failure as definite
- * (`op_low_reserve`, `tx_bad_seq`, `sponsor_tx_rejected`) or `submission_unknown`.
+ * Wrap an already-validated envelope in a fee bump the sponsor signs and pays,
+ * submit it, and classify any failure as definite (`op_low_reserve`,
+ * `sponsor_low_reserve`, `tx_bad_seq`, `sponsor_tx_rejected`) or
+ * `submission_unknown`.
+ *
+ * The bid is made now, not when the contributor signed: the inner envelope was
+ * built at the minimum fee (#28). A re-wrap at another fee carries the same
+ * inner envelope, which can apply only once.
  */
-async function broadcastSponsorship(tx: Transaction, hash: string): Promise<{ hash: string }> {
+async function broadcastSponsorship(
+  tx: Transaction,
+  hash: string,
+): Promise<{ hash: string; feeBumpHash: string }> {
+  const sponsor = sponsorKeypair();
+  const srv = server();
+  const innerRate = Math.ceil(Number(tx.fee) / tx.operations.length);
+  const bid = await feeBumpBidPerOp(srv, innerRate);
+  const bump = TransactionBuilder.buildFeeBumpTransaction(sponsor, String(bid), tx, networkPassphrase());
+  bump.sign(sponsor);
+  const feeBumpHash = bump.hash().toString("hex");
+
   try {
-    await server().submitTransaction(tx);
-    return { hash };
+    await srv.submitTransaction(bump);
+    return { hash, feeBumpHash };
   } catch (err) {
     const codes = resultCodes(err);
+    // A fee bump reports its inner transaction's verdict under `inner_transaction`,
+    // with `transaction` fixed at `tx_fee_bump_inner_failed` (captured on testnet,
+    // 2026-09-14). A code on the bump itself is about the fee, not the envelope.
+    const innerCode =
+      codes.transaction === "tx_fee_bump_inner_failed" ? codes.inner_transaction : codes.transaction;
     if (codes.operations?.includes("op_low_reserve")) {
       throw new StellarPaymentError(
         "submitSponsoredTrustline: platform account cannot fund sponsored reserves (op_low_reserve)",
@@ -502,7 +582,14 @@ async function broadcastSponsorship(tx: Transaction, hash: string): Promise<{ ha
         false,
       );
     }
-    if (codes.transaction === "tx_bad_seq") {
+    if (codes.transaction === "tx_insufficient_balance") {
+      throw new StellarPaymentError(
+        `submitSponsoredTrustline: sponsor cannot pay the fee bump for ${hash} (tx_insufficient_balance)`,
+        "sponsor_low_reserve",
+        false,
+      );
+    }
+    if (innerCode === "tx_bad_seq") {
       throw new StellarPaymentError(
         "submitSponsoredTrustline: stale sequence (tx_bad_seq) — rebuild and retry",
         "tx_bad_seq",

@@ -410,7 +410,7 @@ describe("prepareSponsoredTrustline", () => {
     expect(prepared.expiresAt.getTime()).toBe(Number(tx.timeBounds!.maxTime) * 1000);
     expect(submit).not.toHaveBeenCalled();
 
-    expect(await prepared.submit()).toEqual({ hash: prepared.hash });
+    expect(await prepared.submit()).toEqual({ hash: prepared.hash, feeBumpHash: expect.any(String) });
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
@@ -578,7 +578,7 @@ describe("buildSponsoredTrustlineTx — sponsor reserve pre-check", () => {
     await expect(buildSponsoredTrustlineTx(recipient)).resolves.toMatchObject({ kind: "trustline" });
   });
 
-  it("clamps a surging network fee to the bound the submit guard enforces", async () => {
+  it("keeps a surging network fee out of the envelope the contributor signs (#28)", async () => {
     const recipient = Keypair.random().publicKey();
     const srv = serverWithSponsorXlm(recipient, "100.0000000", false);
     srv.fetchBaseFee = vi.fn(async () => SPONSOR_MAX_FEE_PER_OP_STROOPS * 50);
@@ -586,6 +586,7 @@ describe("buildSponsoredTrustlineTx — sponsor reserve pre-check", () => {
 
     const { xdr } = await buildSponsoredTrustlineTx(recipient);
     const tx = TransactionBuilder.fromXDR(xdr, networkPassphrase()) as Transaction;
-    expect(Number(tx.fee)).toBe(SPONSOR_MAX_FEE_PER_OP_STROOPS * tx.operations.length);
+    // The fee bump makes the bid at submit, clamped there; see sponsor-fee-bump.test.ts.
+    expect(Number(tx.fee)).toBe(100 * tx.operations.length);
   });
 });
