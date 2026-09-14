@@ -348,6 +348,9 @@ export default function Home() {
   } else if (screen === "login") {
     body = (
       <LoginScreen
+        // #26: Freighter sign-in sets the same `labeler_session` cookie as email
+        // login, so both paths resolve the session through one handler.
+        onWalletSignedIn={handleAccountLoggedIn}
         onEmailAuth={(mode) => {
           setAccountAuthMode(mode);
           setScreen("account_auth");

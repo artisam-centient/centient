@@ -1,7 +1,9 @@
-// Smoke test for the P5a account-first default entry (#267). The repo has no
-// React Testing Library / jsdom, so we render to static markup with
-// react-dom/server (no extra deps, no JSX — vitest's include is *.test.ts) and
-// assert the account path is primary and the wallet path is a labelled secondary.
+// Smoke test for the contributor entry screen. The repo has no React Testing
+// Library / jsdom, so we render to static markup with react-dom/server (no extra
+// deps, no JSX — vitest's include is *.test.ts).
+//
+// #26 made the entry wallet-first: Freighter sign-in is primary and email is a
+// secondary path for accounts that already exist.
 import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -17,38 +19,44 @@ function render(node: ReturnType<typeof createElement>): string {
   return renderToStaticMarkup(node);
 }
 
-describe("LoginScreen — account-first default (P5a)", () => {
-  // ST-4c ripped EVM signature-login: email/password is now the only entry.
-  const props = { onEmailAuth: () => {}, error: null };
+describe("LoginScreen — wallet-first entry (#26)", () => {
+  const props = { onWalletSignedIn: () => {}, onEmailAuth: () => {}, error: null };
 
-  it("makes account creation the primary call to action", () => {
+  it("makes Freighter sign-in the primary call to action", () => {
     const html = render(createElement(LoginScreen, props));
-    expect(html).toContain("Create account");
-    expect(html).toContain("no wallet needed");
+    expect(html).toContain("Connect Freighter");
+    expect(html.indexOf("Connect Freighter")).toBeLessThan(html.indexOf("Sign in with email"));
   });
 
-  it("offers a sign-in path for returning account users", () => {
+  it("does not require email or password to start", () => {
     const html = render(createElement(LoginScreen, props));
-    expect(html).toContain("Already have an account?");
-    expect(html).toContain("Sign in");
+    expect(html).toContain("no email or password needed");
+    expect(html).not.toContain("Create account");
+    expect(html).not.toContain('type="password"');
   });
 
-  it("no longer offers an EVM wallet-login path (ripped in ST-4c)", () => {
+  it("keeps email sign-in as a secondary path for existing accounts", () => {
     const html = render(createElement(LoginScreen, props));
-    expect(html).not.toContain("Have a wallet?");
-    expect(html).not.toContain("Wallet login is still fully supported");
+    expect(html).toContain("Signed up with email before?");
+    expect(html).toContain("Sign in with email");
   });
 
-  it("explains how the account relates to a wallet (one account holds the balance)", () => {
+  it("offers no MiniPay or EVM wallet-login path", () => {
+    const html = render(createElement(LoginScreen, props)).toLowerCase();
+    expect(html).not.toContain("minipay");
+    expect(html).not.toContain("metamask");
+    expect(html).not.toContain("have a wallet?");
+  });
+
+  it("explains that the wallet address is the account and signing moves no funds", () => {
     const html = render(createElement(LoginScreen, props));
-    expect(html).toContain("account");
-    expect(html).toContain("withdraw");
+    // The explicit {" "} keeps the space after the bold span.
+    expect(html).toContain("wallet address</span> is your account");
+    expect(html).toContain("never moves funds");
   });
 
   it("surfaces the connect error when present", () => {
-    const html = render(
-      createElement(LoginScreen, { ...props, error: "Connection failed" }),
-    );
+    const html = render(createElement(LoginScreen, { ...props, error: "Connection failed" }));
     expect(html).toContain("Connection failed");
   });
 });
