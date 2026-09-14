@@ -8,7 +8,7 @@ const csp = [
   "img-src 'self' data: blob:",
   "font-src 'self' https://fonts.gstatic.com",
   "connect-src 'self' https://*.sentry.io",
-  "frame-ancestors 'self' https://*.minipay.app",
+  "frame-ancestors 'self'",
   "base-uri 'self'",
   "form-action 'self'",
 ].join("; ");
@@ -20,6 +20,7 @@ const config: NextConfig = {
     "*.ngrok-free.dev",
     "*.ngrok-free.app",
   ],
+  /** Security headers on every route; the CSP only lets the app frame itself. */
   async headers() {
     return [
       {

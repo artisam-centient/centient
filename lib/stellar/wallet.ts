@@ -1,7 +1,8 @@
-// Client-side Stellar wallet identity, used **only at withdrawal** to connect a
-// browser wallet and prove ownership of a payout address (ST-4a #299). Login
-// stays email/password — this is not a login mechanism. The server verifies what
-// is produced here in lib/stellar/signature.ts.
+// Client-side Stellar wallet identity: connect Freighter and prove control of a
+// `G…` address. Contributors sign in with it (#26, over #25's
+// /api/auth/wallet/*), and the withdrawal screen uses it to prove a payout
+// address (ST-4a #299). The server verifies what is produced here in
+// lib/stellar/signature.ts.
 //
 // Freighter is the only supported wallet. Albedo was descoped from Deliverable 2
 // (ADR-0003): it was only ever wired as a connect-only fallback, so a user who
@@ -51,6 +52,48 @@ export interface StellarSignedMessage {
 export const FREIGHTER_REQUIRED_MESSAGE =
   "Freighter is required. Install the Freighter browser extension, then try again.";
 
+/** Freighter's `FreighterApiError.code` when the user declines a prompt. */
+const FREIGHTER_USER_REJECTED = -4;
+
+/**
+ * Why a wallet call failed, so a caller can pick a state instead of parsing
+ * `message`:
+ *
+ *   • `freighter_missing` — the extension is not installed or not reachable.
+ *   • `rejected`          — the user declined access or signing.
+ *   • `wrong_account`     — Freighter signed with a different account.
+ *   • `unsupported`       — this Freighter build cannot sign messages.
+ *   • `invalid_address`   — the wallet returned something that is not a G… key.
+ *   • `failed`            — any other wallet error.
+ */
+export type WalletErrorCode =
+  | "freighter_missing"
+  | "rejected"
+  | "wrong_account"
+  | "unsupported"
+  | "invalid_address"
+  | "failed";
+
+/** Thrown by every call in this module; `message` stays human-readable. */
+export class WalletError extends Error {
+  constructor(
+    readonly code: WalletErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "WalletError";
+  }
+}
+
+/** Map a Freighter API error to a {@link WalletError}. */
+function freighterError(
+  error: { code?: number; message: string },
+  prefix: string,
+): WalletError {
+  const code = error.code === FREIGHTER_USER_REJECTED ? "rejected" : "failed";
+  return new WalletError(code, `${prefix}: ${error.message}`);
+}
+
 /**
  * Normalize a Freighter `signMessage` `signedMessage` to a base64 string.
  * Accepts the V4 base64 string as-is and encodes the V3 Buffer/Uint8Array.
@@ -89,12 +132,12 @@ export async function isFreighterAvailable(): Promise<boolean> {
  */
 export async function connect(): Promise<StellarConnection> {
   if (!(await isFreighterAvailable())) {
-    throw new Error(FREIGHTER_REQUIRED_MESSAGE);
+    throw new WalletError("freighter_missing", FREIGHTER_REQUIRED_MESSAGE);
   }
 
   const { requestAccess } = await import("@stellar/freighter-api");
   const { address, error } = await requestAccess();
-  if (error) throw new Error(`Freighter access denied: ${error.message}`);
+  if (error) throw freighterError(error, "Freighter access denied");
   assertAddress(address);
   return { address, wallet: "freighter" };
 }
@@ -114,14 +157,24 @@ export async function signOwnership(
   assertAddress(expectedAddress);
 
   if (!(await isFreighterAvailable())) {
-    throw new Error(FREIGHTER_REQUIRED_MESSAGE);
+    throw new WalletError("freighter_missing", FREIGHTER_REQUIRED_MESSAGE);
   }
 
   const { signMessage } = await import("@stellar/freighter-api");
+  if (typeof signMessage !== "function") {
+    throw new WalletError(
+      "unsupported",
+      "This version of Freighter cannot sign messages. Update Freighter, then try again.",
+    );
+  }
   const res = await signMessage(message, { address: expectedAddress });
-  if (res.error) throw new Error(`Freighter signing failed: ${res.error.message}`);
+  if (res.error) throw freighterError(res.error, "Freighter signing failed");
+  if (res.signedMessage == null) {
+    throw new WalletError("rejected", "Freighter returned no signature (signing was rejected).");
+  }
   if (res.signerAddress !== expectedAddress) {
-    throw new Error(
+    throw new WalletError(
+      "wrong_account",
       `Signed with the wrong account: expected ${expectedAddress}, got ${res.signerAddress}.`,
     );
   }
@@ -149,7 +202,7 @@ export async function signTransaction(
   assertAddress(expectedAddress);
 
   if (!(await isFreighterAvailable())) {
-    throw new Error(FREIGHTER_REQUIRED_MESSAGE);
+    throw new WalletError("freighter_missing", FREIGHTER_REQUIRED_MESSAGE);
   }
 
   const { signTransaction: freighterSign } = await import("@stellar/freighter-api");
@@ -157,9 +210,10 @@ export async function signTransaction(
     address: expectedAddress,
     networkPassphrase: networkPassphrase(),
   });
-  if (res.error) throw new Error(`Freighter signing failed: ${res.error.message}`);
+  if (res.error) throw freighterError(res.error, "Freighter signing failed");
   if (res.signerAddress !== expectedAddress) {
-    throw new Error(
+    throw new WalletError(
+      "wrong_account",
       `Signed with the wrong account: expected ${expectedAddress}, got ${res.signerAddress}.`,
     );
   }
@@ -169,6 +223,6 @@ export async function signTransaction(
 /** Guard a wallet-returned address: reject non-StrKey / corrupted input. */
 function assertAddress(address: string | undefined): asserts address is string {
   if (!address || !isValidStellarAddress(address)) {
-    throw new Error(`Wallet returned an invalid Stellar address: ${address}`);
+    throw new WalletError("invalid_address", `Wallet returned an invalid Stellar address: ${address}`);
   }
 }

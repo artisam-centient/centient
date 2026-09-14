@@ -2,25 +2,26 @@
 
 import Image from "next/image";
 import Faq from "./Faq";
+import WalletSignIn from "./WalletSignIn";
 
 interface LoginScreenProps {
-  /** Open the email account flow. Email/password is the only entry (ST-4c). */
+  /** Called once Freighter sign-in has set the session cookie (#26). */
+  onWalletSignedIn: () => void;
+  /** Open the email flow — kept for accounts that signed up by email. */
   onEmailAuth: (mode: "login" | "register") => void;
   error: string | null;
 }
 
 /**
- * Account-first entry. Email account creation/sign-in is the only login path —
- * EVM browser-wallet signature-login was ripped out in ST-4c.
+ * Wallet-first entry (#26). A contributor signs in by connecting Freighter and
+ * signing a one-time challenge (#25) — no email or password. The proven `G…`
+ * address is the account: a new address gets a new contributor account, and an
+ * email account that linked that address signs in as itself.
  *
- * Note: login no longer touches a wallet, but the rest of the client still does.
- * Task answering (and balance/submit) currently key off a linked wallet address
- * (`/api/task?wallet=…`, `/api/me`, `/api/submit`), and the withdrawal flow proves
- * the payout address on top of that. Re-keying that identity to the session/userId
- * so a wallet-less account can answer tasks is a separate migration (tracked in
- * #301); until it lands, an email-only account with no wallet can't earn yet.
+ * Email sign-in stays as a secondary path for accounts created before wallet
+ * sign-in; it is no longer required to earn.
  */
-export default function LoginScreen({ onEmailAuth, error }: LoginScreenProps) {
+export default function LoginScreen({ onWalletSignedIn, onEmailAuth, error }: LoginScreenProps) {
   return (
     <div className="relative min-h-screen bg-surface">
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
@@ -47,37 +48,28 @@ export default function LoginScreen({ onEmailAuth, error }: LoginScreenProps) {
               </span>
             </h1>
             <p className="mt-2 font-body text-base text-on-surface-variant">
-              Train AI, cent by cent. Create an account to start — no wallet needed.
+              Train AI, cent by cent. Connect your Stellar wallet to start — no email or
+              password needed.
             </p>
           </div>
 
           {error && <p className="max-w-xs text-sm text-error">{error}</p>}
 
-          {/* PRIMARY (P5a): account-first */}
-          <div className="flex w-full max-w-xs flex-col items-center gap-3">
+          {/* PRIMARY (#26): wallet-first */}
+          <WalletSignIn onSignedIn={() => onWalletSignedIn()} />
+
+          <p className="font-body text-sm text-on-surface-variant">
+            Signed up with email before?{" "}
             <button
               type="button"
-              onClick={() => onEmailAuth("register")}
-              className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-br from-primary to-primary-container font-label text-lg font-bold text-white shadow-[0_8px_24px_rgba(0,109,61,0.2)] transition-transform duration-200 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              onClick={() => onEmailAuth("login")}
+              className="font-semibold text-primary underline-offset-2 hover:underline"
             >
-              <span className="material-symbols-outlined text-[22px]" aria-hidden="true">
-                mail
-              </span>
-              Create account
+              Sign in with email
             </button>
-            <p className="font-body text-sm text-on-surface-variant">
-              Already have an account?{" "}
-              <button
-                type="button"
-                onClick={() => onEmailAuth("login")}
-                className="font-semibold text-primary underline-offset-2 hover:underline"
-              >
-                Sign in
-              </button>
-            </p>
-          </div>
+          </p>
 
-          {/* How it works — account ↔ wallet relationship + earnings flow */}
+          {/* How it works — the wallet is the account */}
           <div className="w-full max-w-xs rounded-2xl bg-surface-container-low p-4 text-left">
             <div className="flex items-start gap-3">
               <span
@@ -87,14 +79,13 @@ export default function LoginScreen({ onEmailAuth, error }: LoginScreenProps) {
                 savings
               </span>
               <p className="font-body text-sm text-on-surface-variant">
-                Your <span className="font-semibold text-on-surface">account</span> holds the
-                balance you earn from labelling. Approved answers add to it automatically —
-                connect a wallet only when you&apos;re ready to withdraw. One account, one
-                balance, withdraw anytime.
+                Your <span className="font-semibold text-on-surface">wallet address</span>{" "}
+                is your account. Freighter asks you to sign a one-time message to prove
+                it&apos;s yours — it never moves funds. Approved answers add to your balance
+                automatically.
               </p>
             </div>
           </div>
-
         </section>
 
         <section className="mb-10">
