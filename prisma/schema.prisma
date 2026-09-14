@@ -86,8 +86,9 @@ model SponsoredTrustline {
 
 // #29 — one row per executed sponsored-reserve reclaim run. `report` is the
 // per-sponsorship disposition (skips, failures, hashes, reserve units, stroops)
-// and holds no keys, user ids or contact data. A dry run writes nothing; a null
-// `finishedAt` marks a run that died mid-way.
+// keyed by sponsorship id; it holds no keys, user ids, contact data or wallet
+// addresses. A dry run writes nothing; a null `finishedAt` marks a run that died
+// mid-way.
 model SponsorshipReclaimRun {
   id               String    @id @default(uuid())
   network          String

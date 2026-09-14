@@ -80,9 +80,17 @@ railway ssh --service web -- npm run stellar:sponsorship:reclaim -- execute --ne
 ```
 
 `--network` must name the network the environment is configured for, or the
-command refuses. The run is stored in `sponsorship_reclaim_runs` with its full
-report. The report holds no keys, user ids or contact data. The command exits
-`2` if any sponsorship ended `failed`, and `1` if the run could not start.
+command refuses. The command exits `2` if any sponsorship ended `failed`, and
+`1` if the run could not start. Capturing the output with `| tee run.json` is
+safe: the command lets the report finish writing before it exits.
+
+**Printed versus stored.** The printed report, dry run or execute, names each
+sponsorship's wallet address so you can look it up on Horizon. An execute run
+also stores its report in `sponsorship_reclaim_runs`, **without addresses**. Each
+stored entry is keyed by `sponsorshipId`, which joins to `sponsored_trustlines`
+for as long as that row exists. The stored report holds no keys, user ids,
+contact data or wallet addresses. Keep a printed report only as long as the task
+needs it.
 
 Execute runs are safe to repeat. A released row is no longer outstanding, and a
 row with a live revocation intent is waited on, not revoked again.

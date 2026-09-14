@@ -38,7 +38,7 @@
 // run. One row's failure is recorded and the run moves on.
 //
 // A dry run reads the chain and the ledger and writes nothing. An execute run
-// stores its full report in `sponsorship_reclaim_runs`.
+// stores its report in `sponsorship_reclaim_runs`, without wallet addresses.
 import prisma from "./prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import {
@@ -218,11 +218,25 @@ export async function runSponsorshipReclaim(opts: {
       data: {
         finishedAt: new Date(report.finishedAt),
         reclaimedStroops: BigInt(report.totals.reclaimedStroops),
-        report: report as unknown as Prisma.InputJsonValue,
+        report: storedReport(report) as unknown as Prisma.InputJsonValue,
       },
     });
   }
   return report;
+}
+
+/**
+ * The report as it is stored: every disposition without its wallet address. The
+ * address stays on the sponsorship row, which `sponsorshipId` joins to, for as
+ * long as that row exists; it is not copied into an audit record that outlives
+ * the row (a user's deletion cascades to their sponsorships). The returned and
+ * printed report keeps addresses, so an operator can act on a dry run.
+ */
+function storedReport(report: ReclaimReport) {
+  return {
+    ...report,
+    sponsorships: report.sponsorships.map(({ address: _address, ...rest }) => rest),
+  };
 }
 
 /** One row's disposition. Any thrown lookup or write becomes `failed` for this row alone. */

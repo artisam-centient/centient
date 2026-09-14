@@ -670,6 +670,14 @@ describe("the run report", () => {
     expect(stored).not.toContain(user.id);
     expect(stored).not.toContain("someone@example.com");
     expect(stored).not.toMatch(/userId/);
+    // Stored entries are keyed by sponsorship id, with no wallet address; the
+    // returned report still names each address for the operator.
+    expect(stored).not.toMatch(/"address"/);
+    for (const entry of report.sponsorships) {
+      expect(entry.address).toMatch(/^G[A-Z2-7]{55}$/);
+      expect(stored).not.toContain(entry.address);
+      expect(stored).toContain(entry.sponsorshipId);
+    }
   });
 
   it("stores nothing when the base reserve cannot be read", async () => {
