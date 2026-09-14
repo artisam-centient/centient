@@ -11,6 +11,7 @@ import {
 import {
   CHALLENGE_TTL_MS,
   ChallengeStore,
+  MAX_OUTSTANDING_CHALLENGES,
   ONBOARDING_OPS,
   buildChallengeMessage,
   buildSponsoredOnboardingTx,
@@ -163,6 +164,31 @@ describe("ChallengeStore.verify", () => {
         now: t0,
       }),
     ).toEqual({ ok: false, reason: "invalid_address" });
+  });
+
+  it("caps outstanding challenges by evicting the oldest", () => {
+    const store = new ChallengeStore();
+    const address = Keypair.random().publicKey();
+    const first = store.issue(address, t0, Networks.TESTNET);
+    for (let i = 1; i < MAX_OUTSTANDING_CHALLENGES + 5; i++) {
+      store.issue(address, t0, Networks.TESTNET);
+    }
+    expect(store.size.issued).toBe(MAX_OUTSTANDING_CHALLENGES);
+    expect(store.verify({ address, nonce: first.nonce, signature: "", now: t0 })).toEqual({
+      ok: false,
+      reason: "unknown_nonce",
+    });
+  });
+
+  it("forgets expired challenges and consumed nonces, and still rejects the replay", () => {
+    const { keypair, store, challenge, signature } = issued();
+    const proof = { address: keypair.publicKey(), nonce: challenge.nonce, signature, now: t0 };
+    expect(store.verify(proof).ok).toBe(true);
+
+    const late = new Date(t0.getTime() + CHALLENGE_TTL_MS + 1);
+    store.issue(keypair.publicKey(), late, Networks.TESTNET);
+    expect(store.size).toEqual({ issued: 1, consumed: 0 });
+    expect(store.verify({ ...proof, now: late })).toEqual({ ok: false, reason: "unknown_nonce" });
   });
 });
 

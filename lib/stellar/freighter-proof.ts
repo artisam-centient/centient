@@ -97,16 +97,55 @@ export type ProofResult =
   | { ok: true; challenge: IssuedChallenge }
   | { ok: false; reason: ProofRejection };
 
-/** One-time challenges, held in memory for the life of the process. */
+/**
+ * Upper bound on outstanding challenges. The challenge endpoint is
+ * unauthenticated, so without a bound a caller in a loop grows this process's
+ * memory — and on a shared deployment that process also runs the payout worker.
+ */
+export const MAX_OUTSTANDING_CHALLENGES = 1000;
+
+/**
+ * One-time challenges, held in memory for the life of the process.
+ *
+ * Nothing is kept past the point it could matter: an issued challenge is dropped
+ * once it expires, and a consumed nonce is remembered only until its challenge
+ * would have expired. A replay after that still fails, as `unknown_nonce`.
+ */
 export class ChallengeStore {
   private readonly issued = new Map<string, IssuedChallenge>();
-  private readonly consumed = new Set<string>();
+  /** Consumed nonce → the expiry (ms) of the challenge it belonged to. */
+  private readonly consumed = new Map<string, number>();
+
+  /** Outstanding and remembered-consumed counts. */
+  get size(): { issued: number; consumed: number } {
+    return { issued: this.issued.size, consumed: this.consumed.size };
+  }
+
+  private prune(now: Date): void {
+    const t = now.getTime();
+    for (const [nonce, challenge] of this.issued) {
+      if (challenge.expiresAt.getTime() < t) this.issued.delete(nonce);
+    }
+    for (const [nonce, expiresAt] of this.consumed) {
+      if (expiresAt < t) this.consumed.delete(nonce);
+    }
+  }
 
   issue(
     address: string,
     now: Date = new Date(),
     passphrase: string = networkPassphrase(),
   ): IssuedChallenge {
+    this.prune(now);
+    // At the cap, evict the oldest outstanding challenge (Map keys iterate in
+    // insertion order). A flood can therefore invalidate someone's pending
+    // challenge — acceptable for spike tooling, where the fix is to re-issue.
+    while (this.issued.size >= MAX_OUTSTANDING_CHALLENGES) {
+      const oldest = this.issued.keys().next().value;
+      if (oldest === undefined) break;
+      this.issued.delete(oldest);
+    }
+
     const fields: ChallengeFields = {
       address,
       networkPassphrase: passphrase,
@@ -143,7 +182,7 @@ export class ChallengeStore {
     const challenge = this.issued.get(nonce);
     if (!challenge) return { ok: false, reason: "unknown_nonce" };
     this.issued.delete(nonce);
-    this.consumed.add(nonce);
+    this.consumed.set(nonce, challenge.expiresAt.getTime());
 
     if (now.getTime() > challenge.expiresAt.getTime()) return { ok: false, reason: "expired" };
     if (challenge.address !== address) return { ok: false, reason: "wrong_address" };
