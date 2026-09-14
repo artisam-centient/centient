@@ -116,6 +116,7 @@ describe("signOwnership", () => {
 describe("WalletError codes (#26)", () => {
   const REJECTED = { code: -4, message: "The user rejected this request." };
 
+  /** Await a call expected to throw a WalletError and return its code. */
   async function codeOf(p: Promise<unknown>): Promise<string | undefined> {
     const err = await p.then(
       () => undefined,

@@ -99,6 +99,10 @@ function submitErrorMessage(status: number, code?: string): string {
   return `Submission failed (${code ?? status}). Please try again.`;
 }
 
+/**
+ * The contributor app: resolves the session, then routes between sign-in
+ * (Freighter or email), onboarding, tasks and the account states.
+ */
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("checking");
   const [wallet, setWallet] = useState<string | null>(null);

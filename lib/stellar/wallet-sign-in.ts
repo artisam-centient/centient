@@ -39,6 +39,7 @@ const EXPIRED_REASONS = new Set(["challenge_expired", "challenge_not_found"]);
 /** Verify rejections that mean the proof came from a different account. */
 const WRONG_ACCOUNT_REASONS = new Set(["wrong_signer", "wrong_address"]);
 
+/** Read the `error` code from a JSON error body; undefined when there is none. */
 async function readError(res: Response): Promise<string | undefined> {
   try {
     const body = (await res.json()) as { error?: unknown };
@@ -48,6 +49,7 @@ async function readError(res: Response): Promise<string | undefined> {
   }
 }
 
+/** POST `body` as JSON through the injected fetch. */
 function postJson(deps: WalletSignInDeps, url: string, body: unknown): Promise<Response> {
   return deps.fetch(url, {
     method: "POST",

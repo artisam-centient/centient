@@ -20,6 +20,7 @@ const config: NextConfig = {
     "*.ngrok-free.dev",
     "*.ngrok-free.app",
   ],
+  /** Security headers on every route; the CSP only lets the app frame itself. */
   async headers() {
     return [
       {

@@ -15,6 +15,7 @@ vi.mock("next/image", () => ({
 import LoginScreen from "@/components/LoginScreen";
 import AccountAuthScreen from "@/components/AccountAuthScreen";
 
+/** Render a React element to static HTML for string assertions. */
 function render(node: ReturnType<typeof createElement>): string {
   return renderToStaticMarkup(node);
 }

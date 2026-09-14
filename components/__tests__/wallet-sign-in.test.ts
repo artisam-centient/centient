@@ -10,6 +10,7 @@ import { WALLET_SIGN_IN_MESSAGES, type WalletSignInFailure } from "@/lib/stellar
 
 const noop = () => {};
 
+/** Render one WalletSignInView state to static HTML. */
 function render(props: Parameters<typeof WalletSignInView>[0]): string {
   return renderToStaticMarkup(createElement(WalletSignInView, props));
 }

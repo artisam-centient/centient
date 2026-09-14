@@ -88,6 +88,7 @@ export default function WalletSignIn({ onSignedIn, signIn = signInWithWallet }: 
   const [phase, setPhase] = useState<WalletSignInPhase>("idle");
   const [reason, setReason] = useState<WalletSignInFailure | undefined>();
 
+  /** Run one sign-in attempt; ignores clicks while one is already in flight. */
   const handleConnect = async () => {
     if (phase === "connecting") return;
     setPhase("connecting");

@@ -11,6 +11,7 @@ import {
 const ADDR = Keypair.random().publicKey();
 const CHALLENGE = { nonce: "a".repeat(32), message: "Centient: prove…", expiresAt: "2026-09-14T09:05:00.000Z" };
 
+/** A JSON Response with the given status, as the API routes return. */
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -38,6 +39,7 @@ function makeDeps(overrides: Partial<WalletSignInDeps> = {}) {
   return { deps, fetchMock };
 }
 
+/** The parsed JSON body the flow sent to `url`, or undefined if it never called it. */
 function bodyOf(fetchMock: ReturnType<typeof vi.fn>, url: string): unknown {
   const call = fetchMock.mock.calls.find(([u]) => String(u) === url);
   return call ? JSON.parse((call[1] as RequestInit).body as string) : undefined;
@@ -128,6 +130,7 @@ describe("signInWithWallet — wallet failures", () => {
 });
 
 describe("signInWithWallet — server responses", () => {
+  /** Deps whose challenge call returns (or throws) `challenge` and whose verify returns `verify`. */
   function withResponses(challenge: Response | Error, verify?: Response) {
     return makeDeps({
       fetch: (async (url: string | URL | Request) => {
