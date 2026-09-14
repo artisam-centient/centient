@@ -283,6 +283,8 @@ describe("assertRevocationShape", () => {
     const signedForMainnet = envelope({ ops: [revokeTrustline(), revokeAccount()], passphrase: Networks.PUBLIC });
     const asTestnet = new Transaction(signedForMainnet.toEnvelope(), Networks.TESTNET);
     expectRefused(() => assertRevocationShape(asTestnet, { ...both, nowMs: Date.now() }), /for this network/);
+    // Handed over as the mainnet Transaction it was built as: its own hash would verify.
+    expectRefused(() => assertRevocationShape(signedForMainnet, { ...both, nowMs: Date.now() }), /for this network/);
   });
 
   it("refuses a second signature riding along", () => {

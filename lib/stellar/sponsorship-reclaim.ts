@@ -228,8 +228,9 @@ export function assertRevocationShape(tx: Transaction, shape: RevocationShape): 
   }
 
   // The hash commits to the network passphrase, so a valid signature over it also
-  // proves the network.
-  const hash = tx.hash();
+  // proves the network — provided the hash is taken under the configured passphrase,
+  // not whichever one this Transaction object happened to be constructed with.
+  const hash = new Transaction(tx.toEnvelope(), networkPassphrase()).hash();
   const sponsor = shape.sponsor;
   const sponsorSigned = tx.signatures.some(
     (sig) => sig.hint().equals(sponsor.signatureHint()) && sponsor.verify(hash, sig.signature()),
