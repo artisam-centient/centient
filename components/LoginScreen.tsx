@@ -126,7 +126,7 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
             <div className="mt-8 flex max-w-[34rem] items-start gap-3 border-l-2 border-primary-container pl-4">
               <p className="font-body text-sm leading-relaxed text-on-surface-variant">
                 Your <span className="font-semibold text-on-surface">wallet address</span>{" "}
-                is your account and where your USDC is paid. Freighter asks you to sign a
+                is your account and where your {REWARD_TOKEN_SYMBOL} is paid. Freighter asks you to sign a
                 one-time message to prove it&apos;s yours — it never moves funds.
               </p>
             </div>
