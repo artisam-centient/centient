@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
-import { getLabelerSession, requireLabelerSession } from "@/lib/labeler-auth";
+import { getLabelerUser, type LabelerUser } from "@/lib/labeler-auth";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
 import {
   accountHasUsdcTrustline,
@@ -23,15 +23,20 @@ import {
 /**
  * ST-4e (#314) — platform-sponsored USDC trustlines (CAP-33).
  *
- *   GET  ?address → { needed:false } if the address already trusts USDC, else
- *                   { needed:true, xdr, kind } — a platform-signed sponsored
- *                   `changeTrust` (+ `createAccount` if the account is unfunded)
- *                   for the wallet to co-sign.
- *   POST { address, signedXdr } → submit the recipient-co-signed tx; the labeler
- *                   pays 0 XLM (the platform sponsors the reserves).
+ *   GET  → { needed:false, address } if the session's wallet already trusts
+ *          USDC, else { needed:true, address, xdr, kind } — a platform-signed
+ *          sponsored `changeTrust` (+ `createAccount` if the account is unfunded)
+ *          for the wallet to co-sign.
+ *   POST { signedXdr } → submit the recipient-co-signed tx; the labeler pays
+ *          0 XLM (the platform sponsors the reserves).
  *
- * Replaces ST-4b's hard `no_trustline` reject with an in-app funded flow. StrKey
- * is case-sensitive — the address is never lowercased.
+ * #30 — the address is always the session's bound wallet: the one sign-in
+ * proved, and the one payouts go to. A client may still name it (`?address=` on
+ * GET, `address` on POST), but a different address is refused, so no sponsorship
+ * is made for an address no account holds. #29 found that a linked wallet is what
+ * protects a sponsorship from reclaim. An account with no bound Stellar wallet is
+ * told to bind one first. StrKey is case-sensitive — the address is never
+ * lowercased.
  *
  * #27 — POST records a pending sponsorship before broadcasting, and answers only
  * what it knows. `retry` means the envelope provably cannot land, so the client
@@ -39,14 +44,11 @@ import {
  * the row, because rebuilding then could sponsor the address twice.
  */
 export async function GET(req: NextRequest) {
-  const userId = await getLabelerSession(req);
-  const unauthorized = requireLabelerSession(userId);
-  if (unauthorized) return unauthorized;
-
-  const address = req.nextUrl.searchParams.get("address");
-  if (!address || !isValidStellarAddress(address)) {
-    return NextResponse.json({ error: "invalid_address" }, { status: 400 });
-  }
+  const user = await getLabelerUser(req);
+  if (!user) return unauthorized();
+  const address = boundWallet(user, req.nextUrl.searchParams.get("address"));
+  if (address instanceof NextResponse) return address;
+  const userId = user.id;
 
   // Per-user throttle: the per-address limiter below gives no per-user bound — a
   // labeler could loop fresh keypairs to bypass it. This session-keyed check is a
@@ -61,21 +63,21 @@ export async function GET(req: NextRequest) {
 
   try {
     if (await accountHasUsdcTrustline(address)) {
-      return NextResponse.json({ needed: false });
+      return NextResponse.json({ needed: false, address });
     }
     // #330: bound outstanding sponsorships per user (a session-keyed rate throttle
     // caps *rate*, not *total outstanding* — a labeler could loop fresh keypairs to
     // drain platform reserves). Gate before building so an over-cap user never even
     // receives an XDR. Only reached when a sponsorship would actually be created
     // (needed=true), so re-linking an already-trusting address never consumes it.
-    const gate = await checkSponsorAllowed(userId!, address);
+    const gate = await checkSponsorAllowed(userId, address);
     if (!gate.ok) return gateRefusal(gate.reason);
     // #27: don't ask for a signature on an envelope POST would refuse to send.
     if (await livePendingSponsorship(address)) {
       return NextResponse.json({ error: "submission_pending" }, { status: 409 });
     }
     const { xdr, kind } = await buildSponsoredTrustlineTx(address);
-    return NextResponse.json({ needed: true, xdr, kind });
+    return NextResponse.json({ needed: true, address, xdr, kind });
   } catch (err) {
     if (err instanceof StellarPaymentError && err.code === "sponsor_low_reserve") {
       Sentry.captureException(err, { extra: { context: "sponsor-trustline-low-reserve", userId } });
@@ -91,9 +93,8 @@ export async function GET(req: NextRequest) {
  * intent, broadcasts, then settles the row with whatever Horizon actually said.
  */
 export async function POST(req: NextRequest) {
-  const userId = await getLabelerSession(req);
-  const unauthorized = requireLabelerSession(userId);
-  if (unauthorized) return unauthorized;
+  const user = await getLabelerUser(req);
+  if (!user) return unauthorized();
 
   let body: { address?: unknown; signedXdr?: unknown };
   try {
@@ -101,11 +102,13 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
-  const address = typeof body.address === "string" ? body.address : "";
-  const signedXdr = typeof body.signedXdr === "string" ? body.signedXdr : "";
-  if (!isValidStellarAddress(address)) {
-    return NextResponse.json({ error: "invalid_address" }, { status: 400 });
+  if (body.address !== undefined && typeof body.address !== "string") {
+    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
+  const address = boundWallet(user, body.address ?? null);
+  if (address instanceof NextResponse) return address;
+  const userId = user.id;
+  const signedXdr = typeof body.signedXdr === "string" ? body.signedXdr : "";
   if (!signedXdr) {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
@@ -121,7 +124,7 @@ export async function POST(req: NextRequest) {
 
   // #330: per-user outstanding cap + cross-user address lock, re-checked here
   // (not just at build) so a client that skips GET can't bypass it.
-  const gate = await checkSponsorAllowed(userId!, address);
+  const gate = await checkSponsorAllowed(userId, address);
   if (!gate.ok) return gateRefusal(gate.reason);
 
   let prepared: PreparedSponsorship;
@@ -140,7 +143,7 @@ export async function POST(req: NextRequest) {
   try {
     decision = await openSponsorshipIntent(
       {
-        userId: userId!,
+        userId,
         address,
         kind: prepared.kind,
         txHash: prepared.hash,
@@ -162,7 +165,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "submission_pending" }, { status: 409 });
   }
 
-  const settle = { id: decision.id, hash: prepared.hash, userId: userId!, address };
+  const settle = { id: decision.id, hash: prepared.hash, userId, address };
   let sent: { hash: string; feeBumpHash: string };
   try {
     sent = await prepared.submit();
@@ -180,6 +183,24 @@ export async function POST(req: NextRequest) {
   });
   await confirm(settle);
   return established();
+}
+
+function unauthorized() {
+  return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+}
+
+/**
+ * The session's bound Stellar wallet, or the refusal to send. `named` is the
+ * address the client sent, if any: it must be that wallet exactly.
+ */
+function boundWallet(user: LabelerUser, named: string | null): string | NextResponse {
+  if (!user.walletAddress || !isValidStellarAddress(user.walletAddress)) {
+    return NextResponse.json({ error: "wallet_required" }, { status: 409 });
+  }
+  if (named !== null && named !== user.walletAddress) {
+    return NextResponse.json({ error: "address_not_bound" }, { status: 403 });
+  }
+  return user.walletAddress;
 }
 
 /** The #330 gate's refusal: 429 at the cap, 409 when another user holds the address. */
