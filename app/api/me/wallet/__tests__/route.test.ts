@@ -2,22 +2,22 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { Keypair } from "@stellar/stellar-sdk";
 
-// Mock the session + the Horizon trustline read; keep StrKey + SEP-53 verify real.
+// Mock the session and Prisma; keep StrKey + SEP-53 verify real.
 const {
   mockGetSession,
   mockNonceFindFirst,
   mockNonceDeleteMany,
   mockNonceCreate,
-  mockUserUpdate,
-  mockHasTrustline,
+  mockUserUpdateMany,
+  mockUserFindUnique,
   mockCheckWalletRateLimit,
 } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
   mockNonceFindFirst: vi.fn(),
   mockNonceDeleteMany: vi.fn(),
   mockNonceCreate: vi.fn(),
-  mockUserUpdate: vi.fn(),
-  mockHasTrustline: vi.fn(),
+  mockUserUpdateMany: vi.fn(),
+  mockUserFindUnique: vi.fn(),
   mockCheckWalletRateLimit: vi.fn(),
 }));
 
@@ -26,14 +26,7 @@ vi.mock("@/lib/labeler-auth", async (importOriginal) => {
   return { ...actual, getLabelerSession: mockGetSession };
 });
 
-vi.mock("@/lib/stellar/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/stellar/client")>();
-  return { ...actual, accountHasUsdcTrustline: mockHasTrustline };
-});
-
 vi.mock("@/lib/rate-limit", () => ({ checkWalletRateLimit: mockCheckWalletRateLimit }));
-
-vi.mock("@sentry/nextjs", () => ({ captureException: vi.fn() }));
 
 vi.mock("@/lib/prisma", () => ({
   __esModule: true,
@@ -43,7 +36,7 @@ vi.mock("@/lib/prisma", () => ({
       deleteMany: mockNonceDeleteMany,
       create: mockNonceCreate,
     },
-    user: { update: mockUserUpdate },
+    user: { updateMany: mockUserUpdateMany, findUnique: mockUserFindUnique },
     $transaction: vi.fn(async (arr: Promise<unknown>[]) => Promise.all(arr)),
   },
 }));
@@ -54,6 +47,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 
 const KP = Keypair.random();
 const G = KP.publicKey();
+const OTHER = Keypair.random().publicKey();
 const USER_ID = "11111111-1111-1111-1111-111111111111";
 const NONCE = "abc123nonce";
 
@@ -77,13 +71,16 @@ function postReq(body: unknown): NextRequest {
   });
 }
 
+/** A valid proof for G over the current challenge. */
+const provenPost = () => POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSession.mockResolvedValue(USER_ID);
   mockNonceDeleteMany.mockResolvedValue({ count: 1 });
   mockNonceCreate.mockResolvedValue({});
-  mockUserUpdate.mockResolvedValue({});
-  mockHasTrustline.mockResolvedValue(true);
+  mockUserUpdateMany.mockResolvedValue({ count: 1 });
+  mockUserFindUnique.mockResolvedValue({ walletAddress: G });
   mockNonceFindFirst.mockResolvedValue({ nonce: NONCE, walletAddress: G });
   mockCheckWalletRateLimit.mockResolvedValue(false);
 });
@@ -165,10 +162,10 @@ describe("GET /api/me/wallet (challenge)", () => {
   });
 });
 
-describe("POST /api/me/wallet (link + prove)", () => {
+describe("POST /api/me/wallet (prove + bind)", () => {
   it("401 without a session", async () => {
     mockGetSession.mockResolvedValueOnce(null);
-    const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
+    const res = await provenPost();
     expect(res.status).toBe(401);
   });
 
@@ -180,7 +177,7 @@ describe("POST /api/me/wallet (link + prove)", () => {
 
   it("400 challenge_expired when no live nonce exists", async () => {
     mockNonceFindFirst.mockResolvedValueOnce(null);
-    const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
+    const res = await provenPost();
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("challenge_expired");
   });
@@ -191,15 +188,13 @@ describe("POST /api/me/wallet (link + prove)", () => {
     const res = await POST(postReq({ stellarAddress: G, signature: badSig }));
     expect(res.status).toBe(401);
     expect((await res.json()).error).toBe("invalid_signature");
-    expect(mockUserUpdate).not.toHaveBeenCalled();
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
   });
 
   it("400 challenge_expired when the verified nonce is no longer live at consumption", async () => {
     mockNonceDeleteMany.mockResolvedValueOnce({ count: 0 });
 
-    const res = await POST(
-      postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }),
-    );
+    const res = await provenPost();
 
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("challenge_expired");
@@ -211,21 +206,11 @@ describe("POST /api/me/wallet (link + prove)", () => {
         expiresAt: { gt: expect.any(Date) },
       },
     });
-    expect(mockUserUpdate).not.toHaveBeenCalled();
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
   });
 
-  it("409 no_trustline when the proven address holds no USDC trustline", async () => {
-    mockHasTrustline.mockResolvedValueOnce(false);
-    const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
-    expect(res.status).toBe(409);
-    expect((await res.json()).error).toBe("no_trustline");
-    // Challenge is consumed even on a trustline reject (one-time use).
-    expect(mockNonceDeleteMany).toHaveBeenCalled();
-    expect(mockUserUpdate).not.toHaveBeenCalled();
-  });
-
-  it("links the address on a valid proof + trustline, consuming the nonce", async () => {
-    const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
+  it("binds the proven address to an account with no usable wallet, consuming the nonce", async () => {
+    const res = await provenPost();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ linked: true, walletAddress: G });
     expect(mockNonceDeleteMany).toHaveBeenCalledWith({
@@ -242,25 +227,53 @@ describe("POST /api/me/wallet (link + prove)", () => {
         where: expect.objectContaining({ walletAddress: G, action: "link-payout-address" }),
       }),
     );
-    expect(mockUserUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: USER_ID },
-        data: { walletAddress: G },
-      }),
-    );
+    expect(mockUserUpdateMany).toHaveBeenCalledWith({
+      where: { id: USER_ID, OR: [{ walletAddress: null }, { walletAddress: { startsWith: "0x" } }] },
+      data: { walletAddress: G },
+    });
+  });
+
+  it("binds before any trustline exists — payout setup sponsors the bound wallet afterwards (#30)", async () => {
+    // No Horizon read is mocked: the route no longer makes one.
+    const res = await provenPost();
+    expect(res.status).toBe(200);
+    expect(mockUserUpdateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("succeeds without a write when the account already holds this wallet", async () => {
+    mockUserUpdateMany.mockResolvedValueOnce({ count: 0 });
+    mockUserFindUnique.mockResolvedValueOnce({ walletAddress: G });
+    const res = await provenPost();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ linked: true, walletAddress: G });
+  });
+
+  it("409 wallet_already_bound when the account holds a different Stellar wallet (#30)", async () => {
+    mockUserUpdateMany.mockResolvedValueOnce({ count: 0 });
+    mockUserFindUnique.mockResolvedValueOnce({ walletAddress: OTHER });
+    const res = await provenPost();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "wallet_already_bound" });
+  });
+
+  it("401 when the session's account no longer exists", async () => {
+    mockUserUpdateMany.mockResolvedValueOnce({ count: 0 });
+    mockUserFindUnique.mockResolvedValueOnce(null);
+    const res = await provenPost();
+    expect(res.status).toBe(401);
   });
 
   it("409 address_already_linked when the address is claimed by another account (P2002)", async () => {
-    mockUserUpdate.mockRejectedValueOnce(
+    mockUserUpdateMany.mockRejectedValueOnce(
       new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
         code: "P2002",
         clientVersion: "test",
       }),
     );
-    const res = await POST(postReq({ stellarAddress: G, signature: sign(buildWalletLinkMessage(G, NONCE)) }));
+    const res = await provenPost();
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe("address_already_linked");
-    // Trustline precheck passed and the nonce was consumed before the collision.
+    // The nonce was consumed before the collision.
     expect(mockNonceDeleteMany).toHaveBeenCalled();
   });
 });
