@@ -190,7 +190,12 @@ sequenceDiagram
             API->>RL: reset failures
             API->>API: signLabelerJWT(sub = userId)
             API-->>UI: Set-Cookie session (userId-keyed)
-            UI-->>L: logged in — start labeling
+            alt account has a bound Stellar wallet
+                UI-->>L: payout setup (sponsored USDC trustline if needed), then start labeling
+            else email-only account (legacy, #30)
+                UI-->>L: claim a wallet — connect Freighter, prove and bind it (/api/me/wallet)
+                Note over UI,L: then payout setup; from then on the account signs in<br/>with that wallet. Email registration is retired (410).
+            end
         end
     end
 ```

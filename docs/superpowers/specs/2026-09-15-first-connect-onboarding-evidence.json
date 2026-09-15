@@ -68,7 +68,7 @@
     }
   ],
   "suites": {
-    "full": { "command": "npm test", "files": 100, "passed": 1477, "todo": 1, "failed": 0 },
+    "full": { "command": "npm test", "files": 100, "passed": 1479, "todo": 1, "failed": 0 },
     "paymentsLane": { "command": "npm run test:payments", "files": 64, "passed": 1019, "failed": 0 },
     "typecheck": { "command": "tsc --noEmit", "result": "clean" },
     "build": { "command": "npm run build", "result": "exit 0; Turbopack Edge-runtime warnings only, all in files this branch does not touch" }
