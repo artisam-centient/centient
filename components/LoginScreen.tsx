@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Faq from "./Faq";
+import Mascot from "./LandingMascot";
 import WalletSignIn from "./WalletSignIn";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 
@@ -210,67 +211,6 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
           centient.work
         </span>
       </footer>
-    </div>
-  );
-}
-
-/**
- * The owl, large, set in rings that echo its own eyes, with the two moments of
- * a task it stands for: a response chosen, and the payout that follows.
- */
-function Mascot() {
-  return (
-    <div className="relative mx-auto aspect-square w-full max-w-[400px] sm:max-w-[480px] lg:max-w-[600px]">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-[2%] rounded-full border border-dashed border-primary/25 motion-safe:animate-[spin_90s_linear_infinite]" />
-        <div className="absolute inset-[11%] rounded-full border border-outline-variant/60" />
-        <div className="absolute inset-[21%] rounded-full border border-outline-variant/50" />
-        <div className="absolute inset-[31%] rounded-full bg-primary-container/15" />
-      </div>
-
-      {/* The owl fills ~72% of its canvas, so the image overhangs the rings to read large. */}
-      <div className="absolute -inset-[8%] motion-safe:animate-[centient-float_7s_ease-in-out_infinite]">
-        <Image
-          src="/logo.png"
-          alt="Centient's owl mascot, waving"
-          width={1024}
-          height={1024}
-          priority
-          sizes="(min-width: 1024px) 600px, (min-width: 640px) 480px, 90vw"
-          className="h-full w-full select-none drop-shadow-[0_24px_40px_rgba(25,28,30,0.12)]"
-        />
-      </div>
-
-      <div
-        aria-hidden="true"
-        className="absolute right-0 top-[9%] flex items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 shadow-[0_8px_24px_rgba(25,28,30,0.08)] motion-safe:animate-[centient-rise_600ms_ease-out_400ms_both] sm:px-4 sm:py-2.5"
-      >
-        <span className="font-label text-[11px] font-bold uppercase tracking-[0.2em] text-outline">
-          Response B
-        </span>
-        <span className="flex items-center gap-0.5 rounded-full bg-primary px-2 py-0.5 font-label text-xs font-bold text-on-primary">
-          <span className="material-symbols-outlined text-[14px]">check</span>
-          Chosen
-        </span>
-      </div>
-
-      <div
-        aria-hidden="true"
-        className="absolute bottom-[12%] left-0 flex items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 shadow-[0_8px_24px_rgba(25,28,30,0.08)] motion-safe:animate-[centient-rise_600ms_ease-out_1000ms_both] sm:px-4 sm:py-2.5"
-      >
-        <span
-          className="material-symbols-outlined text-[20px] text-secondary"
-          style={{ fontVariationSettings: "'FILL' 1" }}
-        >
-          monetization_on
-        </span>
-        <span className="font-headline text-base font-extrabold tracking-tight text-secondary sm:text-lg">
-          +{REWARD_AMOUNT} {REWARD_TOKEN_SYMBOL}
-        </span>
-        <span className="font-label text-[11px] font-bold uppercase tracking-[0.2em] text-outline">
-          Paid
-        </span>
-      </div>
     </div>
   );
 }
