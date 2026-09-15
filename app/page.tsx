@@ -256,6 +256,8 @@ export default function Home() {
       try {
         const userData = await fetchUserData();
         await fetchBalance();
+        // fetchUserData has already shown the cooldown screen; don't replace it.
+        if (userData?.isCooldown) return;
         setScreen(userData?.onboardingCompleted ? "landing" : "onboarding");
       } catch {
         setScreen("wallet_error");
