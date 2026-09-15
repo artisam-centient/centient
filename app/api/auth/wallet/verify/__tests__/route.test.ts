@@ -201,7 +201,7 @@ describe("POST /api/auth/wallet/verify — rejections", () => {
     ["over the raw message", (kp: Keypair, message: string) => kp.sign(Buffer.from(message, "utf8")).toString("base64")],
     ["truncated", (kp: Keypair, message: string) => Buffer.from(sign(kp, message), "base64").subarray(0, 63).toString("base64")],
     ["that is not base64", () => "not a signature!!"],
-  ])("401 bad_signature for a signature %s, consuming the challenge", async (_name, forge) => {
+  ])("401 bad_signature for a signature %s, leaving the challenge for the real signer", async (_name, forge) => {
     const { kp, challenge, body } = await validProof();
 
     await expectRejected(
@@ -209,7 +209,24 @@ describe("POST /api/auth/wallet/verify — rejections", () => {
       401,
       "bad_signature",
     );
-    expect(await prisma.walletNonce.count({ where: { nonce: challenge.nonce } })).toBe(0);
+    expect(await prisma.walletNonce.count({ where: { nonce: challenge.nonce } })).toBe(1);
+  });
+
+  it("does not let a stranger's bad proof fail the contributor's sign-in (PR #105 review)", async () => {
+    const { body } = await validProof();
+    // Anyone can ask for the address's challenge and gets the same live nonce.
+    const stranger = await issueSignInChallenge(body.address);
+    expect(stranger.nonce).toBe(body.nonce);
+
+    await expectRejected(
+      await POST(makeReq({ ...body, signature: sign(Keypair.random(), stranger.message) })),
+      401,
+      "bad_signature",
+    );
+
+    const res = await POST(makeReq(body));
+    expect(res.status).toBe(200);
+    expect(sessionCookies(res)).toHaveLength(1);
   });
 
   it("400 invalid_address for a lowercased address, without consuming the challenge", async () => {

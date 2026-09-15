@@ -248,6 +248,7 @@ describe("consumeSignInChallenge", () => {
       signature: sign(other, c.message),
     });
     expect(result).toEqual({ ok: false, reason: "wrong_address" });
+    expect(await signInRows(c.address)).toBe(1);
   });
 
   it("compares the address exactly: a lowercased address is a different address", async () => {
@@ -304,7 +305,7 @@ describe("consumeSignInChallenge", () => {
       ["not base64 at all", () => "not a signature!!"],
     ];
 
-    it.each(cases)("refuses a signature %s, and consumes the challenge", async (_name, forge) => {
+    it.each(cases)("refuses a signature %s, and leaves the challenge in place", async (_name, forge) => {
       const c = await issued();
       const result = await consumeSignInChallenge({
         address: c.address,
@@ -312,25 +313,49 @@ describe("consumeSignInChallenge", () => {
         signature: forge(c.kp, c.message),
       });
       expect(result).toEqual({ ok: false, reason: "bad_signature" });
-      expect(await signInRows(c.address)).toBe(0);
+      expect(await signInRows(c.address)).toBe(1);
     });
   });
 
-  it("does not let a failed attempt be corrected against the same challenge", async () => {
-    const c = await issued();
-    const bad = await consumeSignInChallenge({
+  // PR #105 review: issuance hands the live nonce to anyone who asks, so a
+  // rejection that consumed the row would let a stranger fail every attempt.
+  it.each([
+    ["a bad signature", (c: Awaited<ReturnType<typeof issued>>) => ({
       address: c.address,
       nonce: c.nonce,
       signature: sign(Keypair.random(), c.message),
-    });
-    expect(bad).toEqual({ ok: false, reason: "bad_signature" });
-
-    const retry = await consumeSignInChallenge({
+    })],
+    ["another address", (c: Awaited<ReturnType<typeof issued>>) => {
+      const other = Keypair.random();
+      return { address: other.publicKey(), nonce: c.nonce, signature: sign(other, c.message) };
+    }],
+    ["a different reported signer", (c: Awaited<ReturnType<typeof issued>>) => ({
       address: c.address,
       nonce: c.nonce,
       signature: sign(c.kp, c.message),
-    });
-    expect(retry).toEqual({ ok: false, reason: "challenge_not_found" });
+      signerAddress: Keypair.random().publicKey(),
+    })],
+  ])("lets the real signer through after a stranger posts %s against their challenge", async (_name, forged) => {
+    const c = await issued();
+    const stranger = await issueSignInChallenge(c.address);
+    expect(stranger.nonce).toBe(c.nonce);
+
+    expect((await consumeSignInChallenge(forged(c))).ok).toBe(false);
+
+    expect(
+      await consumeSignInChallenge({ address: c.address, nonce: c.nonce, signature: sign(c.kp, c.message) }),
+    ).toEqual({ ok: true, address: c.address });
+    expect(await signInRows(c.address)).toBe(0);
+  });
+
+  it("accepts exactly one of two concurrent valid proofs for one challenge", async () => {
+    const c = await issued();
+    const proof = { address: c.address, nonce: c.nonce, signature: sign(c.kp, c.message) };
+
+    const results = await Promise.all([consumeSignInChallenge(proof), consumeSignInChallenge(proof)]);
+
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.filter((r) => !r.ok)).toEqual([{ ok: false, reason: "challenge_not_found" }]);
   });
 });
 

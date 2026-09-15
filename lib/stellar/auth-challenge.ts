@@ -130,13 +130,19 @@ export type SignInProofResult =
   | { ok: false; reason: SignInRejection };
 
 /**
- * Verify a sign-in proof, consuming its challenge.
+ * Verify a sign-in proof, consuming its challenge only if the proof is accepted.
  *
- * The first step is a single delete by nonce and action. It is the only thing
- * that grants access: two concurrent attempts with the same nonce race on that
- * delete, and exactly one gets the row. It also runs before every other check,
- * so any attempt — accepted or not — uses the challenge up, and a failed proof
- * cannot be corrected and retried. A replay finds no row.
+ * A challenge's nonce is not a secret: issuance hands the one live row for an
+ * address to anyone who asks for it. So a rejected proof must not use the
+ * challenge up, or anyone could request a contributor's challenge and post a bad
+ * signature against it while they sign, failing their attempt every time. A
+ * rejection leaves the row for the real signer; an expired one is removed, as
+ * it can no longer be used by anyone.
+ *
+ * Every check runs against a read of the row. Access is granted by one
+ * conditional delete of that nonce, still for this address and still live, after
+ * the signature verifies: two concurrent accepted attempts race on that delete,
+ * exactly one removes the row, and the other is refused. A replay finds no row.
  *
  * The signed message is rebuilt from the stored row, never from anything the
  * client sent.
@@ -154,17 +160,13 @@ export async function consumeSignInChallenge({
   signerAddress?: string;
   now?: Date;
 }): Promise<SignInProofResult> {
-  let row;
-  try {
-    row = await prisma.walletNonce.delete({ where: { nonce, action: PROOF_ACTION } });
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-      return { ok: false, reason: "challenge_not_found" };
-    }
-    throw err;
-  }
+  const row = await prisma.walletNonce.findUnique({ where: { nonce } });
+  if (!row || row.action !== PROOF_ACTION) return { ok: false, reason: "challenge_not_found" };
 
-  if (now.getTime() >= row.expiresAt.getTime()) return { ok: false, reason: "challenge_expired" };
+  if (now.getTime() >= row.expiresAt.getTime()) {
+    await prisma.walletNonce.deleteMany({ where: { nonce, action: PROOF_ACTION, expiresAt: { lte: now } } });
+    return { ok: false, reason: "challenge_expired" };
+  }
   if (row.walletAddress !== address) return { ok: false, reason: "wrong_address" };
 
   const passphrase = networkPassphrase();
@@ -182,6 +184,11 @@ export async function consumeSignInChallenge({
     expiresAt: row.expiresAt,
   });
   if (!verify(address, message, signature)) return { ok: false, reason: "bad_signature" };
+
+  const consumed = await prisma.walletNonce.deleteMany({
+    where: { nonce, action: PROOF_ACTION, walletAddress: address, expiresAt: { gt: now } },
+  });
+  if (consumed.count === 0) return { ok: false, reason: "challenge_not_found" };
 
   return { ok: true, address };
 }
