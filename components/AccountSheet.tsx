@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { type ToastKind } from "@/components/Toast";
+import { resetIdentity, track } from "@/lib/analytics";
 import { truncateAddress } from "@/lib/wallet";
 import { unitsToUsdcDisplay } from "@/lib/stellar/config";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
@@ -177,6 +178,7 @@ export default function AccountSheet({
       const res = await fetch("/api/me/withdraw", { method: "POST" });
       const data = await res.json();
       if (res.ok) {
+        track("withdrawal_initiated");
         showToast(`Withdrawal initiated: ${formatTokenBalance(data.amountUnits)} ${rewardSymbol}`, "success");
         const updated = await fetch("/api/me/withdraw")
           .then((r) => (r.ok ? r.json() : Promise.reject(r)))
@@ -203,6 +205,7 @@ export default function AccountSheet({
     try {
       const res = await fetch("/api/me/demographics", { method: "DELETE" });
       if (res.ok) {
+        track("demographics_deleted");
         // Clear the parent's cached demographics so reopening the sheet doesn't
         // show the just-deleted values from stale state.
         onDemographicsDeleted();
@@ -487,7 +490,12 @@ export default function AccountSheet({
           )}
         </div>
 
-        <form action="/api/auth/logout" method="post" className="mt-6 border-t border-outline-variant/20 pt-6">
+        <form
+          action="/api/auth/logout"
+          method="post"
+          className="mt-6 border-t border-outline-variant/20 pt-6"
+          onSubmit={() => resetIdentity()}
+        >
           <button
             type="submit"
             className="w-full rounded-xl bg-surface-container-high py-3 text-center font-label text-sm font-semibold text-on-surface-variant transition-colors hover:bg-surface-container-highest focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"

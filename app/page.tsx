@@ -16,7 +16,7 @@ import PayoutSetup from "@/components/PayoutSetup";
 import Toast, { type ToastKind, type ToastMessage } from "@/components/Toast";
 import OnboardingScreen from "@/components/OnboardingScreen";
 import DisputeForm from "@/components/DisputeForm";
-import { posthog } from "@/components/PostHogProvider";
+import { identify, track } from "@/lib/analytics";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
 
@@ -192,9 +192,7 @@ export default function Home() {
         rewardSymbol: data.task.rewardSymbol,
       });
       setScreen("task");
-      if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-        posthog.capture("task_viewed", { taskId: data.task.id });
-      }
+      track("task_presented", { task_id: data.task.id });
     } else {
       setScreen("no_tasks");
     }
@@ -210,8 +208,13 @@ export default function Home() {
   const resolveSession = useCallback(async (): Promise<Screen> => {
     const res = await fetch("/api/auth/me");
     if (!res.ok) return "login";
-    const data = (await res.json()) as { authenticated?: boolean; wallet?: string | null };
+    const data = (await res.json()) as {
+      authenticated?: boolean;
+      userId?: string;
+      wallet?: string | null;
+    };
     if (!data.authenticated) return "login";
+    if (data.userId) identify(data.userId);
     // No wallet, or a legacy EVM `0x…` that can never receive USDC: claim one.
     if (!data.wallet || !isValidStellarAddress(data.wallet)) return "claim_wallet";
     setWallet(data.wallet);
@@ -250,9 +253,7 @@ export default function Home() {
     async ({ address, sponsored }: { address: string; sponsored: boolean }) => {
       setWallet(address);
       setScreen("loading");
-      if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-        posthog.capture("payout_ready", { sponsored });
-      }
+      track("payout_ready", { sponsored });
       try {
         const userData = await fetchUserData();
         await fetchBalance();
@@ -295,10 +296,8 @@ export default function Home() {
   const handleOnboardingComplete = useCallback(() => {
     setOnboardingCompleted(true);
     setScreen("landing");
-    if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-      posthog.capture("onboarding_completed", { wallet });
-    }
-  }, [wallet]);
+    track("onboarding_completed");
+  }, []);
 
   async function handleSubmit(choice: "A" | "B", reason: string) {
     if (!task) return;
@@ -332,17 +331,13 @@ export default function Home() {
 
       if (res.status === 403) {
         setScreen("banned");
-        if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-          posthog.capture("user_banned", { wallet, taskId: task.id });
-        }
+        track("submission_blocked", { task_id: task.id, reason: "account_banned" });
         return;
       }
 
       if (!data.paid && data.reason === "quality_check_failed") {
         setScreen("quality_failed");
-        if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-          posthog.capture("quality_check_failed", { wallet, taskId: task.id });
-        }
+        track("submission_quality_check_failed", { task_id: task.id });
         setTimeout(() => fetchTask(), 1500);
         return;
       }
@@ -353,9 +348,11 @@ export default function Home() {
         await fetchUserData();
         await fetchBalance();
         setScreen("success");
-        if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-          posthog.capture("submission_success", { wallet, taskId: task.id, status: data.status });
-        }
+        track("submission_approved", {
+          task_id: task.id,
+          choice,
+          credit_status: data.status,
+        });
         return;
       }
 
