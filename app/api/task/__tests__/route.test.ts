@@ -58,18 +58,15 @@ describe("GET /api/task - session auth", () => {
 });
 
 describe("GET /api/task - task assignment", () => {
-  it("serves a task to an email-only user with no linked wallet", async () => {
+  it("serves no task to an email-only account until it binds a wallet (#30)", async () => {
     mockRandom(0.5);
     const campaign = await createCampaign({ defaultResponseTarget: 5 });
     await createTask({ campaignId: campaign.id, responseTarget: null });
 
     const user = await createUser({ walletAddress: null, email: "labeler@example.com" });
     const res = await getTaskAs(user.id);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.task).not.toBeNull();
-    expect(body.task.id).toBeTruthy();
-    expect(body.task.submissionsRemaining).toBe(5);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "wallet_required" });
   });
 
   it("returns a non-gold task with submissionsRemaining", async () => {
