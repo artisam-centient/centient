@@ -13,6 +13,7 @@ import {
   consumeSignInChallenge,
   findOrCreateWalletUser,
   issueSignInChallenge,
+  takeOverUnusedWalletAccount,
   type WalletUserClient,
 } from "@/lib/stellar/auth-challenge";
 
@@ -356,6 +357,92 @@ describe("consumeSignInChallenge", () => {
 
     expect(results.filter((r) => r.ok)).toHaveLength(1);
     expect(results.filter((r) => !r.ok)).toEqual([{ ok: false, reason: "challenge_not_found" }]);
+  });
+});
+
+describe("takeOverUnusedWalletAccount (PR #105 review)", () => {
+  /** A legacy email account with a balance and no wallet, and the empty account a wallet sign-in made for its address. */
+  async function accidentalSignIn() {
+    const address = Keypair.random().publicKey();
+    const claimant = await prisma.user.create({
+      data: { email: `legacy-${address.slice(1, 9)}@example.com`, passwordHash: "x", pendingBalanceUnits: 7n },
+    });
+    const holder = await findOrCreateWalletUser(address);
+    expect(holder.created).toBe(true);
+    return { address, claimant, holderId: holder.id };
+  }
+
+  it("binds the address to the email account and removes the empty wallet-only account", async () => {
+    const { address, claimant, holderId } = await accidentalSignIn();
+
+    expect(await takeOverUnusedWalletAccount(address, claimant.id)).toBe(true);
+
+    expect(await prisma.user.findUnique({ where: { id: holderId } })).toBeNull();
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: claimant.id } })).toMatchObject({
+      walletAddress: address,
+      pendingBalanceUnits: 7n,
+    });
+    // From now on, signing in with the wallet opens the email account and its balance.
+    expect(await findOrCreateWalletUser(address)).toEqual({ id: claimant.id, created: false });
+  });
+
+  it("moves the empty account's sponsorship to the claimant, keeping the reserve on the ledger", async () => {
+    const { address, claimant, holderId } = await accidentalSignIn();
+    const row = await prisma.sponsoredTrustline.create({
+      data: { userId: holderId, address, kind: "account+trustline", txHash: "H1", confirmedAt: new Date() },
+    });
+
+    expect(await takeOverUnusedWalletAccount(address, claimant.id)).toBe(true);
+
+    expect(await prisma.sponsoredTrustline.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({
+      userId: claimant.id,
+      revokedAt: null,
+    });
+  });
+
+  it("replaces a legacy 0x wallet on the email account", async () => {
+    const { address, claimant } = await accidentalSignIn();
+    await prisma.user.update({ where: { id: claimant.id }, data: { walletAddress: `0x${"ab".repeat(20)}` } });
+
+    expect(await takeOverUnusedWalletAccount(address, claimant.id)).toBe(true);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: claimant.id } })).walletAddress).toBe(address);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ["has an email", { email: "wallet-holder@example.com" }],
+    ["has a password", { passwordHash: "x" }],
+    ["has submitted work", { submissionCount: 1 }],
+    ["has attempted gold tasks", { goldAttempted: 1 }],
+    ["has earned", { totalEarnedUnits: 1n }],
+    ["holds a balance", { pendingBalanceUnits: 1n }],
+    ["is banned", { isBanned: true, banCount: 1 }],
+    ["was banned before", { banCount: 1 }],
+  ])("leaves the holder alone, and binds nothing, when it %s", async (_label, data) => {
+    const { address, claimant, holderId } = await accidentalSignIn();
+    await prisma.user.update({ where: { id: holderId }, data });
+
+    expect(await takeOverUnusedWalletAccount(address, claimant.id)).toBe(false);
+
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: holderId } })).walletAddress).toBe(address);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: claimant.id } })).walletAddress).toBeNull();
+  });
+
+  it("refuses a claimant that is not an email account, or already holds a Stellar wallet", async () => {
+    const { address, holderId } = await accidentalSignIn();
+    const walletOnly = await prisma.user.create({ data: {} });
+    const bound = await prisma.user.create({
+      data: { email: "bound@example.com", walletAddress: Keypair.random().publicKey() },
+    });
+
+    expect(await takeOverUnusedWalletAccount(address, walletOnly.id)).toBe(false);
+    expect(await takeOverUnusedWalletAccount(address, bound.id)).toBe(false);
+    expect(await prisma.user.findUnique({ where: { id: holderId } })).not.toBeNull();
+  });
+
+  it("does nothing when no account holds the address, or the claimant already does", async () => {
+    const { address, claimant, holderId } = await accidentalSignIn();
+    expect(await takeOverUnusedWalletAccount(Keypair.random().publicKey(), claimant.id)).toBe(false);
+    expect(await takeOverUnusedWalletAccount(address, holderId)).toBe(false);
   });
 });
 

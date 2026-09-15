@@ -69,6 +69,7 @@ The client flows are resolve-never-reject libraries with injectable dependencies
 | Existing trustline | Sponsor GET answers `needed:false`: ready | No envelope, no row, cap untouched |
 | Returning wallet | Signs in as the same user; passes setup | `findOrCreateWalletUser` keys on the unique `walletAddress` |
 | Wallet held by another account | Claim refused `address_already_linked` | `User.walletAddress` is unique |
+| Legacy email user pressed "Connect Freighter" first | The empty wallet-only account that sign-in created is removed and the claim binds the wallet to the email account, sponsorship rows included | Only an account with no email, password, work, earnings, balance, withdrawals, flags, disputes or bans is taken over, in one transaction that locks it first |
 | Second wallet on a bound account | Claim refused `wallet_already_bound` | Bind is conditional on no usable wallet |
 | Tab closed mid-flow | Reload resumes at the unfinished step | Every step is idempotent against the ledger |
 
@@ -90,5 +91,5 @@ Platform keys are unaffected. This change adds no secret to any service, so F-01
 - **Logout does not revoke the token.** A copied token stays valid until it expires (7 days). This predates #30.
 - **Phones:** Freighter is desktop-only here, and Freighter Mobile needs WalletConnect v2, which no Epic 2 issue builds (ADR-0003).
 - **Stale pending rows:** one reconciles only through an operator reclaim run (#29). The request path answers `submission_pending` until its envelope expires.
-- **Two claimants of one wallet:** an email account and a wallet-only account cannot share one. The email account's claim is refused, so its owner must pick one account. No merge path exists.
+- **Two claimants of one wallet:** an email account and a wallet-only account cannot share one. If the wallet-only account is unused (PR #105 review), the email account's claim takes the wallet over. Otherwise the claim is refused and its owner must pick one account; no merge path exists for two accounts that both have activity.
 - **Legacy `0x…` wallets:** such an account is treated as having no wallet. Its first claim replaces the `0x…` value.
