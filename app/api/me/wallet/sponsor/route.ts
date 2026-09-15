@@ -10,6 +10,7 @@ import {
   StellarPaymentError,
   type PreparedSponsorship,
 } from "@/lib/stellar/client";
+import { readSponsorshipOnChain } from "@/lib/stellar/sponsorship-reclaim";
 import { takeRateLimit, WALLET_BURST_LIMIT } from "@/lib/rate-limit";
 import {
   checkSponsorAllowed,
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest) {
         txHash: prepared.hash,
         expiresAt: prepared.expiresAt,
       },
-      { txStatus: getTxStatus },
+      { txStatus: getTxStatus, chain: readSponsorshipOnChain },
     );
   } catch (err) {
     Sentry.captureException(err, { extra: { context: "sponsor-intent", userId, address } });

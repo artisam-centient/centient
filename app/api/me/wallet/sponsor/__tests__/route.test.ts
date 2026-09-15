@@ -5,8 +5,9 @@ import { Keypair } from "@stellar/stellar-sdk";
 const {
   mockGetUser, mockHasTrustline, mockBuild, mockPrepare, mockBroadcast, mockTxStatus,
   mockRateLimit, mockCheckAllowed, mockLivePending, mockOpenIntent, mockConfirm, mockFail,
-  mockCapture,
+  mockCapture, mockChain,
 } = vi.hoisted(() => ({
+  mockChain: vi.fn(),
   mockGetUser: vi.fn(),
   mockHasTrustline: vi.fn(),
   mockBuild: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("@/lib/sponsored-trustline", () => ({
   confirmSponsorship: mockConfirm,
   failSponsorship: mockFail,
 }));
+vi.mock("@/lib/stellar/sponsorship-reclaim", () => ({ readSponsorshipOnChain: mockChain }));
 vi.mock("@sentry/nextjs", () => ({ captureException: mockCapture }));
 
 import { GET, POST } from "../route";
@@ -231,7 +233,8 @@ describe("POST /api/me/wallet/sponsor", () => {
     expect(mockPrepare).toHaveBeenCalledWith("SIGNED", ADDR);
     expect(mockOpenIntent).toHaveBeenCalledWith(
       { userId: "user-1", address: ADDR, kind: "account+trustline", txHash: "H", expiresAt: EXPIRES },
-      { txStatus: mockTxStatus },
+      // The chain lookup lets the ledger re-check a `confirmed` row (PR #105 review).
+      { txStatus: mockTxStatus, chain: mockChain },
     );
     expect(mockOpenIntent.mock.invocationCallOrder[0]).toBeLessThan(
       mockBroadcast.mock.invocationCallOrder[0],

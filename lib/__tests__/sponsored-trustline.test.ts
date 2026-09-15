@@ -37,13 +37,16 @@ function seedRow(opts: {
   expiresAt?: Date | null;
   revokedAt?: Date | null;
 }) {
+  const status = opts.status ?? "confirmed";
   return prisma.sponsoredTrustline.create({
     data: {
       userId: opts.userId,
       address: opts.address ?? G(),
       kind: opts.kind ?? "trustline",
-      status: opts.status ?? "confirmed",
+      status,
       txHash: opts.txHash ?? `h-${Math.random()}`,
+      // As the request path writes it: a confirmed row records when it landed.
+      confirmedAt: status === "confirmed" ? NOW : null,
       expiresAt: opts.expiresAt ?? null,
       revokedAt: opts.revokedAt ?? null,
     },
@@ -51,11 +54,14 @@ function seedRow(opts: {
 }
 
 const neverSeen = vi.fn(async () => "not_found" as const);
+/** The chain still shows the address trusting USDC through our sponsored trustline. */
+const trusts = vi.fn(async () => ({ usdcTrustline: true, sponsoredEntries: ["trustline" as const] }));
 
 beforeEach(async () => {
   await truncateAll();
   delete process.env.SPONSOR_MAX_OUTSTANDING;
   neverSeen.mockClear();
+  trusts.mockClear();
 });
 afterEach(() => {
   delete process.env.SPONSOR_MAX_OUTSTANDING;
@@ -233,7 +239,7 @@ describe("openSponsorshipIntent", () => {
   it("writes a pending row carrying the hash and expiry, and says to submit", async () => {
     const a = await createUser();
     const addr = G();
-    const decision = await openSponsorshipIntent(intent(a.id, addr, "H1"), { txStatus: neverSeen, now: NOW });
+    const decision = await openSponsorshipIntent(intent(a.id, addr, "H1"), { txStatus: neverSeen, chain: trusts, now: NOW });
 
     expect(decision.action).toBe("submit");
     const rows = await prisma.sponsoredTrustline.findMany({ where: { address: addr } });
@@ -252,8 +258,8 @@ describe("openSponsorshipIntent", () => {
   it("re-submits the identical envelope against the same row — Horizon applies one hash at most once", async () => {
     const a = await createUser();
     const addr = G();
-    const first = await openSponsorshipIntent(intent(a.id, addr, "H1"), { txStatus: neverSeen, now: NOW });
-    const again = await openSponsorshipIntent(intent(a.id, addr, "H1"), { txStatus: neverSeen, now: NOW });
+    const first = await openSponsorshipIntent(intent(a.id, addr, "H1"), { txStatus: neverSeen, chain: trusts, now: NOW });
+    const again = await openSponsorshipIntent(intent(a.id, addr, "H1"), { txStatus: neverSeen, chain: trusts, now: NOW });
 
     expect(again).toEqual(first);
     expect(await prisma.sponsoredTrustline.count({ where: { address: addr } })).toBe(1);
@@ -264,8 +270,9 @@ describe("openSponsorshipIntent", () => {
     const addr = G();
     await seedRow({ userId: a.id, address: addr, status: "confirmed", txHash: "H1" });
     expect(
-      await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: neverSeen, now: NOW }),
+      await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: neverSeen, chain: trusts, now: NOW }),
     ).toEqual({ action: "already_confirmed" });
+    expect(trusts).toHaveBeenCalledWith(addr);
     expect(await prisma.sponsoredTrustline.count({ where: { address: addr } })).toBe(1);
   });
 
@@ -275,7 +282,7 @@ describe("openSponsorshipIntent", () => {
     const addr = G();
     await seedRow({ userId: a.id, address: addr, status: "pending", txHash: "H1", expiresAt: LATER });
     expect(
-      await openSponsorshipIntent(intent(b.id, addr, "H2"), { txStatus: neverSeen, now: NOW }),
+      await openSponsorshipIntent(intent(b.id, addr, "H2"), { txStatus: neverSeen, chain: trusts, now: NOW }),
     ).toEqual({ action: "address_in_use" });
   });
 
@@ -284,7 +291,7 @@ describe("openSponsorshipIntent", () => {
     const addr = G();
     await seedRow({ userId: a.id, address: addr, status: "pending", txHash: "H1", expiresAt: LATER });
 
-    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: neverSeen, now: NOW });
+    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: neverSeen, chain: trusts, now: NOW });
 
     expect(decision).toEqual({ action: "prior_pending" });
     expect(neverSeen).toHaveBeenCalledWith("H1");
@@ -299,7 +306,7 @@ describe("openSponsorshipIntent", () => {
     const landed = vi.fn(async () => "confirmed" as const);
 
     expect(
-      await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: landed, now: NOW }),
+      await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: landed, chain: trusts, now: NOW }),
     ).toEqual({ action: "already_confirmed" });
     const rows = await prisma.sponsoredTrustline.findMany({ where: { address: addr } });
     expect(rows).toHaveLength(1);
@@ -313,7 +320,7 @@ describe("openSponsorshipIntent", () => {
     await seedRow({ userId: a.id, address: addr, status: "pending", txHash: "H1", expiresAt: LATER });
     const failed = vi.fn(async () => "failed" as const);
 
-    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: failed, now: NOW });
+    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: failed, chain: trusts, now: NOW });
 
     expect(decision.action).toBe("submit");
     const rows = await prisma.sponsoredTrustline.findMany({ where: { address: addr }, orderBy: { createdAt: "asc" } });
@@ -334,7 +341,7 @@ describe("openSponsorshipIntent", () => {
       expiresAt: new Date(NOW.getTime() - 60_000),
     });
 
-    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: neverSeen, now: NOW });
+    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: neverSeen, chain: trusts, now: NOW });
 
     expect(decision.action).toBe("submit");
     expect(await countOutstandingSponsorships(a.id)).toBe(1);
@@ -353,7 +360,7 @@ describe("openSponsorshipIntent", () => {
     });
 
     await expect(
-      openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: down, now: NOW }),
+      openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: down, chain: trusts, now: NOW }),
     ).rejects.toThrow("horizon down");
     const rows = await prisma.sponsoredTrustline.findMany({ where: { address: addr } });
     expect(rows.map((r) => [r.txHash, r.status])).toEqual([["H1", "pending"]]);
@@ -362,11 +369,11 @@ describe("openSponsorshipIntent", () => {
   it("a rebuild after tx_bad_seq leaves exactly one outstanding row", async () => {
     const a = await createUser();
     const addr = G();
-    const first = await openSponsorshipIntent(intent(a.id, addr, "H1"), { txStatus: neverSeen, now: NOW });
+    const first = await openSponsorshipIntent(intent(a.id, addr, "H1"), { txStatus: neverSeen, chain: trusts, now: NOW });
     if (first.action !== "submit") throw new Error("expected submit");
     await failSponsorship(first.id, "H1");
 
-    const second = await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: neverSeen, now: NOW });
+    const second = await openSponsorshipIntent(intent(a.id, addr, "H2"), { txStatus: neverSeen, chain: trusts, now: NOW });
     if (second.action !== "submit") throw new Error("expected submit");
     await confirmSponsorship(second.id, "H2");
 
@@ -376,6 +383,144 @@ describe("openSponsorshipIntent", () => {
       ["H1", "failed"],
       ["H2", "confirmed"],
     ]);
+  });
+});
+
+describe("openSponsorshipIntent — a confirmed row the chain no longer backs (PR #105 review)", () => {
+  const intent = (userId: string, address: string, txHash: string, kind: Kind) => ({
+    userId,
+    address,
+    kind,
+    txHash,
+    expiresAt: LATER,
+  });
+  /** The chain shows no USDC trustline, and these entries still sponsored. */
+  const gone = (...sponsoredEntries: Array<"trustline" | "account">) =>
+    vi.fn(async () => ({ usdcTrustline: false, sponsoredEntries }));
+  const rowsFor = (address: string) =>
+    prisma.sponsoredTrustline.findMany({ where: { address }, orderBy: { createdAt: "asc" } });
+
+  it("releases a trustline sponsorship whose trustline the owner removed, and submits on a fresh row", async () => {
+    const a = await createUser();
+    const addr = G();
+    const old = await seedRow({ userId: a.id, address: addr, kind: "trustline", txHash: "H1" });
+
+    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2", "trustline"), {
+      txStatus: neverSeen,
+      chain: gone(),
+      now: NOW,
+    });
+
+    expect(decision.action).toBe("submit");
+    const [released, fresh] = await rowsFor(addr);
+    expect(released).toMatchObject({ id: old.id, releasedBy: "owner", status: "confirmed" });
+    expect(released.revokedAt).not.toBeNull();
+    expect(fresh).toMatchObject({ txHash: "H2", status: "pending", kind: "trustline" });
+    expect(decision).toEqual({ action: "submit", id: fresh.id });
+    expect(await countOutstandingSponsorships(a.id)).toBe(1);
+  });
+
+  it("releases a merged-away account's sponsorship, and submits a new account+trustline on a fresh row", async () => {
+    const a = await createUser();
+    const addr = G();
+    await seedRow({ userId: a.id, address: addr, kind: "account+trustline", txHash: "H1" });
+
+    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2", "account+trustline"), {
+      txStatus: neverSeen,
+      chain: gone(),
+      now: NOW,
+    });
+
+    expect(decision.action).toBe("submit");
+    expect((await rowsFor(addr)).map((r) => [r.txHash, r.status, r.releasedBy])).toEqual([
+      ["H1", "confirmed", "owner"],
+      ["H2", "pending", null],
+    ]);
+  });
+
+  it("reopens the row, rather than releasing it, while the account it created is still sponsored", async () => {
+    const a = await createUser();
+    const addr = G();
+    const old = await seedRow({ userId: a.id, address: addr, kind: "account+trustline", txHash: "H1" });
+
+    const decision = await openSponsorshipIntent(intent(a.id, addr, "H2", "trustline"), {
+      txStatus: neverSeen,
+      chain: gone("account"),
+      now: NOW,
+    });
+
+    expect(decision).toEqual({ action: "submit", id: old.id });
+    const rows = await rowsFor(addr);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ txHash: "H2", status: "pending", kind: "account+trustline", revokedAt: null });
+    expect(rows[0].confirmedAt).not.toBeNull();
+    // The account's reserve is still locked, so the liability still counts it.
+    expect((await sponsorshipLiability()).reserveUnits).toBe(3);
+  });
+
+  it("returns a reopened row to confirmed when its new envelope fails, and settles it when it lands", async () => {
+    const a = await createUser();
+    const addr = G();
+    const old = await seedRow({ userId: a.id, address: addr, kind: "account+trustline", txHash: "H1" });
+    const reopen = (txHash: string) =>
+      openSponsorshipIntent(intent(a.id, addr, txHash, "trustline"), { txStatus: neverSeen, chain: gone("account"), now: NOW });
+
+    await reopen("H2");
+    await failSponsorship(old.id, "H2");
+    expect(await prisma.sponsoredTrustline.findUniqueOrThrow({ where: { id: old.id } })).toMatchObject({
+      status: "confirmed",
+      txHash: "H2",
+    });
+
+    await reopen("H3");
+    await confirmSponsorship(old.id, "H3");
+    expect(await prisma.sponsoredTrustline.findUniqueOrThrow({ where: { id: old.id } })).toMatchObject({
+      status: "confirmed",
+      txHash: "H3",
+    });
+    expect(await countOutstandingSponsorships(a.id)).toBe(1);
+  });
+
+  it("writes nothing when the chain lookup fails", async () => {
+    const a = await createUser();
+    const addr = G();
+    await seedRow({ userId: a.id, address: addr, kind: "trustline", txHash: "H1" });
+    const down = vi.fn(async () => {
+      throw new Error("horizon down");
+    });
+
+    await expect(
+      openSponsorshipIntent(intent(a.id, addr, "H2", "trustline"), { txStatus: neverSeen, chain: down, now: NOW }),
+    ).rejects.toThrow("horizon down");
+    expect((await rowsFor(addr)).map((r) => [r.txHash, r.status, r.revokedAt])).toEqual([["H1", "confirmed", null]]);
+  });
+
+  it("never reads the chain for, or resets, another user's confirmed row", async () => {
+    const a = await createUser();
+    const b = await createUser();
+    const addr = G();
+    await seedRow({ userId: a.id, address: addr, kind: "trustline", txHash: "H1" });
+    const chain = gone();
+
+    expect(
+      await openSponsorshipIntent(intent(b.id, addr, "H2", "trustline"), { txStatus: neverSeen, chain, now: NOW }),
+    ).toEqual({ action: "address_in_use" });
+    expect(chain).not.toHaveBeenCalled();
+  });
+
+  it("lets racing resets of one confirmed row produce a single outstanding row", async () => {
+    const a = await createUser();
+    const addr = G();
+    await seedRow({ userId: a.id, address: addr, kind: "trustline", txHash: "H1" });
+
+    const decisions = await Promise.all(
+      Array.from({ length: 4 }, (_, i) =>
+        openSponsorshipIntent(intent(a.id, addr, `R${i}`, "trustline"), { txStatus: neverSeen, chain: gone(), now: NOW }),
+      ),
+    );
+
+    expect(decisions.filter((d) => d.action === "submit")).toHaveLength(1);
+    expect(await countOutstandingSponsorships(a.id)).toBe(1);
   });
 });
 
@@ -390,7 +535,7 @@ describe("openSponsorshipIntent under concurrency", () => {
       users.map((u, i) =>
         openSponsorshipIntent(
           { userId: u.id, address: addr, kind: "account+trustline", txHash: `H${i}`, expiresAt: LATER },
-          { txStatus: neverSeen, now: NOW },
+          { txStatus: neverSeen, chain: trusts, now: NOW },
         ),
       ),
     );
@@ -408,7 +553,7 @@ describe("openSponsorshipIntent under concurrency", () => {
       Array.from({ length: CALLERS }, (_, i) =>
         openSponsorshipIntent(
           { userId: a.id, address: addr, kind: "account+trustline", txHash: `H${i}`, expiresAt: LATER },
-          { txStatus: neverSeen, now: NOW },
+          { txStatus: neverSeen, chain: trusts, now: NOW },
         ),
       ),
     );
@@ -426,7 +571,7 @@ describe("openSponsorshipIntent under concurrency", () => {
       Array.from({ length: CALLERS }, () =>
         openSponsorshipIntent(
           { userId: a.id, address: addr, kind: "account+trustline", txHash: "SAME", expiresAt: LATER },
-          { txStatus: neverSeen, now: NOW },
+          { txStatus: neverSeen, chain: trusts, now: NOW },
         ),
       ),
     );
