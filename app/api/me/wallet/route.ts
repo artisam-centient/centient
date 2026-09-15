@@ -4,7 +4,7 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { getLabelerSession, requireLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress, verify } from "@/lib/stellar/signature";
-import { checkWalletRateLimit } from "@/lib/rate-limit";
+import { checkWalletRateLimit, WALLET_BURST_LIMIT } from "@/lib/rate-limit";
 import { WALLET_LINK_ACTION } from "@/lib/stellar/challenge-message";
 
 /**
@@ -88,7 +88,8 @@ export async function GET(req: NextRequest) {
   // Throttle challenge issuance per candidate address. A live row is reused,
   // but an unthrottled caller could still churn expiry checks and replacement
   // writes. Distinct from the sponsor-build key so the two flows do not collide.
-  if (await checkWalletRateLimit(`link:${address}`)) {
+  // A small burst, so a declined Freighter prompt can be retried straight away.
+  if (await checkWalletRateLimit(`link:${address}`, WALLET_BURST_LIMIT)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 

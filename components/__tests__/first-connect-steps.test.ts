@@ -10,6 +10,7 @@ import { WalletClaimView } from "@/components/WalletClaim";
 import {
   PAYOUT_SETUP_MESSAGES,
   PAYOUT_SIGNING_NOTICE,
+  payoutWaitingNotice,
   type PayoutSetupFailure,
 } from "@/lib/stellar/payout-setup";
 import { WALLET_CLAIM_MESSAGES, type WalletClaimFailure } from "@/lib/stellar/wallet-claim";
@@ -45,6 +46,14 @@ describe("PayoutSetupView", () => {
       expect(html).not.toContain("Try again");
     },
   );
+
+  it("reads a rate limit as a wait that carries on by itself, with no retry offered", () => {
+    const html = render({ phase: "waiting", waitSeconds: 12, onRetry: noop });
+    expect(html).toContain(escaped(payoutWaitingNotice(12)));
+    expect(html).toContain('aria-busy="true"');
+    expect(html).not.toContain("Try again");
+    expect(html).not.toContain("text-error");
+  });
 
   it("announces status changes to assistive technology", () => {
     const html = render({ phase: "failed", reason: "pending", onRetry: noop });

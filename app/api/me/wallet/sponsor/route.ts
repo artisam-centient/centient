@@ -10,7 +10,7 @@ import {
   StellarPaymentError,
   type PreparedSponsorship,
 } from "@/lib/stellar/client";
-import { checkWalletRateLimit } from "@/lib/rate-limit";
+import { takeRateLimit, WALLET_BURST_LIMIT } from "@/lib/rate-limit";
 import {
   checkSponsorAllowed,
   confirmSponsorship,
@@ -51,15 +51,11 @@ export async function GET(req: NextRequest) {
   const userId = user.id;
 
   // Per-user throttle: the per-address limiter below gives no per-user bound — a
-  // labeler could loop fresh keypairs to bypass it. This session-keyed check is a
-  // stopgap; a proper cap on outstanding sponsorships per labeler is tracked as a
-  // follow-up before ST-7 mainnet (issue link will be added).
-  if (await checkWalletRateLimit(`sponsor-get:${userId}`)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
-  if (await checkWalletRateLimit(`sponsor-build:${address}`)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
+  // labeler could loop fresh keypairs to bypass it. The outstanding cap (#330)
+  // bounds what can be spent; these bound the rate. Each allows a small burst:
+  // payout setup runs on every page load, and rebuilds once after `retry`.
+  const limited = (await throttle(`sponsor-get:${userId}`)) ?? (await throttle(`sponsor-build:${address}`));
+  if (limited) return limited;
 
   try {
     if (await accountHasUsdcTrustline(address)) {
@@ -115,12 +111,10 @@ export async function POST(req: NextRequest) {
 
   // Per-user throttle: the per-address limiter does not exist on POST (no address
   // check on the build step here), so a labeler could loop fresh keypairs to
-  // submit unlimited sponsorship txs. This session-keyed check is a stopgap; a
-  // proper cap on outstanding sponsorships per labeler is tracked as a follow-up
-  // before ST-7 mainnet (issue link will be added).
-  if (await checkWalletRateLimit(`sponsor-submit:${userId}`)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
+  // submit unlimited sponsorship txs. A small burst, so the resubmission after a
+  // `retry` rebuild is not refused.
+  const limited = await throttle(`sponsor-submit:${userId}`);
+  if (limited) return limited;
 
   // #330: per-user outstanding cap + cross-user address lock, re-checked here
   // (not just at build) so a client that skips GET can't bypass it.
@@ -187,6 +181,19 @@ export async function POST(req: NextRequest) {
 
 function unauthorized() {
   return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+}
+
+/**
+ * Take one request from `key`'s burst. Null while it has room; otherwise the 429
+ * to send, with a `Retry-After` the client can wait out instead of failing.
+ */
+async function throttle(key: string): Promise<NextResponse | null> {
+  const decision = await takeRateLimit(key, WALLET_BURST_LIMIT);
+  if (!decision.limited) return null;
+  return NextResponse.json(
+    { error: "rate_limited" },
+    { status: 429, headers: { "Retry-After": String(decision.retryAfterSeconds) } },
+  );
 }
 
 /**

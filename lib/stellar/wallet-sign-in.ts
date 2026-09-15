@@ -125,7 +125,7 @@ export const WALLET_SIGN_IN_MESSAGES: Record<WalletSignInFailure, string> = {
     "Freighter signed with a different account. Switch to the account you connected, then try again.",
   unsupported: "This version of Freighter can't sign in. Update Freighter, then try again.",
   expired: "That sign-in request expired. Try again to get a fresh one.",
-  rate_limited: "Too many sign-in attempts. Wait 15 seconds, then try again.",
+  rate_limited: "Too many sign-in attempts. Wait a minute, then try again.",
   network: "We couldn't reach Centient. Check your connection and try again.",
   failed: "Sign-in didn't complete. Please try again.",
 };

@@ -26,7 +26,10 @@ vi.mock("@/lib/labeler-auth", async (importOriginal) => {
   return { ...actual, getLabelerSession: mockGetSession };
 });
 
-vi.mock("@/lib/rate-limit", () => ({ checkWalletRateLimit: mockCheckWalletRateLimit }));
+vi.mock("@/lib/rate-limit", () => ({
+  checkWalletRateLimit: mockCheckWalletRateLimit,
+  WALLET_BURST_LIMIT: { max: 5, windowMs: 60_000 },
+}));
 
 vi.mock("@/lib/prisma", () => ({
   __esModule: true,
@@ -157,7 +160,7 @@ describe("GET /api/me/wallet (challenge)", () => {
     const res = await GET(getReq(G));
     expect(res.status).toBe(429);
     expect((await res.json()).error).toBe("rate_limited");
-    expect(mockCheckWalletRateLimit).toHaveBeenCalledWith(`link:${G}`);
+    expect(mockCheckWalletRateLimit).toHaveBeenCalledWith(`link:${G}`, { max: 5, windowMs: 60_000 });
     expect(mockNonceCreate).not.toHaveBeenCalled();
   });
 });

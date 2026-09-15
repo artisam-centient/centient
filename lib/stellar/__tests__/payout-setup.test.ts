@@ -12,12 +12,15 @@ const ADDR = Keypair.random().publicKey();
 const URL = "/api/me/wallet/sponsor";
 
 /** A JSON Response with the given status, as the API routes return. */
-function json(status: number, body: unknown): Response {
+function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
+
+/** The sponsor route's throttled answer. */
+const throttled = (retryAfter: string) => json(429, { error: "rate_limited" }, { "Retry-After": retryAfter });
 
 type Answer = Response | (() => Response);
 
@@ -38,13 +41,17 @@ function makeDeps(opts: { gets?: Answer[]; posts?: Answer[]; overrides?: Partial
     init?.method === "POST" ? next(posts, postN++) : next(gets, getN++),
   );
   const onSigning = vi.fn();
+  const onWaiting = vi.fn();
+  const sleep = vi.fn(async () => {});
   const deps: PayoutSetupDeps = {
     signTransaction: vi.fn(async () => "SIGNED"),
     fetch: fetchMock as unknown as typeof fetch,
     onSigning,
+    onWaiting,
+    sleep,
     ...opts.overrides,
   };
-  return { deps, fetchMock, onSigning };
+  return { deps, fetchMock, onSigning, onWaiting, sleep };
 }
 
 /** The POSTs the flow made, as parsed bodies. */
@@ -90,6 +97,63 @@ describe("setUpPayouts — success", () => {
 
     expect(deps.signTransaction).toHaveBeenCalledTimes(2);
     expect(postedBodies(fetchMock)).toHaveLength(2);
+  });
+});
+
+describe("setUpPayouts — a rate limit is a wait, not a failure", () => {
+  it("waits out a throttled build for its Retry-After, then carries on", async () => {
+    const { deps, fetchMock, onWaiting, sleep } = makeDeps({
+      gets: [throttled("7"), json(200, { needed: true, address: ADDR, xdr: "XDR", kind: "trustline" })],
+    });
+
+    await expect(setUpPayouts(deps)).resolves.toEqual({ ok: true, address: ADDR, sponsored: true });
+
+    expect(sleep).toHaveBeenCalledWith(7000);
+    expect(onWaiting.mock.calls).toEqual([[7], [null]]);
+    expect(fetchMock.mock.calls.filter(([, init]) => !init)).toHaveLength(2);
+  });
+
+  it("waits out a throttled submit and resends the same signed envelope, without signing again", async () => {
+    const { deps, fetchMock, sleep } = makeDeps({ posts: [throttled("3"), json(200, { established: true })] });
+
+    await expect(setUpPayouts(deps)).resolves.toEqual({ ok: true, address: ADDR, sponsored: true });
+
+    expect(sleep).toHaveBeenCalledWith(3000);
+    expect(deps.signTransaction).toHaveBeenCalledTimes(1);
+    expect(postedBodies(fetchMock)).toEqual([{ signedXdr: "SIGNED" }, { signedXdr: "SIGNED" }]);
+  });
+
+  it("rebuilds after retry even when the rebuild is throttled (PR #105 review)", async () => {
+    const { deps, sleep } = makeDeps({
+      gets: [
+        json(200, { needed: true, address: ADDR, xdr: "XDR", kind: "trustline" }),
+        throttled("15"),
+        json(200, { needed: true, address: ADDR, xdr: "XDR2", kind: "trustline" }),
+      ],
+      posts: [json(409, { error: "retry" }), json(200, { established: true })],
+    });
+
+    await expect(setUpPayouts(deps)).resolves.toEqual({ ok: true, address: ADDR, sponsored: true });
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(deps.signTransaction).toHaveBeenLastCalledWith("XDR2", ADDR);
+  });
+
+  it("waits once per request, then reports a limit that persists", async () => {
+    const { deps, sleep } = makeDeps({ gets: [throttled("2")] });
+    await expect(setUpPayouts(deps)).resolves.toEqual({ ok: false, reason: "rate_limited" });
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["no Retry-After", json(429, { error: "rate_limited" })],
+    ["a Retry-After past the longest wait", throttled("600")],
+    ["an unreadable Retry-After", throttled("soon")],
+    ["the sponsorship cap, which no wait clears", json(429, { error: "sponsorship_cap_reached" }, { "Retry-After": "5" })],
+  ])("reports rather than waits for %s", async (_label, answer) => {
+    const { deps, sleep } = makeDeps({ gets: [answer] });
+    const result = await setUpPayouts(deps);
+    expect(result.ok).toBe(false);
+    expect(sleep).not.toHaveBeenCalled();
   });
 });
 

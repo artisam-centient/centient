@@ -5,18 +5,21 @@ import { signTransaction } from "@/lib/stellar/wallet";
 import {
   PAYOUT_SETUP_MESSAGES,
   PAYOUT_SIGNING_NOTICE,
+  payoutWaitingNotice,
   setUpPayouts,
   type PayoutSetupFailure,
   type PayoutSetupResult,
   type SponsorshipEnvelopeKind,
 } from "@/lib/stellar/payout-setup";
 
-export type PayoutSetupPhase = "working" | "signing" | "failed";
+export type PayoutSetupPhase = "working" | "signing" | "waiting" | "failed";
 
 interface PayoutSetupViewProps {
   phase: PayoutSetupPhase;
   /** Set when `phase` is "signing". */
   signingKind?: SponsorshipEnvelopeKind;
+  /** Set when `phase` is "waiting". */
+  waitSeconds?: number;
   /** Set when `phase` is "failed". */
   reason?: PayoutSetupFailure;
   onRetry: () => void;
@@ -27,7 +30,7 @@ interface PayoutSetupViewProps {
  * rendered and tested on its own. A declined prompt reads as guidance, not an
  * error: nothing was submitted.
  */
-export function PayoutSetupView({ phase, signingKind, reason, onRetry }: PayoutSetupViewProps) {
+export function PayoutSetupView({ phase, signingKind, waitSeconds, reason, onRetry }: PayoutSetupViewProps) {
   const failure = phase === "failed" ? (reason ?? "failed") : null;
 
   return (
@@ -53,6 +56,11 @@ export function PayoutSetupView({ phase, signingKind, reason, onRetry }: PayoutS
           {phase === "signing" && (
             <p data-signing={signingKind} className="font-body text-sm text-on-surface-variant">
               {PAYOUT_SIGNING_NOTICE[signingKind ?? "account+trustline"]}
+            </p>
+          )}
+          {phase === "waiting" && (
+            <p data-waiting={waitSeconds} className="font-body text-sm text-on-surface-variant">
+              {payoutWaitingNotice(waitSeconds ?? 0)}
             </p>
           )}
           {failure && (
@@ -89,10 +97,15 @@ export function PayoutSetupView({ phase, signingKind, reason, onRetry }: PayoutS
   );
 }
 
-type RunSetup = (onSigning: (kind: SponsorshipEnvelopeKind | null) => void) => Promise<PayoutSetupResult>;
+interface SetupProgress {
+  onSigning: (kind: SponsorshipEnvelopeKind | null) => void;
+  onWaiting: (seconds: number | null) => void;
+}
 
-const runSetUpPayouts: RunSetup = (onSigning) =>
-  setUpPayouts({ signTransaction, fetch: (...args) => fetch(...args), onSigning });
+type RunSetup = (progress: SetupProgress) => Promise<PayoutSetupResult>;
+
+const runSetUpPayouts: RunSetup = ({ onSigning, onWaiting }) =>
+  setUpPayouts({ signTransaction, fetch: (...args) => fetch(...args), onSigning, onWaiting });
 
 interface PayoutSetupProps {
   /** Called once the bound wallet can receive USDC. */
@@ -108,6 +121,7 @@ interface PayoutSetupProps {
 export default function PayoutSetup({ onReady, run = runSetUpPayouts }: PayoutSetupProps) {
   const [phase, setPhase] = useState<PayoutSetupPhase>("working");
   const [signingKind, setSigningKind] = useState<SponsorshipEnvelopeKind | undefined>();
+  const [waitSeconds, setWaitSeconds] = useState<number | undefined>();
   const [reason, setReason] = useState<PayoutSetupFailure | undefined>();
   const inFlight = useRef(false);
   // Held in a ref so a parent re-render with a new callback never restarts setup.
@@ -122,9 +136,15 @@ export default function PayoutSetup({ onReady, run = runSetUpPayouts }: PayoutSe
     inFlight.current = true;
     setPhase("working");
     setReason(undefined);
-    const result = await run((kind) => {
-      setSigningKind(kind ?? undefined);
-      setPhase(kind ? "signing" : "working");
+    const result = await run({
+      onSigning: (kind) => {
+        setSigningKind(kind ?? undefined);
+        setPhase(kind ? "signing" : "working");
+      },
+      onWaiting: (seconds) => {
+        setWaitSeconds(seconds ?? undefined);
+        setPhase(seconds ? "waiting" : "working");
+      },
     });
     inFlight.current = false;
     if (result.ok) {
@@ -139,5 +159,13 @@ export default function PayoutSetup({ onReady, run = runSetUpPayouts }: PayoutSe
     void attempt();
   }, [attempt]);
 
-  return <PayoutSetupView phase={phase} signingKind={signingKind} reason={reason} onRetry={attempt} />;
+  return (
+    <PayoutSetupView
+      phase={phase}
+      signingKind={signingKind}
+      waitSeconds={waitSeconds}
+      reason={reason}
+      onRetry={attempt}
+    />
+  );
 }

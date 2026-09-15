@@ -36,7 +36,10 @@ vi.mock("@/lib/stellar/client", async (importOriginal) => {
     getTxStatus: mockTxStatus,
   };
 });
-vi.mock("@/lib/rate-limit", () => ({ checkWalletRateLimit: mockRateLimit }));
+vi.mock("@/lib/rate-limit", () => ({
+  takeRateLimit: mockRateLimit,
+  WALLET_BURST_LIMIT: { max: 5, windowMs: 60_000 },
+}));
 vi.mock("@/lib/sponsored-trustline", () => ({
   checkSponsorAllowed: mockCheckAllowed,
   livePendingSponsorship: mockLivePending,
@@ -56,7 +59,7 @@ const EXPIRES = new Date("2026-09-15T01:03:00.000Z");
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetUser.mockResolvedValue({ id: "user-1", walletAddress: ADDR });
-  mockRateLimit.mockResolvedValue(false);
+  mockRateLimit.mockResolvedValue({ limited: false });
   mockCheckAllowed.mockResolvedValue({ ok: true });
   mockLivePending.mockResolvedValue(false);
   mockPrepare.mockReturnValue({
@@ -165,18 +168,26 @@ describe("GET /api/me/wallet/sponsor", () => {
     await GET(getReq());
     expect(mockCheckAllowed).not.toHaveBeenCalled();
   });
-  it("429 when rate-limited by address", async () => {
-    mockRateLimit.mockResolvedValue(true);
+  it("429 with a Retry-After when rate-limited by address", async () => {
+    mockRateLimit.mockImplementation(async (key: string) =>
+      key.startsWith("sponsor-build:") ? { limited: true, retryAfterSeconds: 42 } : { limited: false },
+    );
     const res = await GET(getReq());
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("42");
     expect((await res.json()).error).toBe("rate_limited");
+    expect(mockRateLimit).toHaveBeenCalledWith(`sponsor-build:${ADDR}`, { max: 5, windowMs: 60_000 });
   });
   // Ensure distinct keys per phase so GET doesn't consume POST's bucket.
-  it("429 when per-user rate limit fires on GET (sponsor-get: key)", async () => {
-    mockRateLimit.mockImplementation(async (key: string) => key.startsWith("sponsor-get:"));
+  it("429 when per-user rate limit fires on GET (sponsor-get: key), without spending the address's", async () => {
+    mockRateLimit.mockImplementation(async (key: string) =>
+      key.startsWith("sponsor-get:") ? { limited: true, retryAfterSeconds: 9 } : { limited: false },
+    );
     const res = await GET(getReq());
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("9");
     expect((await res.json()).error).toBe("rate_limited");
+    expect(mockRateLimit).toHaveBeenCalledTimes(1);
   });
   it("502 when build throws", async () => {
     mockHasTrustline.mockResolvedValue(false);
@@ -392,11 +403,15 @@ describe("POST /api/me/wallet/sponsor", () => {
     });
   });
 
-  // Distinct per-phase key so POST doesn't share GET's 15s bucket.
+  // Distinct per-phase key so POST doesn't share GET's bucket.
   it("429 when per-user rate limit fires on POST (sponsor-submit: key)", async () => {
-    mockRateLimit.mockImplementation(async (key: string) => key.startsWith("sponsor-submit:"));
+    mockRateLimit.mockImplementation(async (key: string) =>
+      key.startsWith("sponsor-submit:") ? { limited: true, retryAfterSeconds: 5 } : { limited: false },
+    );
     const res = await post();
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("5");
     expect((await res.json()).error).toBe("rate_limited");
+    expect(mockOpenIntent).not.toHaveBeenCalled();
   });
 });
