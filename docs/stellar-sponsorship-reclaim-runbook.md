@@ -89,7 +89,8 @@ sponsorship's wallet address so you can look it up on Horizon. An execute run
 also stores its report in `sponsorship_reclaim_runs`, **without addresses**. Each
 stored entry is keyed by `sponsorshipId`, which joins to `sponsored_trustlines`
 for as long as that row exists. The stored report holds no keys, user ids,
-contact data or wallet addresses. Keep a printed report only as long as the task
+contact data or wallet addresses; an error `detail` is stored with any account
+ID in it replaced by `[address]`. Keep a printed report only as long as the task
 needs it.
 
 Execute runs are safe to repeat. A released row is no longer outstanding, and a

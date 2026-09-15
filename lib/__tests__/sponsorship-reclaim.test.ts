@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Keypair } from "@stellar/stellar-sdk";
+import { Account, Keypair, MuxedAccount } from "@stellar/stellar-sdk";
 import {
   runSponsorshipReclaim,
   type ReclaimDeps,
@@ -462,6 +462,24 @@ describe("rule 7 — execute", () => {
     expect(run).toMatchObject({ network: "testnet", sponsor: SPONSOR, reclaimedStroops: 3n * BASE });
     expect(run.finishedAt).not.toBeNull();
     expect((run.report as unknown as ReclaimReport).sponsorships).toHaveLength(1);
+  });
+
+  it("stores no wallet address, even one an error detail names", async () => {
+    const lookup = await eligibleRow();
+    net.chain.set(lookup.address, new Error(`readChainSponsorship: Horizon account ${lookup.address} has no native balance line`));
+    const rejected = await eligibleRow();
+    const muxed = new MuxedAccount(new Account(rejected.address, "0"), "7").accountId();
+    net.outcomes.set(rejected.address, [{ outcome: "rejected", detail: `op_underfunded for ${rejected.address} via ${muxed}` }]);
+
+    const report = await execute();
+
+    expect(dispositionOf(report, lookup.id).detail).toContain(lookup.address);
+    const run = await prisma.sponsorshipReclaimRun.findUniqueOrThrow({ where: { id: report.runId! } });
+    const stored = JSON.stringify(run.report);
+    for (const address of [lookup.address, rejected.address, muxed]) expect(stored).not.toContain(address);
+    const storedOf = (id: string) => (run.report as unknown as ReclaimReport).sponsorships.find((s) => s.sponsorshipId === id);
+    expect(storedOf(lookup.id)?.detail).toBe("readChainSponsorship: Horizon account [address] has no native balance line");
+    expect(storedOf(rejected.id)?.detail).toBe("op_underfunded for [address] via [address]");
   });
 
   it("records the revocation's hash on the row before it is broadcast", async () => {
