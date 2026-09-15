@@ -5,9 +5,10 @@ import { Keypair } from "@stellar/stellar-sdk";
 const {
   mockGetUser, mockHasTrustline, mockBuild, mockPrepare, mockBroadcast, mockTxStatus,
   mockRateLimit, mockCheckAllowed, mockLivePending, mockOpenIntent, mockConfirm, mockFail,
-  mockCapture, mockChain,
+  mockCapture, mockChain, mockHasConfirmed,
 } = vi.hoisted(() => ({
   mockChain: vi.fn(),
+  mockHasConfirmed: vi.fn(),
   mockGetUser: vi.fn(),
   mockHasTrustline: vi.fn(),
   mockBuild: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("@/lib/sponsored-trustline", () => ({
   openSponsorshipIntent: mockOpenIntent,
   confirmSponsorship: mockConfirm,
   failSponsorship: mockFail,
+  hasConfirmedSponsorship: mockHasConfirmed,
 }));
 vi.mock("@/lib/stellar/sponsorship-reclaim", () => ({ readSponsorshipOnChain: mockChain }));
 vi.mock("@sentry/nextjs", () => ({ captureException: mockCapture }));
@@ -64,6 +66,7 @@ beforeEach(() => {
   mockRateLimit.mockResolvedValue({ limited: false });
   mockCheckAllowed.mockResolvedValue({ ok: true });
   mockLivePending.mockResolvedValue(false);
+  mockHasConfirmed.mockResolvedValue(false);
   mockPrepare.mockReturnValue({
     hash: "H",
     kind: "account+trustline",
@@ -190,6 +193,21 @@ describe("GET /api/me/wallet/sponsor", () => {
     expect(res.headers.get("Retry-After")).toBe("9");
     expect((await res.json()).error).toBe("rate_limited");
     expect(mockRateLimit).toHaveBeenCalledTimes(1);
+  });
+  it("answers needed:false from a confirmed sponsorship when Horizon cannot be reached (PR #105 review)", async () => {
+    mockHasTrustline.mockRejectedValue(new Error("horizon down"));
+    mockHasConfirmed.mockResolvedValue(true);
+    const res = await GET(getReq());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ needed: false, address: ADDR });
+    expect(mockHasConfirmed).toHaveBeenCalledWith("user-1", ADDR);
+    expect(mockBuild).not.toHaveBeenCalled();
+  });
+  it("502 build_failed when Horizon cannot be reached and no confirmed sponsorship stands in", async () => {
+    mockHasTrustline.mockRejectedValue(new Error("horizon down"));
+    const res = await GET(getReq());
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe("build_failed");
   });
   it("502 when build throws", async () => {
     mockHasTrustline.mockResolvedValue(false);

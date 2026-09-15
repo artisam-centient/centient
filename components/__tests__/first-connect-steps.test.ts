@@ -73,6 +73,22 @@ describe("PayoutSetupView", () => {
     },
   );
 
+  it.each(Object.keys(PAYOUT_SETUP_MESSAGES) as PayoutSetupFailure[])(
+    "never traps the contributor on the %s failure: they can continue into the app (PR #105 review)",
+    (reason) => {
+      const html = render({ phase: "failed", reason, onRetry: noop, onContinue: noop });
+      expect(html).toContain("Continue for now");
+      expect(html).toContain("Finish payout setup before you withdraw");
+    },
+  );
+
+  it("offers to continue only once setup has failed", () => {
+    expect(render({ phase: "working", onRetry: noop, onContinue: noop })).not.toContain("Continue for now");
+    expect(render({ phase: "signing", signingKind: "trustline", onRetry: noop, onContinue: noop })).not.toContain(
+      "Continue for now",
+    );
+  });
+
   it("styles a declined prompt as guidance, not an error", () => {
     expect(render({ phase: "failed", reason: "rejected", onRetry: noop })).not.toContain("text-error");
     expect(render({ phase: "failed", reason: "unavailable", onRetry: noop })).toContain("text-error");

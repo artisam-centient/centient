@@ -54,6 +54,8 @@ signed out ─┤   login    ├────────────────
 - **No Stellar wallet, or a legacy `0x…` one:** `claim_wallet`.
 - **Otherwise:** `payout_setup`, which a returning wallet that is already set up passes through without a signature.
 
+Payout setup never blocks the app (PR #105 review). Tasks and submissions need only a bound wallet, so a failed setup offers **Continue for now** beside **Try again**, and the contributor goes on to onboarding or the landing. A withdrawal refused `payout_setup_required` sends them back to `payout_setup`. If Horizon cannot say whether the trustline exists, a confirmed sponsorship on the ledger answers `needed:false`; the withdrawal still checks the chain.
+
 A 409 `wallet_required` from task or submit also routes to `claim_wallet`.
 
 The client flows are resolve-never-reject libraries with injectable dependencies, in the pattern `wallet-sign-in.ts` set: `lib/stellar/payout-setup.ts` and `lib/stellar/wallet-claim.ts`. Each failure is a typed state with a message, rendered by a stateless view (`PayoutSetupView`, `WalletClaimView`) with a thin container.
@@ -66,6 +68,9 @@ The client flows are resolve-never-reject libraries with injectable dependencies
 | Sponsorship prompt declined | `rejected` state; try again rebuilds | Nothing was submitted |
 | Submit outcome unknown (202) | `pending` state; a reload answers `submission_pending` until it resolves | The pending row stays; resubmitting the same envelope settles on that row (#27) |
 | Submit refused `retry` (`tx_bad_seq`, never landed) | Rebuilt and re-signed once, automatically | The first row is released as `failed`; one live row remains |
+| Sponsor route throttled | The flow waits out its `Retry-After` once (up to 60s), then carries on | A throttled request writes nothing; each throttle allows 5 requests a minute, so a rebuild or a reload does not trip it |
+| Setup fails and cannot recover now | **Continue for now** into the app; withdrawing sends the contributor back to setup | Nothing was submitted, or the pending row stays |
+| Trustline removed after a confirmed sponsorship | A new envelope is broadcast, not answered `already_confirmed` | The confirmed row is released (nothing still sponsored) or reopened as pending (account still sponsored) |
 | Existing trustline | Sponsor GET answers `needed:false`: ready | No envelope, no row, cap untouched |
 | Returning wallet | Signs in as the same user; passes setup | `findOrCreateWalletUser` keys on the unique `walletAddress` |
 | Wallet held by another account | Claim refused `address_already_linked` | `User.walletAddress` is unique |

@@ -38,6 +38,8 @@ interface AccountSheetProps {
   ageRange: string | null;
   showToast: (message: string, kind?: ToastKind) => void;
   onDemographicsDeleted: () => void;
+  /** A withdrawal was refused because payout setup is unfinished: take the contributor there. */
+  onPayoutSetupRequired?: () => void;
 }
 
 function formatDemographicField(value: string | null): string {
@@ -106,6 +108,7 @@ export default function AccountSheet({
   ageRange,
   showToast,
   onDemographicsDeleted,
+  onPayoutSetupRequired,
 }: AccountSheetProps) {
   const [deleting, setDeleting] = useState(false);
   const [showDataSection, setShowDataSection] = useState(false);
@@ -186,6 +189,8 @@ export default function AccountSheet({
         if (updated) setWithdrawalData(updated);
       } else {
         showToast(data.message || data.error || "Withdrawal failed", "error");
+        // Payout setup may have been left for later; this is where it is needed.
+        if (res.status === 409 && data.error === "payout_setup_required") onPayoutSetupRequired?.();
       }
     } catch {
       showToast("Withdrawal failed", "error");

@@ -6,6 +6,7 @@ import {
   checkSponsorAllowed,
   confirmSponsorship,
   failSponsorship,
+  hasConfirmedSponsorship,
   livePendingSponsorship,
   openSponsorshipIntent,
   sponsorMaxOutstanding,
@@ -189,6 +190,21 @@ describe("checkSponsorAllowed", () => {
     const a = await createUser();
     await seedRow({ userId: a.id });
     expect(await checkSponsorAllowed(a.id, G())).toEqual({ ok: false, reason: "cap_reached" });
+  });
+});
+
+describe("hasConfirmedSponsorship", () => {
+  it("is true only for this user's confirmed, unreleased sponsorship of the address", async () => {
+    const a = await createUser();
+    const b = await createUser();
+    const confirmed = await seedRow({ userId: a.id });
+    const pending = await seedRow({ userId: a.id, status: "pending", expiresAt: LATER });
+    const released = await seedRow({ userId: a.id, revokedAt: NOW });
+
+    expect(await hasConfirmedSponsorship(a.id, confirmed.address)).toBe(true);
+    expect(await hasConfirmedSponsorship(b.id, confirmed.address)).toBe(false);
+    expect(await hasConfirmedSponsorship(a.id, pending.address)).toBe(false);
+    expect(await hasConfirmedSponsorship(a.id, released.address)).toBe(false);
   });
 });
 

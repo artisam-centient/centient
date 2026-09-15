@@ -23,14 +23,24 @@ interface PayoutSetupViewProps {
   /** Set when `phase` is "failed". */
   reason?: PayoutSetupFailure;
   onRetry: () => void;
+  /** Leave setup for later and go on into the app. Offered on failure when set. */
+  onContinue?: () => void;
 }
 
 /**
  * The payout-setup step for one state (#30). Stateless, so every state can be
  * rendered and tested on its own. A declined prompt reads as guidance, not an
- * error: nothing was submitted.
+ * error: nothing was submitted. A failure never traps the contributor: setup is
+ * only needed to withdraw, so they can carry on and finish it later.
  */
-export function PayoutSetupView({ phase, signingKind, waitSeconds, reason, onRetry }: PayoutSetupViewProps) {
+export function PayoutSetupView({
+  phase,
+  signingKind,
+  waitSeconds,
+  reason,
+  onRetry,
+  onContinue,
+}: PayoutSetupViewProps) {
   const failure = phase === "failed" ? (reason ?? "failed") : null;
 
   return (
@@ -82,6 +92,20 @@ export function PayoutSetupView({ phase, signingKind, waitSeconds, reason, onRet
             >
               Try again
             </button>
+            {onContinue && (
+              <button
+                type="button"
+                onClick={onContinue}
+                className="w-full rounded-full py-3 font-label text-base font-semibold text-primary underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                Continue for now
+              </button>
+            )}
+            {onContinue && (
+              <p className="font-body text-xs text-on-surface-variant">
+                You can keep earning. Finish payout setup before you withdraw.
+              </p>
+            )}
             <form action="/api/auth/logout" method="post">
               <button
                 type="submit"
@@ -110,6 +134,8 @@ const runSetUpPayouts: RunSetup = ({ onSigning, onWaiting }) =>
 interface PayoutSetupProps {
   /** Called once the bound wallet can receive USDC. */
   onReady: (result: { address: string; sponsored: boolean }) => void;
+  /** Called when the contributor leaves a failed setup for later, with the failure. */
+  onSkip?: (reason: PayoutSetupFailure) => void;
   /** Injectable for tests; defaults to the real Freighter + API flow. */
   run?: RunSetup;
 }
@@ -118,7 +144,7 @@ interface PayoutSetupProps {
  * Make the session's bound wallet payout-ready, starting on mount. A returning
  * wallet that is already set up passes straight through without a signature.
  */
-export default function PayoutSetup({ onReady, run = runSetUpPayouts }: PayoutSetupProps) {
+export default function PayoutSetup({ onReady, onSkip, run = runSetUpPayouts }: PayoutSetupProps) {
   const [phase, setPhase] = useState<PayoutSetupPhase>("working");
   const [signingKind, setSigningKind] = useState<SponsorshipEnvelopeKind | undefined>();
   const [waitSeconds, setWaitSeconds] = useState<number | undefined>();
@@ -166,6 +192,7 @@ export default function PayoutSetup({ onReady, run = runSetUpPayouts }: PayoutSe
       waitSeconds={waitSeconds}
       reason={reason}
       onRetry={attempt}
+      onContinue={onSkip ? () => onSkip(reason ?? "failed") : undefined}
     />
   );
 }

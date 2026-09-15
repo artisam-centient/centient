@@ -16,6 +16,7 @@ import {
   checkSponsorAllowed,
   confirmSponsorship,
   failSponsorship,
+  hasConfirmedSponsorship,
   livePendingSponsorship,
   openSponsorshipIntent,
   type SponsorshipIntentDecision,
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
   if (limited) return limited;
 
   try {
-    if (await accountHasUsdcTrustline(address)) {
+    if (await trustsUsdc(userId, address)) {
       return NextResponse.json({ needed: false, address });
     }
     // #330: bound outstanding sponsorships per user (a session-keyed rate throttle
@@ -82,6 +83,22 @@ export async function GET(req: NextRequest) {
     }
     Sentry.captureException(err, { extra: { context: "sponsor-trustline-build", userId } });
     return NextResponse.json({ error: "build_failed" }, { status: 502 });
+  }
+}
+
+/**
+ * Whether the bound wallet already trusts USDC. When Horizon cannot answer, a
+ * confirmed sponsorship on the ledger stands in, so an outage does not send a
+ * wallet that is already set up to the failure screen (PR #105 review). No
+ * envelope is built on that answer, and a withdrawal checks the chain itself.
+ */
+async function trustsUsdc(userId: string, address: string): Promise<boolean> {
+  try {
+    return await accountHasUsdcTrustline(address);
+  } catch (err) {
+    if (!(await hasConfirmedSponsorship(userId, address))) throw err;
+    Sentry.captureException(err, { extra: { context: "sponsor-trustline-check-fallback", userId } });
+    return true;
   }
 }
 

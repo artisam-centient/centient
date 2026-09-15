@@ -116,6 +116,19 @@ export async function livePendingSponsorship(address: string, now: Date = new Da
   return row !== null;
 }
 
+/**
+ * True while this user holds a confirmed, unreleased sponsorship of `address`.
+ * The sponsor route leans on it only when Horizon cannot say whether the
+ * trustline exists; a withdrawal always checks the chain itself.
+ */
+export async function hasConfirmedSponsorship(userId: string, address: string): Promise<boolean> {
+  const row = await prisma.sponsoredTrustline.findFirst({
+    where: { userId, address, status: "confirmed", revokedAt: null },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
 /** Horizon's view of a transaction hash — `getTxStatus` in production. */
 export type TxStatusLookup = (hash: string) => Promise<"confirmed" | "failed" | "not_found">;
 

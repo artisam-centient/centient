@@ -39,6 +39,7 @@ vi.mock("@/lib/sponsored-trustline", () => ({
   openSponsorshipIntent: m.openIntent,
   confirmSponsorship: async () => {},
   failSponsorship: async () => {},
+  hasConfirmedSponsorship: async () => false,
 }));
 vi.mock("@sentry/nextjs", () => ({ captureException: vi.fn() }));
 
