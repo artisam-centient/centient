@@ -22,6 +22,7 @@ import {
 } from "@/lib/campaign-balance";
 import { creditReward } from "@/lib/user-balance";
 import { getLabelerSession } from "@/lib/labeler-auth";
+import { isValidStellarAddress } from "@/lib/stellar/signature";
 import { REWARDED_STATUSES } from "@/lib/constants";
 
 function errorResponse(code: string, status: number, context: Record<string, unknown> = {}) {
@@ -84,9 +85,10 @@ export async function POST(req: NextRequest) {
       return errorResponse("unauthorized", 401, { userId });
     }
     // #30: the bound wallet is the account and its payout destination. An account
-    // made by email before wallet sign-in binds one before it can earn. 409, not
+    // made by email before wallet sign-in binds one before it can earn; a legacy
+    // EVM `0x…` value can never receive USDC, so it counts as no wallet. 409, not
     // 403: the client reads a 403 here as a ban.
-    if (!user.walletAddress) {
+    if (!user.walletAddress || !isValidStellarAddress(user.walletAddress)) {
       return errorResponse("wallet_required", 409, { userId });
     }
     const walletAddress = user.walletAddress;

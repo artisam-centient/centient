@@ -8,6 +8,7 @@ import {
   createCampaign,
   createGoldTask,
   createUser,
+  makeWallet,
   VALID_REASON,
 } from "@/tests/helpers/factories";
 
@@ -64,6 +65,17 @@ describe("GET /api/task - task assignment", () => {
     await createTask({ campaignId: campaign.id, responseTarget: null });
 
     const user = await createUser({ walletAddress: null, email: "labeler@example.com" });
+    const res = await getTaskAs(user.id);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "wallet_required" });
+  });
+
+  it("serves no task to an account holding only a legacy 0x wallet (#30)", async () => {
+    mockRandom(0.5);
+    const campaign = await createCampaign({ defaultResponseTarget: 5 });
+    await createTask({ campaignId: campaign.id, responseTarget: null });
+
+    const user = await createUser({ walletAddress: makeWallet() });
     const res = await getTaskAs(user.id);
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "wallet_required" });

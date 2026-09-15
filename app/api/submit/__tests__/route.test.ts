@@ -45,6 +45,7 @@ import {
   createTask,
   createGoldTask,
   createCampaign,
+  makeWallet,
   seedSubmissionsForUser,
   VALID_REASON,
 } from "@/tests/helpers/factories";
@@ -178,6 +179,20 @@ describe("POST /api/submit - email-only user (no bound wallet)", () => {
 
     const res = await submitAs(user.id, validPayload({ taskId: task.id }));
     // 409, not 403: the client routes a 403 from submit to the banned screen.
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("wallet_required");
+
+    expect(await prisma.submission.count({ where: { userId: user.id } })).toBe(0);
+    const refreshed = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(refreshed.pendingBalanceUnits).toBe(0n);
+  });
+
+  it("refuses an answer from an account holding only a legacy 0x wallet, recording nothing (#30)", async () => {
+    const campaign = await createCampaign();
+    const task = await createTask({ campaignId: campaign.id });
+    const user = await createUser({ walletAddress: makeWallet() });
+
+    const res = await submitAs(user.id, validPayload({ taskId: task.id }));
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe("wallet_required");
 
