@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { track } from "@/lib/analytics";
 
 const FORMATS = [
   { label: "JSON", type: "json", description: "Newline-delimited JSON (.jsonl)", icon: "{ }" },
@@ -24,6 +25,10 @@ export default function ExportModal({ campaignId }: ExportModalProps) {
   }
 
   function download() {
+    track("dataset_exported", {
+      format: selected,
+      scope: campaignId ? "campaign" : "all_campaigns",
+    });
     window.location.href = getExportUrl();
     setOpen(false);
   }
