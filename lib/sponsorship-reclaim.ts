@@ -231,13 +231,21 @@ export async function runSponsorshipReclaim(opts: {
  * long as that row exists; it is not copied into an audit record that outlives
  * the row (a user's deletion cascades to their sponsorships). The returned and
  * printed report keeps addresses, so an operator can act on a dry run.
+ *
+ * A `detail` is free text from a thrown error or Horizon's answer, and can name
+ * an address (`readChainSponsorship` does), so any account ID in it is replaced.
  */
 function storedReport(report: ReclaimReport) {
   return {
     ...report,
-    sponsorships: report.sponsorships.map(({ address: _address, ...rest }) => rest),
+    sponsorships: report.sponsorships.map(({ address: _address, detail, ...rest }) =>
+      detail === undefined ? rest : { ...rest, detail: detail.replace(ACCOUNT_ID, "[address]") },
+    ),
   };
 }
+
+/** A Stellar account ID, plain (G…) or muxed (M…), anywhere in free text. */
+const ACCOUNT_ID = /\b(?:G[A-Z2-7]{55}|M[A-Z2-7]{68})\b/g;
 
 /** One row's disposition. Any thrown lookup or write becomes `failed` for this row alone. */
 async function dispose(row: Row, ctx: Context): Promise<SponsorshipDisposition> {
