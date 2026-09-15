@@ -208,6 +208,37 @@ export async function readChainSponsorship(
   };
 }
 
+/** A Horizon operation record, as far as {@link readRevokedEntries} reads it. */
+interface HorizonRevokeOperation {
+  type: string;
+  account_id?: string;
+  trustline_account_id?: string;
+  trustline_asset?: string;
+}
+
+/**
+ * The entries of `address` whose sponsorship the landed transaction `hash`
+ * revoked, read from its operations. A run that finds an earlier run's
+ * revocation landed credits only these: the owner may have removed an entry
+ * before that revocation was built, so the row's kind can overstate it.
+ */
+export async function readRevokedEntries(
+  hash: string,
+  address: string,
+  srv: Horizon.Server = server(),
+): Promise<SponsoredEntry[]> {
+  const page = await srv.operations().forTransaction(hash).limit(10).call();
+  const asset = usdcAsset();
+  const usdc = `${asset.getCode()}:${asset.getIssuer()}`;
+  const revoked = new Set<SponsoredEntry>();
+  for (const op of page.records as unknown as HorizonRevokeOperation[]) {
+    if (op.type !== "revoke_sponsorship") continue;
+    if (op.account_id === address) revoked.add("account");
+    if (op.trustline_account_id === address && op.trustline_asset === usdc) revoked.add("trustline");
+  }
+  return ENTRY_ORDER.filter((entry) => revoked.has(entry));
+}
+
 /** Throw the non-retryable `invalid_reclaim_tx`; nothing that fails a check is sent. */
 function rejectReclaimTx(why: string): never {
   throw new StellarPaymentError(`sponsorship reclaim: ${why}`, "invalid_reclaim_tx", false);

@@ -33,6 +33,7 @@ import {
   loadBaseReserveStroops,
   prepareRevocation,
   readChainSponsorship,
+  readRevokedEntries,
   readSponsorshipOnChain,
   reserveUnitsOf,
   type SponsoredEntry,
@@ -417,6 +418,53 @@ describe("readChainSponsorship", () => {
     const chain = await readChainSponsorship(ownerPub, sponsor, HALF_XLM, fakeHorizon({ owner }) as never);
     expect(chain.exists && chain.straySponsoredLines).toBe(1);
     expect(chain.exists && chain.sponsoredEntries).toEqual(["account"]);
+  });
+});
+
+describe("readRevokedEntries", () => {
+  /** A Horizon whose operations for any transaction are `records`. */
+  function horizonWith(records: unknown[] | Error) {
+    const forTransaction = vi.fn(() => ({
+      limit: () => ({
+        call: async () => {
+          if (records instanceof Error) throw records;
+          return { records };
+        },
+      }),
+    }));
+    return { srv: { operations: () => ({ forTransaction }) } as never, forTransaction };
+  }
+  const usdc = () => `${usdcAsset().getCode()}:${usdcAsset().getIssuer()}`;
+  const revokeTrustlineOp = (account = ownerPub, asset = usdc()) => ({
+    type: "revoke_sponsorship",
+    trustline_account_id: account,
+    trustline_asset: asset,
+  });
+  const revokeAccountOp = (account = ownerPub) => ({ type: "revoke_sponsorship", account_id: account });
+
+  it("reads both entries from a revocation that carried both, trustline first", async () => {
+    const { srv, forTransaction } = horizonWith([revokeAccountOp(), revokeTrustlineOp()]);
+    await expect(readRevokedEntries("HASH", ownerPub, srv)).resolves.toEqual(["trustline", "account"]);
+    expect(forTransaction).toHaveBeenCalledWith("HASH");
+  });
+
+  it("reads the account alone from a revocation that carried only it", async () => {
+    const { srv } = horizonWith([revokeAccountOp()]);
+    await expect(readRevokedEntries("HASH", ownerPub, srv)).resolves.toEqual(["account"]);
+  });
+
+  it("ignores operations for another address, another asset, or of another type", async () => {
+    const { srv } = horizonWith([
+      revokeAccountOp(Keypair.random().publicKey()),
+      revokeTrustlineOp(ownerPub, `USDC:${Keypair.random().publicKey()}`),
+      { type: "payment", account_id: ownerPub },
+    ]);
+    await expect(readRevokedEntries("HASH", ownerPub, srv)).resolves.toEqual([]);
+  });
+
+  it("propagates a failed lookup", async () => {
+    const { srv } = horizonWith(new Error("horizon down"));
+    await expect(readRevokedEntries("HASH", ownerPub, srv)).rejects.toThrow("horizon down");
   });
 });
 

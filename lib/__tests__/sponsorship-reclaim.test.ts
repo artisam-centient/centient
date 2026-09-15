@@ -50,6 +50,8 @@ function fakeNetwork() {
   const chain = new Map<string, ChainSponsorship | Error>();
   const tx = new Map<string, Tx>();
   const outcomes = new Map<string, Next[]>();
+  /** What a seeded revocation hash revoked; one this fake prepared revokes what it carried. */
+  const revoked = new Map<string, SponsoredEntry[] | Error>();
   const prepared: Array<{ address: string; entries: SponsoredEntry[]; hash: string }> = [];
   const submitted: string[] = [];
   let now = NOW;
@@ -65,6 +67,14 @@ function fakeNetwork() {
       if (state instanceof Error) throw state;
       if (!state) throw new Error(`test: no chain state for ${address}`);
       return state;
+    },
+    revokedEntries: async (hash) => {
+      const seeded = revoked.get(hash);
+      if (seeded instanceof Error) throw seeded;
+      if (seeded) return seeded;
+      const built = prepared.find((p) => p.hash === hash);
+      if (!built) throw new Error(`test: no revocation ${hash}`);
+      return built.entries;
     },
     txStatus: async (hash) => tx.get(hash) ?? "not_found",
     prepareRevocation: async (address, entries) => {
@@ -90,6 +100,7 @@ function fakeNetwork() {
     chain,
     tx,
     outcomes,
+    revoked,
     prepared,
     submitted,
     setNow: (date: Date) => {
@@ -592,6 +603,43 @@ describe("rule 7 — execute", () => {
     });
     expect(await rowOf(row.id)).toMatchObject({ releasedBy: "sponsor_revoke", reclaimTxHash: "revoke-1" });
     expect(net.prepared).toHaveLength(1);
+  });
+
+  it("credits only the entries an earlier revocation carried once it is seen to land (PR #105 review)", async () => {
+    const user = await contributor();
+    const row = await seedRow({ userId: user.id, kind: "account+trustline" });
+    // The owner had already removed the trustline, so the revocation carried the account alone.
+    net.chain.set(row.address, chainOf(["account"]));
+    net.outcomes.set(row.address, [{ outcome: "unknown", detail: "timeout" }]);
+    await execute();
+    expect(net.prepared).toEqual([{ address: row.address, entries: ["account"], hash: "revoke-1" }]);
+
+    net.tx.set("revoke-1", "confirmed");
+    net.chain.set(row.address, chainOf([]));
+    const report = await execute();
+
+    expect(dispositionOf(report, row.id)).toMatchObject({
+      disposition: "revoked",
+      txHash: "revoke-1",
+      reserveUnits: 2,
+      reclaimedStroops: (2n * BASE).toString(),
+    });
+    expect(report.totals.reclaimedStroops).toBe((2n * BASE).toString());
+    const stored = await prisma.sponsorshipReclaimRun.findUniqueOrThrow({ where: { id: report.runId! } });
+    expect(stored.reclaimedStroops).toBe(2n * BASE);
+  });
+
+  it("releases nothing, and retries next run, when a landed revocation's operations cannot be read", async () => {
+    const user = await contributor();
+    const row = await seedRow({ userId: user.id, reclaimTxHash: "landed", reclaimExpiresAt: PAST });
+    net.tx.set("landed", "confirmed");
+    net.chain.set(row.address, chainOf([]));
+    net.revoked.set("landed", new Error("horizon down"));
+
+    const report = await execute();
+
+    expect(dispositionOf(report, row.id)).toMatchObject({ disposition: "failed", reclaimedStroops: "0" });
+    expect(await rowOf(row.id)).toMatchObject({ revokedAt: null, reclaimTxHash: "landed" });
   });
 
   it("drops an unanswered revocation that expired unseen, and revokes afresh", async () => {
