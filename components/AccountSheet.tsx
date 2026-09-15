@@ -188,11 +188,17 @@ export default function AccountSheet({
           .catch(() => null);
         if (updated) setWithdrawalData(updated);
       } else {
+        // Only the route's snake_case codes are sent, never its free-text message.
+        const reason =
+          typeof data.error === "string" && /^[a-z_]+$/.test(data.error) ? data.error : `http_${res.status}`;
+        track("withdrawal_failed", { reason, http_status: res.status });
         showToast(data.message || data.error || "Withdrawal failed", "error");
         // Payout setup may have been left for later; this is where it is needed.
         if (res.status === 409 && data.error === "payout_setup_required") onPayoutSetupRequired?.();
       }
     } catch {
+      // A dropped request, or a response that is not JSON (e.g. a gateway error page).
+      track("withdrawal_failed", { reason: "network" });
       showToast("Withdrawal failed", "error");
     } finally {
       setWithdrawing(false);
