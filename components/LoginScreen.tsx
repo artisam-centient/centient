@@ -7,8 +7,8 @@ import WalletSignIn from "./WalletSignIn";
 interface LoginScreenProps {
   /** Called once Freighter sign-in has set the session cookie (#26). */
   onWalletSignedIn: () => void;
-  /** Open the email flow — kept for accounts that signed up by email. */
-  onEmailAuth: (mode: "login" | "register") => void;
+  /** Open email sign-in — only so an account created by email can claim a wallet (#30). */
+  onEmailSignIn: () => void;
   error: string | null;
 }
 
@@ -18,10 +18,11 @@ interface LoginScreenProps {
  * address is the account: a new address gets a new contributor account, and an
  * email account that linked that address signs in as itself.
  *
- * Email sign-in stays as a secondary path for accounts created before wallet
- * sign-in; it is no longer required to earn.
+ * #30: nobody signs up with email any more. Email sign-in stays only for an
+ * account created before wallet sign-in, which must connect its wallet before it
+ * can earn or withdraw.
  */
-export default function LoginScreen({ onWalletSignedIn, onEmailAuth, error }: LoginScreenProps) {
+export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: LoginScreenProps) {
   return (
     <div className="relative min-h-screen bg-surface">
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
@@ -62,11 +63,12 @@ export default function LoginScreen({ onWalletSignedIn, onEmailAuth, error }: Lo
             Signed up with email before?{" "}
             <button
               type="button"
-              onClick={() => onEmailAuth("login")}
+              onClick={onEmailSignIn}
               className="font-semibold text-primary underline-offset-2 hover:underline"
             >
               Sign in with email
-            </button>
+            </button>{" "}
+            to connect your wallet.
           </p>
 
           {/* How it works — the wallet is the account */}
@@ -80,9 +82,9 @@ export default function LoginScreen({ onWalletSignedIn, onEmailAuth, error }: Lo
               </span>
               <p className="font-body text-sm text-on-surface-variant">
                 Your <span className="font-semibold text-on-surface">wallet address</span>{" "}
-                is your account. Freighter asks you to sign a one-time message to prove
-                it&apos;s yours — it never moves funds. Approved answers add to your balance
-                automatically.
+                is your account and where your USDC is paid. Freighter asks you to sign a
+                one-time message to prove it&apos;s yours — it never moves funds. Approved
+                answers add to your balance automatically.
               </p>
             </div>
           </div>

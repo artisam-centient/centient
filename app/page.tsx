@@ -11,18 +11,23 @@ import AccountSheet from "@/components/AccountSheet";
 import InAppLanding from "@/components/InAppLanding";
 import LoginScreen from "@/components/LoginScreen";
 import AccountAuthScreen from "@/components/AccountAuthScreen";
+import WalletClaim from "@/components/WalletClaim";
+import PayoutSetup from "@/components/PayoutSetup";
 import Toast, { type ToastKind, type ToastMessage } from "@/components/Toast";
 import OnboardingScreen from "@/components/OnboardingScreen";
 import DisputeForm from "@/components/DisputeForm";
 import { posthog } from "@/components/PostHogProvider";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
+import { isValidStellarAddress } from "@/lib/stellar/signature";
 
 const MIN_LOADING_MS = 1500;
 
 type Screen =
   | "checking"
   | "login"
-  | "account_auth"
+  | "email_sign_in"
+  | "claim_wallet"
+  | "payout_setup"
   | "loading"
   | "onboarding"
   | "landing"
@@ -100,8 +105,10 @@ function submitErrorMessage(status: number, code?: string): string {
 }
 
 /**
- * The contributor app: resolves the session, then routes between sign-in
- * (Freighter or email), onboarding, tasks and the account states.
+ * The contributor app. #30: first connect is one flow — sign in with Freighter
+ * (or, for an account created by email, sign in and claim a wallet), set the
+ * wallet up for USDC payouts, then onboard. The proven wallet is the account and
+ * its payout destination.
  */
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("checking");
@@ -112,7 +119,6 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [submissionCount, setSubmissionCount] = useState(0);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [accountAuthMode, setAccountAuthMode] = useState<"login" | "register">("register");
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
   const [unbannedAt, setUnbannedAt] = useState<string | null>(null);
@@ -132,9 +138,8 @@ export default function Home() {
   const dismissToast = useCallback(() => setToast(null), []);
 
   // ST-5d: identity comes from the session cookie (`labeler_session`), not a
-  // `?wallet=` query param — an email-only labeler with no linked wallet can
-  // read their profile and answer tasks. `credentials` are same-origin so the
-  // cookie rides along automatically.
+  // `?wallet=` query param. `credentials` are same-origin so the cookie rides
+  // along automatically.
   const fetchUserData = useCallback(async () => {
     const res = await fetch("/api/me");
     const data = await res.json();
@@ -170,6 +175,11 @@ export default function Home() {
 
   const fetchTask = useCallback(async () => {
     const res = await fetch("/api/task");
+    // #30: an account without a bound wallet is served no work until it claims one.
+    if (res.status === 409) {
+      setScreen("claim_wallet");
+      return;
+    }
     const data = await res.json();
     if (data.task) {
       setTask({
@@ -190,65 +200,69 @@ export default function Home() {
     }
   }, []);
 
+  /**
+   * #30: where a session belongs in first connect. Sign-in, email sign-in and a
+   * reload all resolve through here, so a contributor who stopped partway —
+   * declined a prompt, closed the tab mid-sponsorship — resumes at that step.
+   * A returning wallet that is already set up passes through payout setup
+   * without a signature.
+   */
+  const resolveSession = useCallback(async (): Promise<Screen> => {
+    const res = await fetch("/api/auth/me");
+    if (!res.ok) return "login";
+    const data = (await res.json()) as { authenticated?: boolean; wallet?: string | null };
+    if (!data.authenticated) return "login";
+    // No wallet, or a legacy EVM `0x…` that can never receive USDC: claim one.
+    if (!data.wallet || !isValidStellarAddress(data.wallet)) return "claim_wallet";
+    setWallet(data.wallet);
+    return "payout_setup";
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/auth/me");
-        if (!res.ok) {
-          if (!cancelled) setScreen("login");
-          return;
-        }
-        const data = (await res.json()) as {
-          authenticated?: boolean;
-          wallet?: string | null;
-        };
-        if (data.authenticated) {
-          if (cancelled) return;
-          // ST-5d: a linked wallet is display-only (the withdrawal destination),
-          // not a gate. Any authenticated labeler — wallet-linked or email-only —
-          // proceeds to answer tasks, keyed on the session.
-          setWallet(data.wallet ?? null);
-          setScreen("loading");
-          const userData = await fetchUserData();
-          await fetchBalance();
-          if (cancelled) return;
-          if (userData?.onboardingCompleted) {
-            setScreen("landing");
-          } else {
-            setScreen("onboarding");
-          }
-        } else {
-          if (!cancelled) setScreen("login");
-        }
-      } catch {
-        if (!cancelled) setScreen("login");
-      }
-    })();
+    resolveSession()
+      .catch((): Screen => "login")
+      .then((next) => {
+        if (!cancelled) setScreen(next);
+      });
     return () => {
       cancelled = true;
     };
-  }, [fetchUserData, fetchBalance]);
+  }, [resolveSession]);
 
-  const handleAccountLoggedIn = useCallback(async () => {
+  // Freighter sign-in and email sign-in set the same `labeler_session` cookie,
+  // so both resolve the session the same way.
+  const handleSignedIn = useCallback(async () => {
     setScreen("loading");
     try {
-      const res = await fetch("/api/auth/me");
-      const data = res.ok ? await res.json() : null;
-      if (data?.authenticated) {
-        // ST-5d: identity is the session; a linked wallet (if any) is display-only.
-        // Both wallet-linked and email-only accounts go straight to answering.
-        setWallet(data.wallet ?? null);
-        const userData = await fetchUserData();
-        await fetchBalance();
-        setScreen(userData?.onboardingCompleted ? "landing" : "onboarding");
-        return;
-      }
-      setScreen("login");
+      setScreen(await resolveSession());
     } catch {
       setScreen("login");
     }
-  }, [fetchUserData, fetchBalance]);
+  }, [resolveSession]);
+
+  const handleWalletClaimed = useCallback((address: string) => {
+    setWallet(address);
+    setScreen("payout_setup");
+  }, []);
+
+  const handlePayoutReady = useCallback(
+    async ({ address, sponsored }: { address: string; sponsored: boolean }) => {
+      setWallet(address);
+      setScreen("loading");
+      if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+        posthog.capture("payout_ready", { sponsored });
+      }
+      try {
+        const userData = await fetchUserData();
+        await fetchBalance();
+        setScreen(userData?.onboardingCompleted ? "landing" : "onboarding");
+      } catch {
+        setScreen("wallet_error");
+      }
+    },
+    [fetchUserData, fetchBalance],
+  );
 
   useEffect(() => {
     if (!unbannedAt || screen !== "cooldown") return;
@@ -309,6 +323,11 @@ export default function Home() {
         console.error("[submit] non-JSON response", { status: res.status });
       }
 
+      if (res.status === 409 && data.error === "wallet_required") {
+        setScreen("claim_wallet");
+        return;
+      }
+
       if (res.status === 403) {
         setScreen("banned");
         if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
@@ -352,27 +371,18 @@ export default function Home() {
   } else if (screen === "login") {
     body = (
       <LoginScreen
-        // #26: Freighter sign-in sets the same `labeler_session` cookie as email
-        // login, so both paths resolve the session through one handler.
-        onWalletSignedIn={handleAccountLoggedIn}
-        onEmailAuth={(mode) => {
-          setAccountAuthMode(mode);
-          setScreen("account_auth");
-        }}
+        onWalletSignedIn={handleSignedIn}
+        onEmailSignIn={() => setScreen("email_sign_in")}
         error={null}
       />
     );
-  } else if (screen === "account_auth") {
-    body = (
-      <AccountAuthScreen
-        onBack={() => setScreen("login")}
-        onLoggedIn={handleAccountLoggedIn}
-        initialMode={accountAuthMode}
-      />
-    );
+  } else if (screen === "email_sign_in") {
+    body = <AccountAuthScreen onBack={() => setScreen("login")} onLoggedIn={handleSignedIn} />;
+  } else if (screen === "claim_wallet") {
+    body = <WalletClaim onClaimed={handleWalletClaimed} />;
+  } else if (screen === "payout_setup") {
+    body = <PayoutSetup onReady={handlePayoutReady} />;
   } else if (screen === "onboarding") {
-    // ST-5d: onboarding no longer requires a linked wallet — the session is the
-    // identity, so email-only labelers onboard and answer like anyone else.
     body = <OnboardingScreen onComplete={handleOnboardingComplete} />;
   } else if (screen === "landing") {
     body = (
@@ -461,7 +471,7 @@ export default function Home() {
           </h2>
           <p className="text-center font-body text-sm text-on-surface-variant">
             Your contribution helps improve AI. Earnings build up in your balance —
-            connect a wallet to withdraw anytime.
+            withdraw to your wallet anytime.
           </p>
           <div className="w-full rounded-3xl bg-surface-container-lowest p-6 shadow-[0_8px_32px_rgba(25,28,30,0.06)]">
             <div className="flex flex-col items-center">
