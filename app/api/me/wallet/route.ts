@@ -1,29 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import * as Sentry from "@sentry/nextjs";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { getLabelerSession, requireLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress, verify } from "@/lib/stellar/signature";
-import { accountHasUsdcTrustline } from "@/lib/stellar/client";
 import { checkWalletRateLimit } from "@/lib/rate-limit";
 import { WALLET_LINK_ACTION } from "@/lib/stellar/challenge-message";
 
 /**
- * ST-4b (#300) — link + prove a Stellar `G…` payout address.
- *
- * Login stays email/password; a Stellar wallet (Freighter) is used ONLY here, to
- * link and cryptographically prove ownership of the withdrawal destination:
+ * ST-4b (#300) — prove a Stellar `G…` address and bind it to the session's account.
  *
  *   GET  → issue a one-time challenge for a candidate `G…` (replay-protected via
  *          the existing WalletNonce table, 5-min TTL).
- *   POST → verify the SEP-53 signature over that challenge (ST-4a `verify`),
- *          precheck the USDC trustline, then bind the address to the account.
+ *   POST → verify the SEP-53 signature over that challenge (ST-4a `verify`), then
+ *          bind the address to the account.
  *
- * StrKey is case-sensitive base32 — the address is never lowercased/normalized
- * (carry this rule into ST-4d). The trustline precheck rejects an untrusted
- * address with clear guidance instead of letting the payout fail silently with
- * `op_no_trust`; ST-4e (#314) replaces the reject with a sponsored-trustline flow.
+ * #30 — this is the claim path for an account created by email before wallet
+ * sign-in. A contributor normally signs in with the wallet itself
+ * (`/api/auth/wallet/verify`), which makes the proven address the account. The
+ * bound address is the account's identity and its payout destination, so:
+ *
+ * - It binds before any sponsorship, with no USDC-trustline precheck. The payout
+ *   setup that follows sponsors the bound wallet only, so a sponsored address
+ *   always belongs to an account (#29: that is what protects it from reclaim).
+ * - An account keeps the wallet it has. Proving the same address again succeeds;
+ *   a different Stellar address is refused, not swapped in. A legacy EVM `0x…`
+ *   value, which can never receive USDC, may be replaced.
+ *
+ * StrKey is case-sensitive base32 — the address is never lowercased/normalized.
  */
 
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -148,34 +152,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "challenge_expired" }, { status: 400 });
   }
 
-  // USDC-trustline precheck — an untrusted `G…` would fail the payout with a
-  // silent `op_no_trust`. Reject up front with guidance instead. (ST-4e turns
-  // this into an in-app sponsored-trustline flow.)
-  let hasTrustline: boolean;
+  // `User.walletAddress` is `@unique`. If this `G…` is already the wallet of a
+  // *different* account (a second/sybil account, a shared wallet, or a
+  // re-registration), the write throws P2002. Return a clean 409 instead of a
+  // raw 500 — same pattern as enqueueWithdrawal's unique-index handling.
+  let bound: { count: number };
   try {
-    hasTrustline = await accountHasUsdcTrustline(stellarAddress);
-  } catch (err) {
-    Sentry.captureException(err, { extra: { context: "wallet-link-trustline", userId } });
-    return NextResponse.json({ error: "trustline_check_failed" }, { status: 502 });
-  }
-  if (!hasTrustline) {
-    return NextResponse.json(
-      {
-        error: "no_trustline",
-        message:
-          "This Stellar address has no USDC trustline yet. Add a USDC trustline in your wallet, then link again.",
-      },
-      { status: 409 },
-    );
-  }
-
-  // `User.walletAddress` is `@unique`. If this `G…` is already the payout
-  // destination of a *different* account (a second/sybil account, a shared
-  // wallet, or a re-registration), the update throws P2002. Return a clean 409
-  // instead of a raw 500 — same pattern as enqueueWithdrawal's unique-index handling.
-  try {
-    await prisma.user.update({
-      where: { id: userId! },
+    // Conditional, so two concurrent proofs cannot both bind: only an account
+    // with no usable wallet takes one.
+    bound = await prisma.user.updateMany({
+      where: { id: userId!, OR: [{ walletAddress: null }, { walletAddress: { startsWith: "0x" } }] },
       data: { walletAddress: stellarAddress },
     });
   } catch (err) {
@@ -183,6 +169,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "address_already_linked" }, { status: 409 });
     }
     throw err;
+  }
+
+  if (bound.count === 0) {
+    const current = await prisma.user.findUnique({
+      where: { id: userId! },
+      select: { walletAddress: true },
+    });
+    if (!current) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+    if (current.walletAddress !== stellarAddress) {
+      return NextResponse.json({ error: "wallet_already_bound" }, { status: 409 });
+    }
   }
 
   return NextResponse.json({ linked: true, walletAddress: stellarAddress });
