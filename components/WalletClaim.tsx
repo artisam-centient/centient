@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { track } from "@/lib/analytics";
 import {
   WALLET_CLAIM_MESSAGES,
   claimWallet,
@@ -113,6 +114,7 @@ export default function WalletClaim({ onClaimed, claim = claimWallet }: WalletCl
       onClaimed(result.address);
       return;
     }
+    track("wallet_connect_failed", { flow: "claim", reason: result.reason });
     setReason(result.reason);
     setPhase("failed");
   };
