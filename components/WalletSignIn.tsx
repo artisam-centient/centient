@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { track } from "@/lib/analytics";
 import {
   WALLET_SIGN_IN_MESSAGES,
   signInWithWallet,
@@ -98,6 +99,7 @@ export default function WalletSignIn({ onSignedIn, signIn = signInWithWallet }: 
       onSignedIn({ address: result.address, created: result.created });
       return;
     }
+    track("wallet_connect_failed", { flow: "sign_in", reason: result.reason });
     setReason(result.reason);
     setPhase("failed");
   };
