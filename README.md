@@ -238,13 +238,16 @@ sequenceDiagram
     participant HZ as Stellar Horizon
     participant W as Labeler wallet (G...)
 
-    L->>API: POST { destinationAddress } (paste-and-send)
-    API->>API: validate StrKey (G...)
+    L->>API: POST (no address — #30 pays the account's bound wallet)
+    API->>DB: destination = User.walletAddress (proven at sign-in or claim)
+    alt no bound Stellar wallet
+        API-->>L: 409 wallet_required (claim a wallet)
+    end
     API->>DB: anti-fraud — banned identity? shared wallet? eligibility gates
     API->>HZ: accountHasUsdcTrustline(destination)?
     alt no trustline
         HZ-->>API: false
-        API-->>L: 409 no_trustline (add USDC trustline, retry)
+        API-->>L: 409 payout_setup_required (finish sponsored payout setup)
     else all checks pass
         API->>DB: atomic lock balance -> enqueue single WITHDRAWAL PayoutJob<br/>decrement pendingBalanceUnits + WITHDRAWAL ledger row
         API-->>L: 200 { status: queued }
