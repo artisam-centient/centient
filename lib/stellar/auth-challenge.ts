@@ -130,13 +130,19 @@ export type SignInProofResult =
   | { ok: false; reason: SignInRejection };
 
 /**
- * Verify a sign-in proof, consuming its challenge.
+ * Verify a sign-in proof, consuming its challenge only if the proof is accepted.
  *
- * The first step is a single delete by nonce and action. It is the only thing
- * that grants access: two concurrent attempts with the same nonce race on that
- * delete, and exactly one gets the row. It also runs before every other check,
- * so any attempt — accepted or not — uses the challenge up, and a failed proof
- * cannot be corrected and retried. A replay finds no row.
+ * A challenge's nonce is not a secret: issuance hands the one live row for an
+ * address to anyone who asks for it. So a rejected proof must not use the
+ * challenge up, or anyone could request a contributor's challenge and post a bad
+ * signature against it while they sign, failing their attempt every time. A
+ * rejection leaves the row for the real signer; an expired one is removed, as
+ * it can no longer be used by anyone.
+ *
+ * Every check runs against a read of the row. Access is granted by one
+ * conditional delete of that nonce, still for this address and still live, after
+ * the signature verifies: two concurrent accepted attempts race on that delete,
+ * exactly one removes the row, and the other is refused. A replay finds no row.
  *
  * The signed message is rebuilt from the stored row, never from anything the
  * client sent.
@@ -154,17 +160,13 @@ export async function consumeSignInChallenge({
   signerAddress?: string;
   now?: Date;
 }): Promise<SignInProofResult> {
-  let row;
-  try {
-    row = await prisma.walletNonce.delete({ where: { nonce, action: PROOF_ACTION } });
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-      return { ok: false, reason: "challenge_not_found" };
-    }
-    throw err;
-  }
+  const row = await prisma.walletNonce.findUnique({ where: { nonce } });
+  if (!row || row.action !== PROOF_ACTION) return { ok: false, reason: "challenge_not_found" };
 
-  if (now.getTime() >= row.expiresAt.getTime()) return { ok: false, reason: "challenge_expired" };
+  if (now.getTime() >= row.expiresAt.getTime()) {
+    await prisma.walletNonce.deleteMany({ where: { nonce, action: PROOF_ACTION, expiresAt: { lte: now } } });
+    return { ok: false, reason: "challenge_expired" };
+  }
   if (row.walletAddress !== address) return { ok: false, reason: "wrong_address" };
 
   const passphrase = networkPassphrase();
@@ -183,7 +185,89 @@ export async function consumeSignInChallenge({
   });
   if (!verify(address, message, signature)) return { ok: false, reason: "bad_signature" };
 
+  const consumed = await prisma.walletNonce.deleteMany({
+    where: { nonce, action: PROOF_ACTION, walletAddress: address, expiresAt: { gt: now } },
+  });
+  if (consumed.count === 0) return { ok: false, reason: "challenge_not_found" };
+
   return { ok: true, address };
+}
+
+/**
+ * Let an email account claim an address held by an account nobody has used.
+ *
+ * A legacy email contributor who presses "Connect Freighter" on the sign-in
+ * screen, rather than signing in with email and claiming, gets a new wallet-only
+ * account holding their address (see {@link findOrCreateWalletUser}). Claiming
+ * that address from the email account then failed `address_already_linked`, and
+ * signing in with the wallet opened the empty account, so the email account's
+ * balance could not be reached.
+ *
+ * The caller has just verified the claimant's proof of `address`. When the
+ * account holding it is wallet-only (no email or password) and has nothing to
+ * lose — no submissions, earnings, balance, ledger entries, withdrawals, flags,
+ * disputes or bans — it is deleted and the address is bound to `claimantId`, in
+ * one transaction that first locks the holder's row. Its sponsorship rows move
+ * to the claimant: the reserve they record is locked for this address whoever
+ * holds it, and #29 protects it as the claimant's linked wallet. Its onboarding
+ * answers go with it. Its session, keyed on the deleted id, stops resolving.
+ *
+ * Returns false, writing nothing, when the claimant is not an email account that
+ * can take a wallet, or the holder is anything but such an unused account.
+ */
+export async function takeOverUnusedWalletAccount(address: string, claimantId: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const claimant = await tx.user.findUnique({
+      where: { id: claimantId },
+      select: { email: true, walletAddress: true },
+    });
+    if (!claimant?.email) return false;
+    if (claimant.walletAddress && !claimant.walletAddress.startsWith("0x")) return false;
+
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM users WHERE "walletAddress" = ${address} FOR UPDATE
+    `;
+    const holderId = locked[0]?.id;
+    if (!holderId || holderId === claimantId) return false;
+
+    const holder = await tx.user.findUnique({
+      where: { id: holderId },
+      select: {
+        email: true,
+        passwordHash: true,
+        submissionCount: true,
+        goldAttempted: true,
+        totalEarnedUnits: true,
+        pendingBalanceUnits: true,
+        isBanned: true,
+        banCount: true,
+        _count: {
+          select: { submissions: true, disputes: true, balanceLedger: true, payoutJobs: true, flaggedWithdrawals: true },
+        },
+      },
+    });
+    const unused =
+      holder !== null &&
+      holder.email === null &&
+      holder.passwordHash === null &&
+      holder.submissionCount === 0 &&
+      holder.goldAttempted === 0 &&
+      holder.totalEarnedUnits === 0n &&
+      holder.pendingBalanceUnits === 0n &&
+      !holder.isBanned &&
+      holder.banCount === 0 &&
+      Object.values(holder._count).every((count) => count === 0);
+    if (!unused) return false;
+
+    await tx.sponsoredTrustline.updateMany({ where: { userId: holderId }, data: { userId: claimantId } });
+    await tx.user.delete({ where: { id: holderId } });
+    const bound = await tx.user.updateMany({
+      where: { id: claimantId, OR: [{ walletAddress: null }, { walletAddress: { startsWith: "0x" } }] },
+      data: { walletAddress: address },
+    });
+    if (bound.count !== 1) throw new Error("takeOverUnusedWalletAccount: claimant changed during takeover");
+    return true;
+  });
 }
 
 /** The slice of Prisma `findOrCreateWalletUser` uses, so the race path is testable. */

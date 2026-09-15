@@ -249,23 +249,45 @@ export default function Home() {
     setScreen("payout_setup");
   }, []);
 
+  /** Past payout setup, whether it finished or was left for later: onboarding or the landing. */
+  const enterApp = useCallback(async () => {
+    setScreen("loading");
+    try {
+      const userData = await fetchUserData();
+      await fetchBalance();
+      // fetchUserData has already shown the cooldown screen; don't replace it.
+      if (userData?.isCooldown) return;
+      setScreen(userData?.onboardingCompleted ? "landing" : "onboarding");
+    } catch {
+      setScreen("wallet_error");
+    }
+  }, [fetchUserData, fetchBalance]);
+
   const handlePayoutReady = useCallback(
     async ({ address, sponsored }: { address: string; sponsored: boolean }) => {
       setWallet(address);
-      setScreen("loading");
       track("payout_ready", { sponsored });
-      try {
-        const userData = await fetchUserData();
-        await fetchBalance();
-        // fetchUserData has already shown the cooldown screen; don't replace it.
-        if (userData?.isCooldown) return;
-        setScreen(userData?.onboardingCompleted ? "landing" : "onboarding");
-      } catch {
-        setScreen("wallet_error");
-      }
+      await enterApp();
     },
-    [fetchUserData, fetchBalance],
+    [enterApp],
   );
+
+  // PR #105 review: tasks and submissions need only a bound wallet; payout setup
+  // is needed to withdraw. A failure there — Horizon down, the sponsor short of
+  // XLM, a legacy account at the sponsorship cap — must not keep a contributor
+  // out of the app. A withdrawal refused `payout_setup_required` brings them back.
+  const handlePayoutSkipped = useCallback(
+    async (reason: string) => {
+      track("payout_setup_skipped", { reason });
+      await enterApp();
+    },
+    [enterApp],
+  );
+
+  const handlePayoutSetupRequired = useCallback(() => {
+    setAccountOpen(false);
+    setScreen("payout_setup");
+  }, []);
 
   useEffect(() => {
     if (!unbannedAt || screen !== "cooldown") return;
@@ -380,7 +402,7 @@ export default function Home() {
   } else if (screen === "claim_wallet") {
     body = <WalletClaim onClaimed={handleWalletClaimed} />;
   } else if (screen === "payout_setup") {
-    body = <PayoutSetup onReady={handlePayoutReady} />;
+    body = <PayoutSetup onReady={handlePayoutReady} onSkip={handlePayoutSkipped} />;
   } else if (screen === "onboarding") {
     body = <OnboardingScreen onComplete={handleOnboardingComplete} />;
   } else if (screen === "landing") {
@@ -442,6 +464,7 @@ export default function Home() {
           gender={demographics.gender}
           ageRange={demographics.ageRange}
           showToast={showToast}
+          onPayoutSetupRequired={handlePayoutSetupRequired}
           onDemographicsDeleted={() =>
             setDemographics({ country: null, gender: null, ageRange: null })
           }

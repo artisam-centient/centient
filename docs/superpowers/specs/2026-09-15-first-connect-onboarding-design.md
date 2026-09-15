@@ -54,6 +54,8 @@ signed out ─┤   login    ├────────────────
 - **No Stellar wallet, or a legacy `0x…` one:** `claim_wallet`.
 - **Otherwise:** `payout_setup`, which a returning wallet that is already set up passes through without a signature.
 
+Payout setup never blocks the app (PR #105 review). Tasks and submissions need only a bound wallet, so a failed setup offers **Continue for now** beside **Try again**, and the contributor goes on to onboarding or the landing. A withdrawal refused `payout_setup_required` sends them back to `payout_setup`. If Horizon cannot say whether the trustline exists, a confirmed sponsorship on the ledger answers `needed:false`; the withdrawal still checks the chain.
+
 A 409 `wallet_required` from task or submit also routes to `claim_wallet`.
 
 The client flows are resolve-never-reject libraries with injectable dependencies, in the pattern `wallet-sign-in.ts` set: `lib/stellar/payout-setup.ts` and `lib/stellar/wallet-claim.ts`. Each failure is a typed state with a message, rendered by a stateless view (`PayoutSetupView`, `WalletClaimView`) with a thin container.
@@ -66,9 +68,13 @@ The client flows are resolve-never-reject libraries with injectable dependencies
 | Sponsorship prompt declined | `rejected` state; try again rebuilds | Nothing was submitted |
 | Submit outcome unknown (202) | `pending` state; a reload answers `submission_pending` until it resolves | The pending row stays; resubmitting the same envelope settles on that row (#27) |
 | Submit refused `retry` (`tx_bad_seq`, never landed) | Rebuilt and re-signed once, automatically | The first row is released as `failed`; one live row remains |
+| Sponsor route throttled | The flow waits out its `Retry-After` once (up to 60s), then carries on | A throttled request writes nothing; each throttle allows 5 requests a minute, so a rebuild or a reload does not trip it |
+| Setup fails and cannot recover now | **Continue for now** into the app; withdrawing sends the contributor back to setup | Nothing was submitted, or the pending row stays |
+| Trustline removed after a confirmed sponsorship | A new envelope is broadcast, not answered `already_confirmed` | The confirmed row is released (nothing still sponsored) or reopened as pending (account still sponsored) |
 | Existing trustline | Sponsor GET answers `needed:false`: ready | No envelope, no row, cap untouched |
 | Returning wallet | Signs in as the same user; passes setup | `findOrCreateWalletUser` keys on the unique `walletAddress` |
 | Wallet held by another account | Claim refused `address_already_linked` | `User.walletAddress` is unique |
+| Legacy email user pressed "Connect Freighter" first | The empty wallet-only account that sign-in created is removed and the claim binds the wallet to the email account, sponsorship rows included | Only an account with no email, password, work, earnings, balance, withdrawals, flags, disputes or bans is taken over, in one transaction that locks it first |
 | Second wallet on a bound account | Claim refused `wallet_already_bound` | Bind is conditional on no usable wallet |
 | Tab closed mid-flow | Reload resumes at the unfinished step | Every step is idempotent against the ledger |
 
@@ -90,5 +96,5 @@ Platform keys are unaffected. This change adds no secret to any service, so F-01
 - **Logout does not revoke the token.** A copied token stays valid until it expires (7 days). This predates #30.
 - **Phones:** Freighter is desktop-only here, and Freighter Mobile needs WalletConnect v2, which no Epic 2 issue builds (ADR-0003).
 - **Stale pending rows:** one reconciles only through an operator reclaim run (#29). The request path answers `submission_pending` until its envelope expires.
-- **Two claimants of one wallet:** an email account and a wallet-only account cannot share one. The email account's claim is refused, so its owner must pick one account. No merge path exists.
+- **Two claimants of one wallet:** an email account and a wallet-only account cannot share one. If the wallet-only account is unused (PR #105 review), the email account's claim takes the wallet over. Otherwise the claim is refused and its owner must pick one account; no merge path exists for two accounts that both have activity.
 - **Legacy `0x…` wallets:** such an account is treated as having no wallet. Its first claim replaces the `0x…` value.

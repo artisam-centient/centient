@@ -5,8 +5,10 @@ import { Keypair } from "@stellar/stellar-sdk";
 const {
   mockGetUser, mockHasTrustline, mockBuild, mockPrepare, mockBroadcast, mockTxStatus,
   mockRateLimit, mockCheckAllowed, mockLivePending, mockOpenIntent, mockConfirm, mockFail,
-  mockCapture,
+  mockCapture, mockChain, mockHasConfirmed,
 } = vi.hoisted(() => ({
+  mockChain: vi.fn(),
+  mockHasConfirmed: vi.fn(),
   mockGetUser: vi.fn(),
   mockHasTrustline: vi.fn(),
   mockBuild: vi.fn(),
@@ -36,14 +38,19 @@ vi.mock("@/lib/stellar/client", async (importOriginal) => {
     getTxStatus: mockTxStatus,
   };
 });
-vi.mock("@/lib/rate-limit", () => ({ checkWalletRateLimit: mockRateLimit }));
+vi.mock("@/lib/rate-limit", () => ({
+  takeRateLimit: mockRateLimit,
+  WALLET_BURST_LIMIT: { max: 5, windowMs: 60_000 },
+}));
 vi.mock("@/lib/sponsored-trustline", () => ({
   checkSponsorAllowed: mockCheckAllowed,
   livePendingSponsorship: mockLivePending,
   openSponsorshipIntent: mockOpenIntent,
   confirmSponsorship: mockConfirm,
   failSponsorship: mockFail,
+  hasConfirmedSponsorship: mockHasConfirmed,
 }));
+vi.mock("@/lib/stellar/sponsorship-reclaim", () => ({ readSponsorshipOnChain: mockChain }));
 vi.mock("@sentry/nextjs", () => ({ captureException: mockCapture }));
 
 import { GET, POST } from "../route";
@@ -56,9 +63,10 @@ const EXPIRES = new Date("2026-09-15T01:03:00.000Z");
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetUser.mockResolvedValue({ id: "user-1", walletAddress: ADDR });
-  mockRateLimit.mockResolvedValue(false);
+  mockRateLimit.mockResolvedValue({ limited: false });
   mockCheckAllowed.mockResolvedValue({ ok: true });
   mockLivePending.mockResolvedValue(false);
+  mockHasConfirmed.mockResolvedValue(false);
   mockPrepare.mockReturnValue({
     hash: "H",
     kind: "account+trustline",
@@ -165,18 +173,41 @@ describe("GET /api/me/wallet/sponsor", () => {
     await GET(getReq());
     expect(mockCheckAllowed).not.toHaveBeenCalled();
   });
-  it("429 when rate-limited by address", async () => {
-    mockRateLimit.mockResolvedValue(true);
+  it("429 with a Retry-After when rate-limited by address", async () => {
+    mockRateLimit.mockImplementation(async (key: string) =>
+      key.startsWith("sponsor-build:") ? { limited: true, retryAfterSeconds: 42 } : { limited: false },
+    );
     const res = await GET(getReq());
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("42");
     expect((await res.json()).error).toBe("rate_limited");
+    expect(mockRateLimit).toHaveBeenCalledWith(`sponsor-build:${ADDR}`, { max: 5, windowMs: 60_000 });
   });
   // Ensure distinct keys per phase so GET doesn't consume POST's bucket.
-  it("429 when per-user rate limit fires on GET (sponsor-get: key)", async () => {
-    mockRateLimit.mockImplementation(async (key: string) => key.startsWith("sponsor-get:"));
+  it("429 when per-user rate limit fires on GET (sponsor-get: key), without spending the address's", async () => {
+    mockRateLimit.mockImplementation(async (key: string) =>
+      key.startsWith("sponsor-get:") ? { limited: true, retryAfterSeconds: 9 } : { limited: false },
+    );
     const res = await GET(getReq());
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("9");
     expect((await res.json()).error).toBe("rate_limited");
+    expect(mockRateLimit).toHaveBeenCalledTimes(1);
+  });
+  it("answers needed:false from a confirmed sponsorship when Horizon cannot be reached (PR #105 review)", async () => {
+    mockHasTrustline.mockRejectedValue(new Error("horizon down"));
+    mockHasConfirmed.mockResolvedValue(true);
+    const res = await GET(getReq());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ needed: false, address: ADDR });
+    expect(mockHasConfirmed).toHaveBeenCalledWith("user-1", ADDR);
+    expect(mockBuild).not.toHaveBeenCalled();
+  });
+  it("502 build_failed when Horizon cannot be reached and no confirmed sponsorship stands in", async () => {
+    mockHasTrustline.mockRejectedValue(new Error("horizon down"));
+    const res = await GET(getReq());
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe("build_failed");
   });
   it("502 when build throws", async () => {
     mockHasTrustline.mockResolvedValue(false);
@@ -220,7 +251,8 @@ describe("POST /api/me/wallet/sponsor", () => {
     expect(mockPrepare).toHaveBeenCalledWith("SIGNED", ADDR);
     expect(mockOpenIntent).toHaveBeenCalledWith(
       { userId: "user-1", address: ADDR, kind: "account+trustline", txHash: "H", expiresAt: EXPIRES },
-      { txStatus: mockTxStatus },
+      // The chain lookup lets the ledger re-check a `confirmed` row (PR #105 review).
+      { txStatus: mockTxStatus, chain: mockChain },
     );
     expect(mockOpenIntent.mock.invocationCallOrder[0]).toBeLessThan(
       mockBroadcast.mock.invocationCallOrder[0],
@@ -392,11 +424,15 @@ describe("POST /api/me/wallet/sponsor", () => {
     });
   });
 
-  // Distinct per-phase key so POST doesn't share GET's 15s bucket.
+  // Distinct per-phase key so POST doesn't share GET's bucket.
   it("429 when per-user rate limit fires on POST (sponsor-submit: key)", async () => {
-    mockRateLimit.mockImplementation(async (key: string) => key.startsWith("sponsor-submit:"));
+    mockRateLimit.mockImplementation(async (key: string) =>
+      key.startsWith("sponsor-submit:") ? { limited: true, retryAfterSeconds: 5 } : { limited: false },
+    );
     const res = await post();
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("5");
     expect((await res.json()).error).toBe("rate_limited");
+    expect(mockOpenIntent).not.toHaveBeenCalled();
   });
 });

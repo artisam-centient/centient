@@ -116,8 +116,29 @@ export async function livePendingSponsorship(address: string, now: Date = new Da
   return row !== null;
 }
 
+/**
+ * True while this user holds a confirmed, unreleased sponsorship of `address`.
+ * The sponsor route leans on it only when Horizon cannot say whether the
+ * trustline exists; a withdrawal always checks the chain itself.
+ */
+export async function hasConfirmedSponsorship(userId: string, address: string): Promise<boolean> {
+  const row = await prisma.sponsoredTrustline.findFirst({
+    where: { userId, address, status: "confirmed", revokedAt: null },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
 /** Horizon's view of a transaction hash — `getTxStatus` in production. */
 export type TxStatusLookup = (hash: string) => Promise<"confirmed" | "failed" | "not_found">;
+
+/** What the chain shows for an address — `readSponsorshipOnChain` in production. */
+export type SponsorshipChainLookup = (address: string) => Promise<{
+  /** The address holds a USDC trustline, whoever pays its reserve. */
+  usdcTrustline: boolean;
+  /** Its entries whose reserve the sponsor pays right now. */
+  sponsoredEntries: Array<"trustline" | "account">;
+}>;
 
 export interface SponsorshipIntent {
   userId: string;
@@ -151,28 +172,34 @@ const INTENT_ATTEMPTS = 3;
  * never seen and its time bound has passed. If Horizon shows the earlier one
  * landed, nothing new is broadcast.
  *
+ * A `confirmed` row is only trusted while the chain still shows the trustline
+ * (see {@link resetConfirmed}).
+ *
  * A unique violation means another request claimed the address between this
  * read and this write; the decision is simply taken again against what it wrote.
  * A failed Horizon lookup propagates without writing anything.
  */
 export async function openSponsorshipIntent(
   intent: SponsorshipIntent,
-  opts: { txStatus: TxStatusLookup; now?: Date },
+  opts: { txStatus: TxStatusLookup; chain: SponsorshipChainLookup; now?: Date },
 ): Promise<SponsorshipIntentDecision> {
   const now = opts.now ?? new Date();
   for (let attempt = 1; ; attempt++) {
     try {
-      return await decideIntent(intent, opts.txStatus, now);
+      return await decideIntent(intent, opts, now);
     } catch (err) {
-      if (!isUniqueViolation(err) || attempt >= INTENT_ATTEMPTS) throw err;
+      if (!(isUniqueViolation(err) || err instanceof IntentRace) || attempt >= INTENT_ATTEMPTS) throw err;
     }
   }
 }
 
+/** A conditional write found the row changed since it was read; decide again. */
+class IntentRace extends Error {}
+
 /** One read-then-write pass of {@link openSponsorshipIntent}; a racing writer surfaces as P2002. */
 async function decideIntent(
   intent: SponsorshipIntent,
-  txStatus: TxStatusLookup,
+  deps: { txStatus: TxStatusLookup; chain: SponsorshipChainLookup },
   now: Date,
 ): Promise<SponsorshipIntentDecision> {
   const current = await prisma.sponsoredTrustline.findFirst({
@@ -180,10 +207,14 @@ async function decideIntent(
   });
   if (!current) return { action: "submit", id: await createPending(intent) };
   if (current.userId !== intent.userId) return { action: "address_in_use" };
-  if (current.status === "confirmed") return { action: "already_confirmed" };
+  if (current.status === "confirmed") {
+    const onChain = await deps.chain(intent.address);
+    if (onChain.usdcTrustline) return { action: "already_confirmed" };
+    return { action: "submit", id: await resetConfirmed(current, intent, onChain.sponsoredEntries) };
+  }
   if (current.txHash === intent.txHash) return { action: "submit", id: current.id };
 
-  const prior = await txStatus(current.txHash);
+  const prior = await deps.txStatus(current.txHash);
   if (prior === "confirmed") {
     await confirmSponsorship(current.id, current.txHash);
     return { action: "already_confirmed" };
@@ -195,6 +226,51 @@ async function decideIntent(
 
   await failSponsorship(current.id, current.txHash);
   return { action: "submit", id: await createPending(intent) };
+}
+
+/**
+ * A `confirmed` row whose USDC trustline is gone from the chain: the owner
+ * removed it, or merged the account away, before reclaim (#29) noticed. Answering
+ * `already_confirmed` would report setup done without broadcasting, while every
+ * withdrawal kept failing `payout_setup_required`. Instead the row is reset and
+ * the new envelope takes the normal submit path. Returns the row id to settle.
+ *
+ * - Nothing the row paid for is still sponsored: its reserve is already back, so
+ *   the row is recorded released by its owner, as reclaim would record it, and
+ *   the envelope gets a fresh pending row.
+ * - The account is still sponsored (only the trustline went): its reserve is
+ *   still locked, so releasing the row would understate the liability. The row
+ *   itself is reopened as pending for the new envelope instead. It keeps its
+ *   `confirmedAt`, which is how {@link failSponsorship} knows to return it to
+ *   confirmed if that envelope never lands.
+ *
+ * A row carrying a reclaim intent is left alone. Every write is conditional on
+ * the row still being as read; a concurrent change is decided again.
+ */
+async function resetConfirmed(
+  current: { id: string; kind: string },
+  intent: SponsorshipIntent,
+  sponsoredEntries: Array<"trustline" | "account">,
+): Promise<string> {
+  const paidFor = current.kind === "account+trustline" ? ["trustline", "account"] : ["trustline"];
+  const stillSponsored = sponsoredEntries.some((entry) => paidFor.includes(entry));
+  const unchanged = { id: current.id, status: "confirmed", revokedAt: null, reclaimTxHash: null };
+
+  if (!stillSponsored) {
+    const released = await prisma.sponsoredTrustline.updateMany({
+      where: unchanged,
+      data: { revokedAt: new Date(), releasedBy: "owner" },
+    });
+    if (released.count === 0) throw new IntentRace("sponsorship row changed before its release");
+    return createPending(intent);
+  }
+
+  const reopened = await prisma.sponsoredTrustline.updateMany({
+    where: unchanged,
+    data: { status: "pending", txHash: intent.txHash, expiresAt: intent.expiresAt },
+  });
+  if (reopened.count === 0) throw new IntentRace("sponsorship row changed before it was reopened");
+  return current.id;
 }
 
 /** Insert the pending row for `intent` and return its id. The unique index may refuse it. */
@@ -224,11 +300,18 @@ export async function confirmSponsorship(id: string, txHash: string): Promise<vo
 
 /**
  * Release row `id` after a definite failure — only while it is still pending
- * with `txHash`. A confirmed sponsorship is never downgraded.
+ * with `txHash`. A confirmed sponsorship is never downgraded. A row that was
+ * confirmed before, and reopened for a new envelope because its account is still
+ * sponsored, goes back to confirmed rather than failed: that reserve is still
+ * locked whatever became of the new envelope.
  */
 export async function failSponsorship(id: string, txHash: string): Promise<void> {
   await prisma.sponsoredTrustline.updateMany({
-    where: { id, txHash, status: "pending" },
+    where: { id, txHash, status: "pending", confirmedAt: { not: null } },
+    data: { status: "confirmed" },
+  });
+  await prisma.sponsoredTrustline.updateMany({
+    where: { id, txHash, status: "pending", confirmedAt: null },
     data: { status: "failed" },
   });
 }

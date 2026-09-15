@@ -109,6 +109,57 @@ export async function loadBaseReserveStroops(srv: Horizon.Server = server()): Pr
   throw new Error("loadBaseReserveStroops: Horizon returned no usable base_reserve_in_stroops");
 }
 
+/** A test for the balance line of the configured USDC. */
+function usdcLineMatcher(): (line: HorizonBalanceLine) => boolean {
+  const asset = usdcAsset();
+  return (line) =>
+    line.asset_type !== "native" && line.asset_code === asset.getCode() && line.asset_issuer === asset.getIssuer();
+}
+
+/** The entries of `account` whose reserve `sponsor` pays, trustline first. */
+function sponsoredEntriesOf(
+  account: Horizon.AccountResponse,
+  usdc: HorizonBalanceLine | undefined,
+  sponsor: string,
+): SponsoredEntry[] {
+  const entries: SponsoredEntry[] = [];
+  if (usdc?.sponsor === sponsor) entries.push("trustline");
+  if ((account as { sponsor?: string }).sponsor === sponsor) entries.push("account");
+  return entries;
+}
+
+/** What the chain shows for an address about to be sponsored again. */
+export interface AddressSponsorship {
+  /** The address holds a trustline to the configured USDC, whoever pays its reserve. */
+  usdcTrustline: boolean;
+  /** Entries of the address the sponsor sponsors right now, trustline first. */
+  sponsoredEntries: SponsoredEntry[];
+}
+
+/**
+ * Read whether `address` still holds its USDC trustline, and what of it the
+ * configured sponsor still sponsors. The sponsor route asks before trusting a
+ * `confirmed` sponsorship row. A missing account holds neither; any other
+ * failure propagates, so an unreachable Horizon never reads as "gone".
+ */
+export async function readSponsorshipOnChain(
+  address: string,
+  srv: Horizon.Server = server(),
+): Promise<AddressSponsorship> {
+  let account: Horizon.AccountResponse;
+  try {
+    account = await srv.loadAccount(address);
+  } catch (err) {
+    if (isNotFound(err)) return { usdcTrustline: false, sponsoredEntries: [] };
+    throw err;
+  }
+  const usdc = (account.balances as unknown as HorizonBalanceLine[]).find(usdcLineMatcher());
+  return {
+    usdcTrustline: usdc !== undefined,
+    sponsoredEntries: sponsoredEntriesOf(account, usdc, sponsorKeypair().publicKey()),
+  };
+}
+
 /**
  * Read `address` from Horizon and say which of its entries `sponsor` sponsors.
  * A missing account is `{ exists: false }`; any other failure propagates, so an
@@ -128,19 +179,13 @@ export async function readChainSponsorship(
     throw err;
   }
 
-  const asset = usdcAsset();
   const lines = account.balances as unknown as HorizonBalanceLine[];
-  const isUsdc = (line: HorizonBalanceLine) =>
-    line.asset_type !== "native" &&
-    line.asset_code === asset.getCode() &&
-    line.asset_issuer === asset.getIssuer();
+  const isUsdc = usdcLineMatcher();
   const usdc = lines.find(isUsdc);
   const native = lines.find((line) => line.asset_type === "native");
   if (!native) throw new Error(`readChainSponsorship: Horizon account ${address} has no native balance line`);
 
-  const sponsoredEntries: SponsoredEntry[] = [];
-  if (usdc?.sponsor === sponsor) sponsoredEntries.push("trustline");
-  if ((account as { sponsor?: string }).sponsor === sponsor) sponsoredEntries.push("account");
+  const sponsoredEntries = sponsoredEntriesOf(account, usdc, sponsor);
 
   const { spendableStroops } = calculateSpendableXlm({
     totalStroops: xlmToStroops(native.balance),
@@ -161,6 +206,37 @@ export async function readChainSponsorship(
     usdcBuyingLiabilitiesUnits: usdc ? usdcToUnits(usdc.buying_liabilities ?? "0") : 0n,
     ownerSpendableStroops: spendableStroops,
   };
+}
+
+/** A Horizon operation record, as far as {@link readRevokedEntries} reads it. */
+interface HorizonRevokeOperation {
+  type: string;
+  account_id?: string;
+  trustline_account_id?: string;
+  trustline_asset?: string;
+}
+
+/**
+ * The entries of `address` whose sponsorship the landed transaction `hash`
+ * revoked, read from its operations. A run that finds an earlier run's
+ * revocation landed credits only these: the owner may have removed an entry
+ * before that revocation was built, so the row's kind can overstate it.
+ */
+export async function readRevokedEntries(
+  hash: string,
+  address: string,
+  srv: Horizon.Server = server(),
+): Promise<SponsoredEntry[]> {
+  const page = await srv.operations().forTransaction(hash).limit(10).call();
+  const asset = usdcAsset();
+  const usdc = `${asset.getCode()}:${asset.getIssuer()}`;
+  const revoked = new Set<SponsoredEntry>();
+  for (const op of page.records as unknown as HorizonRevokeOperation[]) {
+    if (op.type !== "revoke_sponsorship") continue;
+    if (op.account_id === address) revoked.add("account");
+    if (op.trustline_account_id === address && op.trustline_asset === usdc) revoked.add("trustline");
+  }
+  return ENTRY_ORDER.filter((entry) => revoked.has(entry));
 }
 
 /** Throw the non-retryable `invalid_reclaim_tx`; nothing that fails a check is sent. */

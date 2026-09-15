@@ -11,7 +11,9 @@ const {
   mockUserUpdateMany,
   mockUserFindUnique,
   mockCheckWalletRateLimit,
+  mockTakeOver,
 } = vi.hoisted(() => ({
+  mockTakeOver: vi.fn(),
   mockGetSession: vi.fn(),
   mockNonceFindFirst: vi.fn(),
   mockNonceDeleteMany: vi.fn(),
@@ -26,7 +28,12 @@ vi.mock("@/lib/labeler-auth", async (importOriginal) => {
   return { ...actual, getLabelerSession: mockGetSession };
 });
 
-vi.mock("@/lib/rate-limit", () => ({ checkWalletRateLimit: mockCheckWalletRateLimit }));
+vi.mock("@/lib/rate-limit", () => ({
+  checkWalletRateLimit: mockCheckWalletRateLimit,
+  WALLET_BURST_LIMIT: { max: 5, windowMs: 60_000 },
+}));
+
+vi.mock("@/lib/stellar/auth-challenge", () => ({ takeOverUnusedWalletAccount: mockTakeOver }));
 
 vi.mock("@/lib/prisma", () => ({
   __esModule: true,
@@ -83,6 +90,7 @@ beforeEach(() => {
   mockUserFindUnique.mockResolvedValue({ walletAddress: G });
   mockNonceFindFirst.mockResolvedValue({ nonce: NONCE, walletAddress: G });
   mockCheckWalletRateLimit.mockResolvedValue(false);
+  mockTakeOver.mockResolvedValue(false);
 });
 
 describe("GET /api/me/wallet (challenge)", () => {
@@ -157,7 +165,7 @@ describe("GET /api/me/wallet (challenge)", () => {
     const res = await GET(getReq(G));
     expect(res.status).toBe(429);
     expect((await res.json()).error).toBe("rate_limited");
-    expect(mockCheckWalletRateLimit).toHaveBeenCalledWith(`link:${G}`);
+    expect(mockCheckWalletRateLimit).toHaveBeenCalledWith(`link:${G}`, { max: 5, windowMs: 60_000 });
     expect(mockNonceCreate).not.toHaveBeenCalled();
   });
 });
@@ -275,5 +283,29 @@ describe("POST /api/me/wallet (prove + bind)", () => {
     expect((await res.json()).error).toBe("address_already_linked");
     // The nonce was consumed before the collision.
     expect(mockNonceDeleteMany).toHaveBeenCalled();
+    expect(mockTakeOver).toHaveBeenCalledWith(G, USER_ID);
+  });
+
+  it("binds after taking over the empty wallet-only account an accidental wallet sign-in created (PR #105 review)", async () => {
+    mockUserUpdateMany.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+    mockTakeOver.mockResolvedValueOnce(true);
+
+    const res = await provenPost();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ linked: true, walletAddress: G });
+    expect(mockTakeOver).toHaveBeenCalledWith(G, USER_ID);
+  });
+
+  it("never tries a takeover before the proof verifies", async () => {
+    const wrong = Keypair.random();
+    const badSig = wrong.sign(sep53Digest(buildWalletLinkMessage(G, NONCE))).toString("base64");
+    await POST(postReq({ stellarAddress: G, signature: badSig }));
+    expect(mockTakeOver).not.toHaveBeenCalled();
   });
 });

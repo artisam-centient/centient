@@ -112,7 +112,7 @@ export const WALLET_CLAIM_MESSAGES: Record<WalletClaimFailure, string> = {
     "This wallet already belongs to another Centient account. Sign out, then sign in with the wallet instead.",
   wallet_already_bound:
     "This account is already connected to a different wallet. Sign out, then sign in with that wallet.",
-  rate_limited: "Too many attempts. Wait 15 seconds, then try again.",
+  rate_limited: "Too many attempts. Wait a minute, then try again.",
   network: "We couldn't reach Centient. Check your connection and try again.",
   failed: "Connecting your wallet didn't complete. Please try again.",
 };

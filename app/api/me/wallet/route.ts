@@ -4,8 +4,9 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { getLabelerSession, requireLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress, verify } from "@/lib/stellar/signature";
-import { checkWalletRateLimit } from "@/lib/rate-limit";
+import { checkWalletRateLimit, WALLET_BURST_LIMIT } from "@/lib/rate-limit";
 import { WALLET_LINK_ACTION } from "@/lib/stellar/challenge-message";
+import { takeOverUnusedWalletAccount } from "@/lib/stellar/auth-challenge";
 
 /**
  * ST-4b (#300) — prove a Stellar `G…` address and bind it to the session's account.
@@ -88,7 +89,8 @@ export async function GET(req: NextRequest) {
   // Throttle challenge issuance per candidate address. A live row is reused,
   // but an unthrottled caller could still churn expiry checks and replacement
   // writes. Distinct from the sponsor-build key so the two flows do not collide.
-  if (await checkWalletRateLimit(`link:${address}`)) {
+  // A small burst, so a declined Freighter prompt can be retried straight away.
+  if (await checkWalletRateLimit(`link:${address}`, WALLET_BURST_LIMIT)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
@@ -155,7 +157,10 @@ export async function POST(req: NextRequest) {
   // `User.walletAddress` is `@unique`. If this `G…` is already the wallet of a
   // *different* account (a second/sybil account, a shared wallet, or a
   // re-registration), the write throws P2002. Return a clean 409 instead of a
-  // raw 500 — same pattern as enqueueWithdrawal's unique-index handling.
+  // raw 500 — same pattern as enqueueWithdrawal's unique-index handling —
+  // unless that account is the empty one a wallet sign-in created by accident
+  // before this email account claimed the wallet: then the proof just verified
+  // lets this account take the address over.
   let bound: { count: number };
   try {
     // Conditional, so two concurrent proofs cannot both bind: only an account
@@ -166,6 +171,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      if (await takeOverUnusedWalletAccount(stellarAddress, userId!)) {
+        return NextResponse.json({ linked: true, walletAddress: stellarAddress });
+      }
       return NextResponse.json({ error: "address_already_linked" }, { status: 409 });
     }
     throw err;

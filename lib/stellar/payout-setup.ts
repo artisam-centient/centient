@@ -39,12 +39,21 @@ export interface PayoutSetupDeps {
   fetch: typeof fetch;
   /** Told the envelope kind while Freighter is open, and null once it closes. */
   onSigning?: (kind: SponsorshipEnvelopeKind | null) => void;
+  /** Told the seconds being waited out after a rate limit, and null once the wait ends. */
+  onWaiting?: (seconds: number | null) => void;
+  /** Injectable for tests; a real timer by default. */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** The longest `Retry-After` the flow waits out; a longer one is reported instead. */
+export const MAX_RATE_LIMIT_WAIT_SECONDS = 60;
 
 const defaultDeps: PayoutSetupDeps = {
   signTransaction,
   fetch: (...args) => fetch(...args),
 };
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Read a JSON body; an empty object when there is none. */
 async function readJson(res: Response): Promise<Record<string, unknown>> {
@@ -85,14 +94,47 @@ function failureFromError(err: unknown): PayoutSetupFailure {
 }
 
 /**
+ * Seconds to wait out a throttled response, or null when there is nothing to
+ * wait for: not a 429 `rate_limited` (the sponsorship cap is also a 429), or no
+ * usable `Retry-After` within {@link MAX_RATE_LIMIT_WAIT_SECONDS}.
+ */
+async function rateLimitWait(res: Response): Promise<number | null> {
+  if (res.status !== 429) return null;
+  if ((await readJson(res.clone())).error !== "rate_limited") return null;
+  const seconds = Number(res.headers.get("Retry-After"));
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_RATE_LIMIT_WAIT_SECONDS) return null;
+  return Math.ceil(seconds);
+}
+
+/**
+ * One sponsor request. A rate limit is a wait, not a failure: the request is
+ * sent again, once, after the `Retry-After` the route gave. Resending a submit
+ * is safe, because a throttled POST is refused before any intent is written.
+ */
+async function send(deps: PayoutSetupDeps, init?: RequestInit): Promise<Response> {
+  const request = () => (init ? deps.fetch(SPONSOR_URL, init) : deps.fetch(SPONSOR_URL));
+  const res = await request();
+  const wait = await rateLimitWait(res);
+  if (wait === null) return res;
+  deps.onWaiting?.(wait);
+  try {
+    await (deps.sleep ?? realSleep)(wait * 1000);
+  } finally {
+    deps.onWaiting?.(null);
+  }
+  return request();
+}
+
+/**
  * Make the bound wallet able to receive USDC. Resolves, never rejects. One
  * rebuild on `retry`, which the route answers only when the envelope provably
- * cannot land (a concurrent sponsor transaction took the sequence).
+ * cannot land (a concurrent sponsor transaction took the sequence). A short rate
+ * limit on either request is waited out rather than reported.
  */
 export async function setUpPayouts(deps: PayoutSetupDeps = defaultDeps): Promise<PayoutSetupResult> {
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const build = await deps.fetch(SPONSOR_URL);
+      const build = await send(deps);
       const offer = await readJson(build);
       if (!build.ok) return { ok: false, reason: failureFromResponse(build.status, offer.error) };
       if (typeof offer.address !== "string") return { ok: false, reason: "failed" };
@@ -109,7 +151,7 @@ export async function setUpPayouts(deps: PayoutSetupDeps = defaultDeps): Promise
         deps.onSigning?.(null);
       }
 
-      const submit = await deps.fetch(SPONSOR_URL, {
+      const submit = await send(deps, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signedXdr }),
@@ -140,6 +182,11 @@ export const PAYOUT_SIGNING_NOTICE: Record<SponsorshipEnvelopeKind, string> = {
     "Approve in Freighter to create your Stellar account and add USDC. Centient pays the network fee and the reserves — the fee Freighter shows is not charged to you, and you need no XLM.",
 };
 
+/** Shown while a rate limit is waited out; setup carries on by itself. */
+export function payoutWaitingNotice(seconds: number): string {
+  return `Lots of attempts in a short time. Carrying on automatically in about ${seconds} seconds…`;
+}
+
 /** What the contributor sees for each failure. */
 export const PAYOUT_SETUP_MESSAGES: Record<PayoutSetupFailure, string> = {
   wallet_required: "Connect your Stellar wallet to this account first.",
@@ -153,7 +200,7 @@ export const PAYOUT_SETUP_MESSAGES: Record<PayoutSetupFailure, string> = {
     "You've reached the limit of payout wallets we can set up for your account. Contact support@centient.work.",
   address_in_use: "This Stellar address is already set up for another account.",
   unavailable: "Payout setup is temporarily unavailable. Please try again shortly.",
-  rate_limited: "Too many attempts. Wait 15 seconds, then try again.",
+  rate_limited: "Too many attempts. Wait a minute, then try again.",
   network: "We couldn't reach Centient. Check your connection and try again.",
   failed: "Payout setup didn't complete. Please try again.",
 };

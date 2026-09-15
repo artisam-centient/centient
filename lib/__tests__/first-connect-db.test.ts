@@ -281,9 +281,29 @@ describe("first connect — an account created by email", () => {
     expect(after).toMatchObject({ walletAddress: kp.publicKey(), pendingBalanceUnits: 7_000_000n });
   });
 
+  it("takes back its wallet from the empty account an accidental wallet sign-in created (PR #105 review)", async () => {
+    const account = await emailAccount("pressed-freighter-first@example.com");
+    const kp = Keypair.random();
+    const accidental = await signInWithWallet(kp);
+    expect(accidental).toMatchObject({ created: true });
+    const cookie = await signInWithEmail("pressed-freighter-first@example.com", "198.51.100.3");
+
+    expect((await claim(kp, cookie)).status).toBe(200);
+
+    expect(await prisma.user.findUnique({ where: { id: accidental.userId } })).toBeNull();
+    const walletSession = await signInWithWallet(kp);
+    expect(walletSession).toMatchObject({ userId: account.id, created: false });
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: account.id } })).toMatchObject({
+      walletAddress: kp.publicKey(),
+      pendingBalanceUnits: 7_000_000n,
+    });
+  });
+
   it("cannot take a wallet another account holds, or move to a second wallet once bound", async () => {
     const walletOwner = Keypair.random();
-    await signInWithWallet(walletOwner);
+    const owner = await signInWithWallet(walletOwner);
+    // An account with activity is never taken over, even by a verified proof.
+    await prisma.user.update({ where: { id: owner.userId }, data: { pendingBalanceUnits: 1n } });
     await emailAccount("second@example.com");
     const cookie = await signInWithEmail("second@example.com", "198.51.100.2");
 

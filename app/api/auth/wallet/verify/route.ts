@@ -11,9 +11,10 @@ import { setLabelerSessionCookie, signLabelerJWT } from "@/lib/labeler-auth";
  * `/api/auth/wallet/challenge`, and `signerAddress` is the signer Freighter
  * reported.
  *
- * A malformed request is a 400 and leaves the challenge untouched. Everything
- * past that point consumes the challenge, whatever the outcome, so a failed
- * proof is a 401 and needs a new challenge.
+ * A malformed request is a 400 and leaves the challenge untouched. A refused
+ * proof is a 401 and also leaves it: the nonce is not a secret, so consuming it
+ * on failure would let anyone fail another contributor's sign-in. Only an
+ * accepted proof, or an expired challenge, removes it.
  *
  * Success issues the same userId-keyed `labeler_session` as email login,
  * resolved by the proven address: the contributor holding it, or a new

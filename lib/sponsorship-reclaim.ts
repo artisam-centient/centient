@@ -141,6 +141,8 @@ export interface ReclaimDeps {
   sponsor: string;
   baseReserveStroops(): Promise<bigint>;
   readChain(address: string, baseReserveStroops: bigint): Promise<ChainSponsorship>;
+  /** The entries of `address` a landed revocation actually revoked. */
+  revokedEntries(hash: string, address: string): Promise<SponsoredEntry[]>;
   txStatus: TxStatusLookup;
   prepareRevocation(address: string, entries: SponsoredEntry[]): Promise<PreparedRevocation>;
   now(): Date;
@@ -159,6 +161,7 @@ export async function defaultReclaimDeps(): Promise<ReclaimDeps> {
     sponsor: client.sponsorKeypair().publicKey(),
     baseReserveStroops: () => chain.loadBaseReserveStroops(srv),
     readChain: (address, base) => chain.readChainSponsorship(address, client.sponsorKeypair().publicKey(), base, srv),
+    revokedEntries: (hash, address) => chain.readRevokedEntries(hash, address, srv),
     txStatus: client.getTxStatus,
     prepareRevocation: (address, entries) => chain.prepareRevocation(address, entries, { srv }),
     now: () => new Date(),
@@ -322,12 +325,20 @@ async function decide(row: Row, kind: SponsorshipKind, ctx: Context, result: Res
 
   // Rule 4: nothing of this sponsorship is still sponsored.
   if (entries.length === 0) {
-    const releasedBy = ourRevocationLanded ? "sponsor_revoke" : "owner";
-    if (execute) await markReleased(row.id, releasedBy, ourRevocationLanded ? row.reclaimTxHash : null);
-    const stroops = stroopsFor(SPONSORSHIP_RESERVE_UNITS[kind], base);
-    return ourRevocationLanded
-      ? result("revoked", { txHash: row.reclaimTxHash ?? undefined, reclaimedStroops: stroops })
-      : result("released_by_owner");
+    if (ourRevocationLanded && row.reclaimTxHash) {
+      // Credit only what that revocation carried, not the whole kind: the owner
+      // may have removed an entry before it was built. Read before anything is
+      // written, so a failed lookup leaves the row for the next run.
+      const revokedUnits = unitsOf(await deps.revokedEntries(row.reclaimTxHash, row.address));
+      if (execute) await markReleased(row.id, "sponsor_revoke", row.reclaimTxHash);
+      return result("revoked", {
+        txHash: row.reclaimTxHash,
+        reserveUnits: revokedUnits,
+        reclaimedStroops: stroopsFor(revokedUnits, base),
+      });
+    }
+    if (execute) await markReleased(row.id, "owner", null);
+    return result("released_by_owner");
   }
   if (ourRevocationLanded) {
     // Horizon says our revocation applied, yet the chain still shows these entries
@@ -339,7 +350,7 @@ async function decide(row: Row, kind: SponsorshipKind, ctx: Context, result: Res
     });
   }
 
-  const units = entries.reduce((sum, entry) => sum + (entry === "account" ? 2 : 1), 0);
+  const units = unitsOf(entries);
 
   // Rule 5: protect anyone we are, or may yet be, paying.
   const protectedBy = await protection(row);
@@ -508,6 +519,11 @@ async function clearIntent(id: string, hash: string): Promise<void> {
     where: { id, reclaimTxHash: hash, revokedAt: null },
     data: { reclaimTxHash: null, reclaimExpiresAt: null },
   });
+}
+
+/** Base reserve units `entries` hold: an account two, a trustline one. */
+function unitsOf(entries: readonly SponsoredEntry[]): number {
+  return entries.reduce((sum, entry) => sum + (entry === "account" ? 2 : 1), 0);
 }
 
 function stroopsFor(units: number, base: bigint): string {

@@ -10,6 +10,7 @@ import { WalletClaimView } from "@/components/WalletClaim";
 import {
   PAYOUT_SETUP_MESSAGES,
   PAYOUT_SIGNING_NOTICE,
+  payoutWaitingNotice,
   type PayoutSetupFailure,
 } from "@/lib/stellar/payout-setup";
 import { WALLET_CLAIM_MESSAGES, type WalletClaimFailure } from "@/lib/stellar/wallet-claim";
@@ -46,6 +47,14 @@ describe("PayoutSetupView", () => {
     },
   );
 
+  it("reads a rate limit as a wait that carries on by itself, with no retry offered", () => {
+    const html = render({ phase: "waiting", waitSeconds: 12, onRetry: noop });
+    expect(html).toContain(escaped(payoutWaitingNotice(12)));
+    expect(html).toContain('aria-busy="true"');
+    expect(html).not.toContain("Try again");
+    expect(html).not.toContain("text-error");
+  });
+
   it("announces status changes to assistive technology", () => {
     const html = render({ phase: "failed", reason: "pending", onRetry: noop });
     expect(html).toContain('role="status"');
@@ -63,6 +72,22 @@ describe("PayoutSetupView", () => {
       expect(html).toContain('aria-busy="false"');
     },
   );
+
+  it.each(Object.keys(PAYOUT_SETUP_MESSAGES) as PayoutSetupFailure[])(
+    "never traps the contributor on the %s failure: they can continue into the app (PR #105 review)",
+    (reason) => {
+      const html = render({ phase: "failed", reason, onRetry: noop, onContinue: noop });
+      expect(html).toContain("Continue for now");
+      expect(html).toContain("Finish payout setup before you withdraw");
+    },
+  );
+
+  it("offers to continue only once setup has failed", () => {
+    expect(render({ phase: "working", onRetry: noop, onContinue: noop })).not.toContain("Continue for now");
+    expect(render({ phase: "signing", signingKind: "trustline", onRetry: noop, onContinue: noop })).not.toContain(
+      "Continue for now",
+    );
+  });
 
   it("styles a declined prompt as guidance, not an error", () => {
     expect(render({ phase: "failed", reason: "rejected", onRetry: noop })).not.toContain("text-error");

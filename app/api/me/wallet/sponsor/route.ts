@@ -10,11 +10,13 @@ import {
   StellarPaymentError,
   type PreparedSponsorship,
 } from "@/lib/stellar/client";
-import { checkWalletRateLimit } from "@/lib/rate-limit";
+import { readSponsorshipOnChain } from "@/lib/stellar/sponsorship-reclaim";
+import { takeRateLimit, WALLET_BURST_LIMIT } from "@/lib/rate-limit";
 import {
   checkSponsorAllowed,
   confirmSponsorship,
   failSponsorship,
+  hasConfirmedSponsorship,
   livePendingSponsorship,
   openSponsorshipIntent,
   type SponsorshipIntentDecision,
@@ -51,18 +53,14 @@ export async function GET(req: NextRequest) {
   const userId = user.id;
 
   // Per-user throttle: the per-address limiter below gives no per-user bound — a
-  // labeler could loop fresh keypairs to bypass it. This session-keyed check is a
-  // stopgap; a proper cap on outstanding sponsorships per labeler is tracked as a
-  // follow-up before ST-7 mainnet (issue link will be added).
-  if (await checkWalletRateLimit(`sponsor-get:${userId}`)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
-  if (await checkWalletRateLimit(`sponsor-build:${address}`)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
+  // labeler could loop fresh keypairs to bypass it. The outstanding cap (#330)
+  // bounds what can be spent; these bound the rate. Each allows a small burst:
+  // payout setup runs on every page load, and rebuilds once after `retry`.
+  const limited = (await throttle(`sponsor-get:${userId}`)) ?? (await throttle(`sponsor-build:${address}`));
+  if (limited) return limited;
 
   try {
-    if (await accountHasUsdcTrustline(address)) {
+    if (await trustsUsdc(userId, address)) {
       return NextResponse.json({ needed: false, address });
     }
     // #330: bound outstanding sponsorships per user (a session-keyed rate throttle
@@ -85,6 +83,22 @@ export async function GET(req: NextRequest) {
     }
     Sentry.captureException(err, { extra: { context: "sponsor-trustline-build", userId } });
     return NextResponse.json({ error: "build_failed" }, { status: 502 });
+  }
+}
+
+/**
+ * Whether the bound wallet already trusts USDC. When Horizon cannot answer, a
+ * confirmed sponsorship on the ledger stands in, so an outage does not send a
+ * wallet that is already set up to the failure screen (PR #105 review). No
+ * envelope is built on that answer, and a withdrawal checks the chain itself.
+ */
+async function trustsUsdc(userId: string, address: string): Promise<boolean> {
+  try {
+    return await accountHasUsdcTrustline(address);
+  } catch (err) {
+    if (!(await hasConfirmedSponsorship(userId, address))) throw err;
+    Sentry.captureException(err, { extra: { context: "sponsor-trustline-check-fallback", userId } });
+    return true;
   }
 }
 
@@ -115,12 +129,10 @@ export async function POST(req: NextRequest) {
 
   // Per-user throttle: the per-address limiter does not exist on POST (no address
   // check on the build step here), so a labeler could loop fresh keypairs to
-  // submit unlimited sponsorship txs. This session-keyed check is a stopgap; a
-  // proper cap on outstanding sponsorships per labeler is tracked as a follow-up
-  // before ST-7 mainnet (issue link will be added).
-  if (await checkWalletRateLimit(`sponsor-submit:${userId}`)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
+  // submit unlimited sponsorship txs. A small burst, so the resubmission after a
+  // `retry` rebuild is not refused.
+  const limited = await throttle(`sponsor-submit:${userId}`);
+  if (limited) return limited;
 
   // #330: per-user outstanding cap + cross-user address lock, re-checked here
   // (not just at build) so a client that skips GET can't bypass it.
@@ -149,7 +161,7 @@ export async function POST(req: NextRequest) {
         txHash: prepared.hash,
         expiresAt: prepared.expiresAt,
       },
-      { txStatus: getTxStatus },
+      { txStatus: getTxStatus, chain: readSponsorshipOnChain },
     );
   } catch (err) {
     Sentry.captureException(err, { extra: { context: "sponsor-intent", userId, address } });
@@ -187,6 +199,19 @@ export async function POST(req: NextRequest) {
 
 function unauthorized() {
   return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+}
+
+/**
+ * Take one request from `key`'s burst. Null while it has room; otherwise the 429
+ * to send, with a `Retry-After` the client can wait out instead of failing.
+ */
+async function throttle(key: string): Promise<NextResponse | null> {
+  const decision = await takeRateLimit(key, WALLET_BURST_LIMIT);
+  if (!decision.limited) return null;
+  return NextResponse.json(
+    { error: "rate_limited" },
+    { status: 429, headers: { "Retry-After": String(decision.retryAfterSeconds) } },
+  );
 }
 
 /**
