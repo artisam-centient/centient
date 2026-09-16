@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import TaskCard from "@/components/TaskCard";
 import EarningsBadge from "@/components/EarningsBadge";
@@ -131,6 +131,13 @@ export default function Home() {
     ageRange: string | null;
   }>({ country: null, gender: null, ageRange: null });
 
+  // Logging out no longer unloads the page, so work that was already in flight
+  // can still resolve afterwards. Anything async captures this generation when
+  // it starts and drops its result if a logout has bumped it since — otherwise
+  // a submission that lands a moment later would move a logged-out tab to the
+  // success screen.
+  const sessionGeneration = useRef(0);
+
   const showToast = useCallback((message: string, kind: ToastKind = "info") => {
     setToast({ id: Date.now(), message, kind });
   }, []);
@@ -141,8 +148,15 @@ export default function Home() {
   // `?wallet=` query param. `credentials` are same-origin so the cookie rides
   // along automatically.
   const fetchUserData = useCallback(async () => {
+    const generation = sessionGeneration.current;
     const res = await fetch("/api/me");
+    // A logged-out /api/me answers 401 with an error body. Applying that would
+    // blank the profile rather than leave it alone, so stop at the status.
+    if (!res.ok) return null;
     const data = await res.json();
+    // A request issued just before a logout can still answer 200; keep its
+    // contents off a tab that has since been signed out.
+    if (sessionGeneration.current !== generation) return null;
     setSubmissionCount(data.submissionCount ?? 0);
     setOnboardingCompleted(data.onboardingCompleted ?? false);
     setUnbannedAt(data.unbannedAt ?? null);
@@ -162,10 +176,12 @@ export default function Home() {
   // session-scoped off-chain balance instead of a per-question on-chain payout.
   // Best-effort: a transient balance fetch failure must not block the flow.
   const fetchBalance = useCallback(async () => {
+    const generation = sessionGeneration.current;
     try {
       const res = await fetch("/api/me/balance");
       if (!res.ok) return;
       const data = await res.json();
+      if (sessionGeneration.current !== generation) return;
       setBalance(data.pendingBalance ?? "0");
       setRecentCredits(Array.isArray(data.ledger) ? data.ledger : []);
     } catch {
@@ -315,6 +331,26 @@ export default function Home() {
     fetchTask();
   }, [fetchTask]);
 
+  // Logging out clears the session cookie server-side; everything the signed-in
+  // session put in client state has to be dropped here too, or the next labeler
+  // to sign in on this tab would flash the previous one's wallet and balance.
+  const handleLogout = useCallback(() => {
+    sessionGeneration.current += 1;
+    setAccountOpen(false);
+    setWallet(null);
+    setTask(null);
+    setBalance("0");
+    setRecentCredits([]);
+    setSubmissionCount(0);
+    setOnboardingCompleted(false);
+    setUnbannedAt(null);
+    setCooldownRemaining("");
+    setBannedReason(null);
+    setDisputeOpen(false);
+    setDemographics({ country: null, gender: null, ageRange: null });
+    setScreen("login");
+  }, []);
+
   const handleOnboardingComplete = useCallback(() => {
     setOnboardingCompleted(true);
     setScreen("landing");
@@ -323,6 +359,8 @@ export default function Home() {
 
   async function handleSubmit(choice: "A" | "B", reason: string) {
     if (!task) return;
+    const generation = sessionGeneration.current;
+    const loggedOutSince = () => sessionGeneration.current !== generation;
     setSubmitting(true);
     try {
       let res: Response;
@@ -345,6 +383,10 @@ export default function Home() {
       } catch {
         console.error("[submit] non-JSON response", { status: res.status });
       }
+
+      // The answer still counts — the server recorded it — but this tab belongs
+      // to nobody now, so none of the outcomes below should reach the screen.
+      if (loggedOutSince()) return;
 
       if (res.status === 409 && data.error === "wallet_required") {
         setScreen("claim_wallet");
@@ -369,6 +411,7 @@ export default function Home() {
         // the balance + recent credits instead of polling a per-question payout.
         await fetchUserData();
         await fetchBalance();
+        if (loggedOutSince()) return;
         setScreen("success");
         track("submission_approved", {
           task_id: task.id,
@@ -468,6 +511,7 @@ export default function Home() {
           onDemographicsDeleted={() =>
             setDemographics({ country: null, gender: null, ageRange: null })
           }
+          onLoggedOut={handleLogout}
         />
       </div>
     );
