@@ -315,6 +315,25 @@ export default function Home() {
     fetchTask();
   }, [fetchTask]);
 
+  // Logging out clears the session cookie server-side; everything the signed-in
+  // session put in client state has to be dropped here too, or the next labeler
+  // to sign in on this tab would flash the previous one's wallet and balance.
+  const handleLogout = useCallback(() => {
+    setAccountOpen(false);
+    setWallet(null);
+    setTask(null);
+    setBalance("0");
+    setRecentCredits([]);
+    setSubmissionCount(0);
+    setOnboardingCompleted(false);
+    setUnbannedAt(null);
+    setCooldownRemaining("");
+    setBannedReason(null);
+    setDisputeOpen(false);
+    setDemographics({ country: null, gender: null, ageRange: null });
+    setScreen("login");
+  }, []);
+
   const handleOnboardingComplete = useCallback(() => {
     setOnboardingCompleted(true);
     setScreen("landing");
@@ -468,6 +487,7 @@ export default function Home() {
           onDemographicsDeleted={() =>
             setDemographics({ country: null, gender: null, ageRange: null })
           }
+          onLoggedOut={handleLogout}
         />
       </div>
     );
