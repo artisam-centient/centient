@@ -40,6 +40,8 @@ interface AccountSheetProps {
   onDemographicsDeleted: () => void;
   /** A withdrawal was refused because payout setup is unfinished: take the contributor there. */
   onPayoutSetupRequired?: () => void;
+  /** The session cookie is gone: drop the app back to the logged-out screen. */
+  onLoggedOut: () => void;
 }
 
 function formatDemographicField(value: string | null): string {
@@ -109,8 +111,10 @@ export default function AccountSheet({
   showToast,
   onDemographicsDeleted,
   onPayoutSetupRequired,
+  onLoggedOut,
 }: AccountSheetProps) {
   const [deleting, setDeleting] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [showDataSection, setShowDataSection] = useState(false);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -172,6 +176,34 @@ export default function AccountSheet({
 
   const truncated = truncateAddress(walletAddress);
   const destination = withdrawalData?.destinationAddress ?? null;
+
+  // Logging out in place: the sheet makes the call itself and hands control back
+  // to the page, which swaps to the logged-out screen. The old form POST relied
+  // on the route's 303 to navigate, which meant a full page load on success and
+  // nothing at all on a response the browser would not follow.
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      const res = await fetch("/api/auth/logout", {
+        method: "POST",
+        redirect: "manual",
+      });
+      // `redirect: "manual"` surfaces the 303 as an opaque response (type
+      // "opaqueredirect", status 0); the Set-Cookie on it has already applied.
+      if (res.type !== "opaqueredirect" && !res.ok) {
+        throw new Error(`logout failed: ${res.status}`);
+      }
+      // The form used to reset PostHog on submit; the analytics identity has to
+      // be dropped here for the same reason — the next person on this browser
+      // starts anonymous.
+      resetIdentity();
+      onLoggedOut();
+    } catch {
+      showToast("Log out failed. Please try again.", "error");
+      setLoggingOut(false);
+    }
+  };
 
   const submitWithdraw = async () => {
     setConfirming(false);
@@ -501,19 +533,16 @@ export default function AccountSheet({
           )}
         </div>
 
-        <form
-          action="/api/auth/logout"
-          method="post"
-          className="mt-6 border-t border-outline-variant/20 pt-6"
-          onSubmit={() => resetIdentity()}
-        >
+        <div className="mt-6 border-t border-outline-variant/20 pt-6">
           <button
-            type="submit"
-            className="w-full rounded-xl bg-surface-container-high py-3 text-center font-label text-sm font-semibold text-on-surface-variant transition-colors hover:bg-surface-container-highest focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="w-full rounded-xl bg-surface-container-high py-3 text-center font-label text-sm font-semibold text-on-surface-variant transition-colors hover:bg-surface-container-highest focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
           >
-            Log out
+            {loggingOut ? "Logging out…" : "Log out"}
           </button>
-        </form>
+        </div>
       </div>
     </div>
   );
