@@ -197,7 +197,7 @@ export const PAYOUT_SETUP_MESSAGES: Record<PayoutSetupFailure, string> = {
     "Freighter signed with a different account. Switch to the wallet you signed in with, then try again.",
   pending: "Your wallet setup is still confirming on the network. Try again in a minute.",
   cap_reached:
-    "You've reached the limit of payout wallets we can set up for your account. Contact support@centient.work.",
+    "You've reached the limit of payout wallets we can set up for your account. Contact centient@artisam.xyz.",
   address_in_use: "This Stellar address is already set up for another account.",
   unavailable: "Payout setup is temporarily unavailable. Please try again shortly.",
   rate_limited: "Too many attempts. Wait a minute, then try again.",
