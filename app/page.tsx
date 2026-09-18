@@ -632,8 +632,8 @@ export default function Home() {
               <DisputeForm walletAddress={wallet ?? ""} onDone={() => setDisputeOpen(false)} />
             </div>
           )}
-          <a href="mailto:support@centient.work" className="text-sm text-primary underline">
-            support@centient.work
+          <a href="mailto:centient@artisam.xyz" className="text-sm text-primary underline">
+            centient@artisam.xyz
           </a>
         </div>
       </div>
@@ -663,8 +663,8 @@ export default function Home() {
               {cooldownRemaining}
             </div>
           </div>
-          <a href="mailto:support@centient.work" className="text-sm text-primary underline">
-            support@centient.work
+          <a href="mailto:centient@artisam.xyz" className="text-sm text-primary underline">
+            centient@artisam.xyz
           </a>
         </div>
       </div>

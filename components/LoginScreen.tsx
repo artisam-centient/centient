@@ -191,10 +191,10 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
             <p className="mt-2 font-body text-base text-on-surface-variant">
               Anything else, email{" "}
               <a
-                href="mailto:support@centient.work"
+                href="mailto:centient@artisam.xyz"
                 className={`font-semibold text-primary underline-offset-2 hover:underline ${FOCUS_RING}`}
               >
-                support@centient.work
+                centient@artisam.xyz
               </a>
               .
             </p>
