@@ -36,10 +36,13 @@ The honest reading: the rail has proven its security properties on every payment
 ## How to reproduce
 
 ```bash
-# Every USDC payment out of the payout account, with signature count
+# Every USDC payment out of the payout account, with signature count.
+# The issuer is the deployment's STELLAR_USDC_ISSUER: Circle's testnet USDC.
+# Filtering on it excludes any other asset that is also named "USDC".
+issuer="${STELLAR_USDC_ISSUER:-GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5}"
 curl -s "https://horizon-testnet.stellar.org/accounts/GCP34RITQIVSLHS5T4XZRENIBUS3T7FHL3VSR24GK7HPMHGAAKWK4BUO/payments?limit=200&join=transactions" \
-  | jq '[._embedded.records[]
-         | select(.type=="payment" and .asset_code=="USDC"
+  | jq --arg issuer "$issuer" '[._embedded.records[]
+         | select(.type=="payment" and .asset_code=="USDC" and .asset_issuer==$issuer
                   and .from=="GCP34RITQIVSLHS5T4XZRENIBUS3T7FHL3VSR24GK7HPMHGAAKWK4BUO")
          | {to, amount, sigs: (.transaction.signatures|length), hash: .transaction_hash}]'
 ```
