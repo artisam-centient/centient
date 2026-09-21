@@ -27,6 +27,7 @@ vi.mock("@/lib/quality", async (importOriginal) => {
   };
 });
 
+import * as Sentry from "@sentry/nextjs";
 import { POST } from "@/app/api/submit/route";
 import { checkWalletRateLimit } from "@/lib/rate-limit";
 import { checkReasonRepetition } from "@/lib/quality";
@@ -52,6 +53,7 @@ beforeEach(async () => {
   vi.mocked(checkWalletRateLimit).mockResolvedValue(false);
   vi.mocked(checkReasonRepetition).mockReset();
   vi.mocked(checkReasonRepetition).mockResolvedValue({ isRepetitive: false });
+  vi.mocked(Sentry.captureMessage).mockReset();
   process.env.PLATFORM_FEE_UNITS = "1500000";
 });
 
@@ -323,5 +325,58 @@ describe("POST /api/submit — every rejected path creates no payout intent", ()
     const res = await expectNoPayoutIntent(user.id, task.id, campaign.id);
     expect(res.status).toBe(402);
     expect(await errorOf(res)).toBe("campaign_balance_insufficient");
+  });
+});
+
+describe("POST /api/submit — rejection logs carry no anti-abuse working values", () => {
+  const THRESHOLD_FIELDS = ["sameSide", "recent", "accuracy", "passed", "total", "goldAttempted", "goldCorrect"];
+
+  /** Every context object handed to console.error/warn or Sentry during `fn`. */
+  async function loggedContexts(fn: () => Promise<unknown>) {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await fn();
+      return [
+        ...error.mock.calls.map((c) => c[1]),
+        ...warn.mock.calls.map((c) => c[1]),
+        ...vi.mocked(Sentry.captureMessage).mock.calls.map((c) => (c[1] as { extra?: unknown })?.extra),
+      ].filter((c): c is Record<string, unknown> => typeof c === "object" && c !== null);
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+    }
+  }
+
+  function expectScrubbed(contexts: Record<string, unknown>[]) {
+    expect(contexts.length).toBeGreaterThan(0);
+    for (const ctx of contexts) {
+      for (const field of THRESHOLD_FIELDS) expect(ctx).not.toHaveProperty(field);
+      expect(JSON.stringify(ctx)).not.toContain(VALID_REASON);
+    }
+  }
+
+  it("left_bias_detected", async () => {
+    const user = await createUser();
+    await seedSubmissionsForUser(user.id, 20, "A");
+    const { task } = await fundedCampaignTask();
+    expectScrubbed(await loggedContexts(() => submit(user.id, task.id)));
+  });
+
+  it("a gold failure that bans the account", async () => {
+    const user = await createUser({ goldAttempted: 9, goldCorrect: 0 });
+    const gold = await createGoldTask("B");
+    expectScrubbed(await loggedContexts(() => submit(user.id, gold.id)));
+    const banned = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(banned.isBanned).toBe(true);
+  });
+
+  it("a retest that completes", async () => {
+    const user = await createUser({ isBanned: true, bannedUntil: new Date(Date.now() - 1000), banCount: 1 });
+    const golds = await Promise.all([createGoldTask("B"), createGoldTask("B"), createGoldTask("B")]);
+    const contexts = await loggedContexts(async () => {
+      for (const g of golds) await submit(user.id, g.id);
+    });
+    expectScrubbed(contexts);
   });
 });

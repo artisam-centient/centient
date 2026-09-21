@@ -75,8 +75,10 @@ export async function POST(req: NextRequest) {
     return errorResponse("repetitive_reason", 400, { userId, taskId });
   }
 
-  // Rate limit keyed on the userId (opaque bucket key), so wallet-less answerers
-  // are still throttled.
+  // Rate limit keyed on the userId. Since #30 only an account with a bound
+  // Stellar wallet can answer, and a bound wallet never moves between accounts,
+  // so this bucket is per-address too (#36). It stays on the userId because the
+  // session carries it: the throttle runs before, and guards, the user read.
   if (await checkWalletRateLimit(userId)) {
     return errorResponse("rate_limited", 429, { userId });
   }
@@ -193,7 +195,7 @@ export async function POST(req: NextRequest) {
               where: { id: userId },
               data: { isBanned: false, bannedAt: null, bannedReason: null, bannedUntil: null },
             });
-            console.warn("[submit] retest_passed", { userId, accuracy, passed, total: retestGoldSubs.length });
+            console.warn("[submit] retest_passed", { userId });
           } else {
             const refreshed = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
             const next = computeCooldownBan(refreshed.banCount, refreshed.lastBanAt);
@@ -208,7 +210,7 @@ export async function POST(req: NextRequest) {
                 lastBanAt: new Date(),
               },
             });
-            console.warn("[submit] retest_failed", { userId, accuracy, passed, total: retestGoldSubs.length, escalatedTo: next.banCount });
+            console.warn("[submit] retest_failed", { userId, escalatedTo: next.banCount });
           }
         }
 
@@ -261,8 +263,6 @@ export async function POST(req: NextRequest) {
           });
           console.warn("[submit] banned_user", {
             userId,
-            goldAttempted: refreshed.goldAttempted,
-            goldCorrect: refreshed.goldCorrect,
             banCount: cooldown.banCount,
             reason: cooldown.reason,
           });
@@ -305,12 +305,8 @@ export async function POST(req: NextRequest) {
           where: { id: userId },
           data: { lastSubmissionAt: new Date() },
         });
-        return errorResponse("left_bias_detected", 400, {
-          userId,
-          taskId,
-          sameSide,
-          recent: recent.length,
-        });
+        // #36: no `sameSide`/`recent` — they say how close the account is to the line.
+        return errorResponse("left_bias_detected", 400, { userId, taskId });
       }
     }
 
