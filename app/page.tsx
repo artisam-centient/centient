@@ -191,6 +191,10 @@ export default function Home() {
     }
   }, []);
 
+  /**
+   * Loads the next task for this session onto the ranking surface, clearing the
+   * previous task's submit error; with none left, shows no_tasks.
+   */
   const fetchTask = useCallback(async () => {
     const res = await fetch("/api/task");
     // #30: an account without a bound wallet is served no work until it claims one.
@@ -328,9 +332,11 @@ export default function Home() {
     fetchTask();
   }, [fetchTask]);
 
-  // Logging out clears the session cookie server-side; everything the signed-in
-  // session put in client state has to be dropped here too, or the next labeler
-  // to sign in on this tab would flash the previous one's wallet and balance.
+  /**
+   * Logging out clears the session cookie server-side; everything the signed-in
+   * session put in client state has to be dropped here too, or the next labeler
+   * to sign in on this tab would flash the previous one's wallet and balance.
+   */
   const handleLogout = useCallback(() => {
     sessionGeneration.current += 1;
     setAccountOpen(false);
@@ -355,6 +361,11 @@ export default function Home() {
     track("onboarding_completed");
   }, []);
 
+  /**
+   * Submits a ranking. Outcomes that leave the task move to their screen; a
+   * failure stays on it as `submitError`, which TaskCard announces beside the
+   * submit action with the choice and reason kept for a retry.
+   */
   async function handleSubmit(choice: "A" | "B", reason: string) {
     if (!task) return;
     const generation = sessionGeneration.current;

@@ -46,10 +46,12 @@ export function choiceForKey(key: string, focused: Side): Side | null {
   return null;
 }
 
+/** One ranking task: holds the chosen response and the reason, and submits them. */
 export default function TaskCard({ task, onSubmit, loading, error = null, reward, tokenSymbol }: TaskCardProps) {
   const [choice, setChoice] = useState<Side | null>(null);
   const [reason, setReason] = useState("");
 
+  /** Submits only a complete ranking, and never a second one while one is in flight. */
   function handleSubmit() {
     if (!choice || !validateReason(reason) || loading) return;
     onSubmit(choice, reason.trim());
@@ -114,6 +116,7 @@ export function TaskCardView({
   const showReasonError = reasonError !== null;
   const canSubmit = choice !== null && isReasonValid && !loading;
 
+  /** Applies choiceForKey to a keydown on `side`'s radio and moves focus to the result. */
   function handleKeyDown(side: Side, e: KeyboardEvent<HTMLDivElement>) {
     const next = choiceForKey(e.key, side);
     if (!next) return;

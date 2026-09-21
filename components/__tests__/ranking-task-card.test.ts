@@ -19,6 +19,7 @@ const noop = () => {};
 
 type Props = Parameters<typeof TaskCardView>[0];
 
+/** Renders one TaskCardView state (nothing chosen, by default) to static HTML. */
 function render(overrides: Partial<Props> = {}): string {
   const props: Props = {
     task,

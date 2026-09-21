@@ -11,6 +11,10 @@ interface SubmitButtonProps {
   loadingLabel?: string;
 }
 
+/**
+ * The app's primary full-width action. While `loading`, it is disabled and
+ * aria-busy, and `loadingLabel` stands in for the label the dots replace.
+ */
 export default function SubmitButton({
   label,
   icon = "arrow_forward",
@@ -46,6 +50,7 @@ export default function SubmitButton({
   );
 }
 
+/** Decorative progress dots; the button's loading label carries the meaning. */
 function LoadingDots() {
   return (
     <span className="flex gap-1" aria-hidden="true">
