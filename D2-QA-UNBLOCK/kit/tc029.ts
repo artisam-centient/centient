@@ -38,7 +38,7 @@ const TIMEOUT_PROBLEM = {
 
   // Import the deployed code only after the env points at the proxy.
   const { NextRequest } = await import("next/server");
-  const route = await import("../app/api/me/wallet/sponsor/route");
+  const route = await import("../../app/api/me/wallet/sponsor/route");
   const kit = await import("./kit");
   const { account, evidence, key, short, signIn, signXdr, sleep } = kit;
 
