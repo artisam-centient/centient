@@ -5,8 +5,18 @@ import { Horizon, Keypair, Networks, TransactionBuilder, Operation, Asset, BASE_
 
 export const BASE = process.env.QA_BASE ?? "https://centient.work";
 export const HORIZON = "https://horizon-testnet.stellar.org";
-/** Per-request deadline for `call`. Override with QA_TIMEOUT_MS. */
-export const TIMEOUT_MS = Number(process.env.QA_TIMEOUT_MS ?? 30_000);
+/**
+ * Per-request deadline for `call`. Override with QA_TIMEOUT_MS.
+ * Validated up front: `??` does not catch an empty string, so QA_TIMEOUT_MS=""
+ * would become 0 and abort every request instantly, and a non-numeric or
+ * negative value would throw from AbortSignal.timeout at the first call --
+ * mid-run, after fixtures are already planted.
+ */
+const configuredTimeout = process.env.QA_TIMEOUT_MS === undefined ? 30_000 : Number(process.env.QA_TIMEOUT_MS);
+if (!Number.isFinite(configuredTimeout) || configuredTimeout <= 0) {
+  throw new Error(`QA_TIMEOUT_MS must be a finite positive number of milliseconds, got ${JSON.stringify(process.env.QA_TIMEOUT_MS)}`);
+}
+export const TIMEOUT_MS = configuredTimeout;
 export const horizon = new Horizon.Server(HORIZON);
 export const EVID = require("node:path").resolve(__dirname, "../evidence") + "/";
 // Deliberately OUTSIDE D2-QA-UNBLOCK: these are throwaway testnet keypairs, but a
