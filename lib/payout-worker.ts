@@ -4,7 +4,6 @@ import prisma from "./prisma";
 import { payReward, PayoutCapError } from "./payout";
 import { maybeSendCapAlert } from "./payout-cap";
 import { StellarPaymentError, describeStellarError } from "./stellar/client";
-import { creditBalance, totalDebitUnits } from "./campaign-balance";
 import { checkAndAlert } from "./stellar/balance";
 import { computeIAA } from "./quality";
 import { REWARDED_STATUSES } from "./constants";
@@ -16,6 +15,7 @@ import {
 } from "./payout-broadcast";
 import { claimSubmissionForBroadcast, heartbeatRetryClaim } from "./payout-service";
 import { SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
+import { refundCampaignBalance } from "./payout-refund";
 
 const STALE_PROCESSING_MS = 60_000;
 // Refresh the in-flight job's heartbeat well within STALE_PROCESSING_MS so a slow
@@ -136,26 +136,6 @@ export async function claimNextJob(): Promise<{
 
   if (claimed.length === 0) return null;
   return claimed[0];
-}
-
-/**
- * Credit an abandoned submission payout back to its campaign balance. Gold tasks
- * and campaign-less tasks draw from no campaign budget, so they are a no-op.
- * Best-effort: a failure here must not mask the payout error that triggered it.
- */
-async function refundCampaignBalance(
-  task: { isGold: boolean; campaignId: string | null },
-  submissionId: string,
-  amountUnits: bigint,
-  reason: string,
-): Promise<void> {
-  if (task.isGold || !task.campaignId) return;
-  await creditBalance(
-    task.campaignId,
-    totalDebitUnits(amountUnits),
-    `${reason} for submission ${submissionId}`,
-    "REFUND",
-  ).catch(() => {});
 }
 
 /**

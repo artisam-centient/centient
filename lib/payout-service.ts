@@ -4,7 +4,8 @@ import { maybeSendCapAlert } from "./payout-cap";
 import { StellarPaymentError } from "./stellar/client";
 import { isValidStellarAddress } from "./stellar/signature";
 import { abandonAcceptedPayment, persistAcceptedPayment } from "./payout-broadcast";
-import { retryClaimIsLive } from "./payout-retry-claim";
+import { retryClaimIsLive, SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
+import { refundSubmissionDebit } from "./payout-refund";
 
 // `needs_reconciliation` marks a payment that settled on-chain but could not be
 // recorded. It is terminal for retry purposes: a human must reconcile it against
@@ -238,20 +239,33 @@ export async function reprocessPayoutWithNonceSafety(submissionId: string): Prom
       // trustline; `op_no_destination` — recipient unfunded) can never succeed on
       // a blind retry. Surface the reason explicitly; the submission is marked
       // failed below and the cron retry job (ST-3b) must not auto-retry it.
-      if (err instanceof StellarPaymentError && !err.retryable) {
+      const nonRetryable = err instanceof StellarPaymentError && !err.retryable;
+      if (nonRetryable) {
         console.error(
           `[payout-service] submission ${submissionId} permanently failed (${err.code}): ${err.message}`,
         );
       }
 
+      // A non-retryable error ends the payout now; anything else ends it once the
+      // cron's budget is spent. Either way the row leaves the retry path here.
+      const retryCount = nonRetryable ? SUBMISSION_RETRY_BUDGET : fresh.retryCount + 1;
       await prisma.submission.update({
         where: { id: submissionId },
         data: {
           payoutStatus: "failed",
-          retryCount: fresh.retryCount + 1,
+          retryCount,
           lastRetriedAt: new Date(),
         },
       });
+
+      // #37: a campaign-backed row can reach this path after its worker job ends
+      // (a cap deferral, say). When the payout is over, return the campaign debit
+      // the way the worker does — except for `ambiguous_submit`, which may have
+      // settled and needs a human before anyone is refunded.
+      const ambiguous = err instanceof StellarPaymentError && err.code === "ambiguous_submit";
+      if (retryCount >= SUBMISSION_RETRY_BUDGET && !ambiguous) {
+        await refundSubmissionDebit(submissionId, amount, "refund: payout abandoned by the retry path");
+      }
 
       throw err;
     }
