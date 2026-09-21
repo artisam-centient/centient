@@ -10,15 +10,31 @@ import type { PayoutAttemptJournal } from "./stellar/payout-submitter";
 // before any payer builds another it settles the open one by its hash. The
 // co-signer independently refuses to sign while one is open.
 
+/** Statuses a submission may be paid from — the co-signer's signable set. */
+const PAYABLE_STATUSES = ["pending", "failed"];
+
 /** How long a payer waits before looking again at an envelope it cannot yet settle. */
 const RECHECK_AFTER_MS = 15_000;
 
 /** The `payout_attempts` store behind `submitMultisigPayout`'s journal, for one submission. */
 export function submissionAttemptJournal(submissionId: string): PayoutAttemptJournal {
   return {
+    // Only while the submission is still payable, checked under a lock on its
+    // row. The one-open index stops two live envelopes; this stops one opening
+    // after another has already paid. A payer that took its signatures early
+    // would otherwise open the moment the first envelope is confirmed. The lock
+    // makes it wait for the write that records a payment and then see it.
     async open({ hash, expiresAt }) {
-      await prisma.payoutAttempt.create({
-        data: { submissionId, envelopeHash: hash, expiresAt },
+      await prisma.$transaction(async (tx) => {
+        const [row] = await tx.$queryRaw<{ payoutStatus: string; payoutTxHash: string | null }[]>`
+          SELECT "payoutStatus", "payoutTxHash" FROM "submissions" WHERE "id" = ${submissionId} FOR UPDATE
+        `;
+        if (!row || row.payoutTxHash !== null || !PAYABLE_STATUSES.includes(row.payoutStatus)) {
+          throw new Error(
+            `payout attempt: submission ${submissionId} is not payable (${row ? `status ${row.payoutStatus}${row.payoutTxHash ? `, hash ${row.payoutTxHash}` : ""}` : "not found"}) — refusing to open envelope ${hash}`,
+          );
+        }
+        await tx.payoutAttempt.create({ data: { submissionId, envelopeHash: hash, expiresAt } });
       });
     },
     void: voidAttempt,
