@@ -1,6 +1,8 @@
 import * as Sentry from "@sentry/nextjs";
 import prisma from "./prisma";
-import { getTxStatus } from "./stellar/client";
+import { lookupTx, type TxLookup } from "./stellar/client";
+import { usdcAsset } from "./stellar/config";
+import { verifySettledPayout } from "./stellar/payout-verify";
 import { refundSubmissionDebit } from "./payout-refund";
 import { SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
 
@@ -18,9 +20,9 @@ const READ_ERROR_ALERT_AFTER_MS = 15 * 60_000;
 export async function reconcileSubmission(id: string, txHash: string): Promise<void> {
   // Horizon lookup (ST-1b) maps to three states: confirmed (successful tx),
   // failed (tx included but op failed), or not_found (404 — not yet visible).
-  let status: Awaited<ReturnType<typeof getTxStatus>>;
+  let lookup: TxLookup;
   try {
-    status = await getTxStatus(txHash);
+    lookup = await lookupTx(txHash);
   } catch (err: any) {
     // #40 D2: a read that throws (network, 5xx, a 400 on a malformed hash) says
     // nothing about the payment. The hash was broadcast and may have landed, so
@@ -35,13 +37,9 @@ export async function reconcileSubmission(id: string, txHash: string): Promise<v
     return;
   }
 
-  if (status === "confirmed") {
-    await prisma.submission.update({
-      where: { id },
-      data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
-    });
-    console.log(`[reconciler] confirmed submission ${id}`);
-  } else if (status === "failed") {
+  if (lookup.status === "confirmed") {
+    await settleConfirmedPayment(id, txHash, lookup.envelopeXdr);
+  } else if (lookup.status === "failed") {
     await handBackFailedPayment(id, txHash);
   } else {
     // not_found: still pending. A submitted Stellar tx is only assigned a hash
@@ -51,6 +49,73 @@ export async function reconcileSubmission(id: string, txHash: string): Promise<v
     // retry.
     console.log(`[reconciler] submission ${id} not yet visible on Horizon — leaving sent`);
   }
+}
+
+/**
+ * #40 D4: Horizon says the envelope applied. Confirm it only if it paid what the
+ * submission owed: the bound wallet, the payout amount in the configured USDC,
+ * from the payout account, which also paid the fee bump. Anything else is held
+ * as `needs_reconciliation` for a human, never confirmed.
+ *
+ * Without the payout account or USDC issuer configured there is nothing to hold
+ * the envelope to, so nothing is confirmed: the row stays `sent` and pages.
+ */
+async function settleConfirmedPayment(id: string, txHash: string, envelopeXdr: string): Promise<void> {
+  const sub = await prisma.submission.findUnique({
+    where: { id },
+    select: { walletAddress: true, payoutAmountUnits: true },
+  });
+  if (!sub) return;
+
+  let payoutAccount: string;
+  let asset: ReturnType<typeof usdcAsset>;
+  try {
+    payoutAccount = process.env.STELLAR_PLATFORM_ACCOUNT?.trim() ?? "";
+    if (!payoutAccount) throw new Error("STELLAR_PLATFORM_ACCOUNT is not configured");
+    asset = usdcAsset();
+  } catch (err) {
+    const message = `cannot verify payout ${txHash}: ${(err as Error).message}`;
+    await prisma.submission.update({ where: { id }, data: { payoutError: message } });
+    console.error(`[reconciler] submission ${id}: ${message} — leaving it sent`);
+    Sentry.captureMessage(`[reconciler] ${message}`, {
+      level: "error",
+      fingerprint: ["reconciler-cannot-verify"],
+    });
+    return;
+  }
+
+  const verdict = sub.walletAddress
+    ? verifySettledPayout(envelopeXdr, {
+        payoutAccount,
+        destination: sub.walletAddress,
+        amountUnits: sub.payoutAmountUnits,
+        asset,
+      })
+    : ({ ok: false, mismatches: ["submission has no bound wallet to check the destination against"] } as const);
+
+  // Both writes are conditional on the row still being `sent` under this hash,
+  // so a second reader of the same answer changes nothing.
+  const stillSent = { id, payoutStatus: "sent", payoutTxHash: txHash };
+  if (verdict.ok) {
+    await prisma.submission.updateMany({
+      where: stillSent,
+      data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
+    });
+    console.log(`[reconciler] confirmed submission ${id}`);
+    return;
+  }
+
+  const reason = `payout ${txHash} applied but does not match the submission: ${verdict.mismatches.join("; ")}`;
+  const { count } = await prisma.submission.updateMany({
+    where: stillSent,
+    data: { payoutStatus: "needs_reconciliation", payoutError: reason },
+  });
+  if (count === 0) return;
+  console.error(`[reconciler] submission ${id}: ${reason}`);
+  Sentry.captureMessage(`[reconciler] submission ${id} payout mismatch`, {
+    level: "error",
+    extra: { txHash, mismatches: verdict.mismatches },
+  });
 }
 
 const FAILED_ON_CHAIN = "included and failed";

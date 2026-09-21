@@ -1,18 +1,38 @@
-import { Keypair } from "@stellar/stellar-sdk";
+import { Account, Asset, Keypair, Networks, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 import { NextRequest } from "next/server";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
-// #40 D3 — a `sent` payout that Horizon reports included and failed.
+// #40 — settling a `sent` payout against what Horizon says it did.
 //
-// The payment provably did not happen, but the row reads paid: its hash is
-// stored, its attempt is confirmed, and the user's totals were raised. The
-// reconciler undoes exactly that and hands the row back to the retry path, which
-// builds the one replacement under its usual budget. The attempts table, the
-// claim, the refund ledger and the retry path run for real; Horizon is a fake
-// chain.
+// D3: included and failed. The payment provably did not happen, but the row
+// reads paid: its hash is stored, its attempt is confirmed, and the user's
+// totals were raised. The reconciler undoes exactly that and hands the row back
+// to the retry path, which builds the one replacement under its usual budget.
+//
+// D4: applied. It is confirmed only if the envelope paid what the submission
+// owed; otherwise it is held for a human.
+//
+// The attempts table, the claim, the refund ledger and the retry path run for
+// real; Horizon is a fake chain serving real envelopes.
+
+const PAYOUT_ACCOUNT = Keypair.random().publicKey();
+const USDC = new Asset("USDC", Keypair.random().publicKey());
 
 const chain = new Map<string, "confirmed" | "failed">();
+const envelopes = new Map<string, string>();
 let broadcasts: string[] = [];
+
+/** The envelope `submitMultisigPayout` builds: one USDC payment, fee-bumped by the payout account. */
+function payoutEnvelope(destination: string, amount: string, feeSource = PAYOUT_ACCOUNT) {
+  const inner = new TransactionBuilder(new Account(PAYOUT_ACCOUNT, "41"), {
+    fee: "100",
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(Operation.payment({ destination, asset: USDC, amount }))
+    .setTimeout(180)
+    .build();
+  return TransactionBuilder.buildFeeBumpTransaction(feeSource, "200", inner, Networks.TESTNET).toXDR();
+}
 
 const { mockSubmitMultisigPayout } = vi.hoisted(() => ({ mockSubmitMultisigPayout: vi.fn() }));
 
@@ -25,6 +45,10 @@ vi.mock("@/lib/stellar/client", async (importOriginal) => {
   return {
     ...actual,
     getTxStatus: vi.fn(async (hash: string) => chain.get(hash) ?? "not_found"),
+    lookupTx: vi.fn(async (hash: string) => {
+      const status = chain.get(hash);
+      return status ? { status, envelopeXdr: envelopes.get(hash)! } : { status: "not_found" };
+    }),
     latestLedgerCloseMs: vi.fn(async () => Date.now()),
   };
 });
@@ -56,15 +80,23 @@ beforeEach(async () => {
     DAILY_PAYOUT_CAP_UNITS: "0",
     PLATFORM_FEE_UNITS: "1500000",
     CRON_SECRET: "test-secret",
+    STELLAR_NETWORK: "testnet",
+    STELLAR_PLATFORM_ACCOUNT: PAYOUT_ACCOUNT,
+    STELLAR_USDC_ISSUER: USDC.getIssuer(),
   };
   chain.clear();
+  envelopes.clear();
   broadcasts = [];
   mockSubmitMultisigPayout.mockImplementation(
-    async (_req: unknown, { attempts }: { attempts?: { open(e: { hash: string; expiresAt: Date }): Promise<void> } }) => {
+    async (
+      req: { destination: string; amountUnits: bigint },
+      { attempts }: { attempts?: { open(e: { hash: string; expiresAt: Date }): Promise<void> } },
+    ) => {
       const hash = `envelope-${broadcasts.length + 1}`;
       await attempts?.open({ hash, expiresAt: new Date(Date.now() + 180_000) });
       broadcasts.push(hash);
       chain.set(hash, "confirmed");
+      envelopes.set(hash, payoutEnvelope(req.destination, (Number(req.amountUnits) / 1e7).toFixed(7)));
       return { hash };
     },
   );
@@ -179,6 +211,44 @@ describe("a sent payout Horizon reports included and failed (#40 D3)", () => {
       retryCount: SUBMISSION_RETRY_BUDGET,
     });
     expect(await refunds(submission.id)).toBe(1);
+    expect(broadcasts).toEqual([hash]);
+  });
+});
+
+describe("a sent payout Horizon reports applied (#40 D4)", () => {
+  it("is confirmed when its envelope paid what the submission owed", async () => {
+    const { submission, user, hash } = await paid();
+
+    await reconcileSubmission(submission.id, hash);
+
+    expect(await row(submission.id)).toMatchObject({ payoutStatus: "confirmed", payoutTxHash: hash });
+    expect(await totals(user.id)).toEqual({ submissionCount: 1, totalEarnedUnits: AMOUNT });
+  });
+
+  it.each([
+    ["paid someone else", () => payoutEnvelope(Keypair.random().publicKey(), "0.2500000"), /destination/],
+    ["paid the wrong amount", (wallet: string) => payoutEnvelope(wallet, "2.5000000"), /amount/],
+    [
+      "had its fee paid by another account",
+      (wallet: string) => payoutEnvelope(wallet, "0.2500000", Keypair.random().publicKey()),
+      /fee source/,
+    ],
+  ])("is held for a human, never confirmed, when it %s", async (_label, forge, reason) => {
+    const { submission, user, hash } = await paid();
+    envelopes.set(hash, forge(submission.walletAddress!));
+
+    await reconcileSubmission(submission.id, hash);
+    await reconcileSubmission(submission.id, hash);
+
+    const held = await row(submission.id);
+    expect(held).toMatchObject({ payoutStatus: "needs_reconciliation", payoutTxHash: hash });
+    expect(held.payoutError).toMatch(reason);
+    // Nothing is undone or rebuilt: what landed is for a human to judge.
+    expect(await prisma.payoutAttempt.findUniqueOrThrow({ where: { envelopeHash: hash } })).toMatchObject({
+      status: "confirmed",
+    });
+    expect(await totals(user.id)).toEqual({ submissionCount: 1, totalEarnedUnits: AMOUNT });
+    await runRetryCron();
     expect(broadcasts).toEqual([hash]);
   });
 });
