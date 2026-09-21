@@ -50,6 +50,14 @@ const mockTx = {
 
 // The campaign refund on a finished payout has its own DB suite
 // (payout-retry-refund-db); here it would need a task lookup the mock lacks.
+// #38's envelope settlement runs against a real database in
+// payout-attempt-settlement-db.test.ts; here there is never an open attempt.
+vi.mock("@/lib/payout-attempts", () => ({
+  settleOpenAttempt: vi.fn(async () => ({ kind: "clear" })),
+  confirmAttempt: vi.fn(() => Promise.resolve({ count: 0 })),
+  submissionAttemptJournal: vi.fn(() => undefined),
+}));
+
 vi.mock("@/lib/payout-refund", () => ({ refundSubmissionDebit: vi.fn(async () => {}) }));
 
 vi.mock("@/lib/payout", () => ({

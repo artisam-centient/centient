@@ -21,7 +21,7 @@ import {
   type Transaction,
 } from "@stellar/stellar-sdk";
 import { Mutex } from "async-mutex";
-import { StellarPaymentError, getTxStatus, resultCodes } from "./client";
+import { StellarPaymentError, getTxStatus, latestLedgerCloseMs, resultCodes } from "./client";
 import { server, usdcAsset } from "./config";
 import { buildMultisigFeeBump } from "./multisig-payout";
 import { assertPayoutAmountUnits, assertPayoutDestination } from "./payout-amount";
@@ -122,29 +122,6 @@ function envelopeExpiryMs(feeBump: FeeBumpTransaction): number | null {
   const maxTime = feeBump.innerTransaction.timeBounds?.maxTime;
   if (!maxTime || maxTime === "0") return null;
   return Number(maxTime) * 1000;
-}
-
-/**
- * Close time of the most recent ledger Horizon has ingested, in Unix
- * milliseconds, or null when that reading is unavailable.
- *
- * This is the only clock that can retire an envelope. Stellar evaluates
- * `maxTime` against ledger close time, not against this host's wall clock, so a
- * host running even slightly ahead of the network would otherwise declare a
- * still-includable envelope dead and license a rebuild that settles twice.
- * Horizon being unreachable is not evidence about the network's clock, so that
- * case reads as "unknown" rather than as an expiry.
- */
-export async function latestLedgerCloseMs(): Promise<number | null> {
-  try {
-    const page = await server().ledgers().order("desc").limit(1).call();
-    const closedAt = page.records[0]?.closed_at;
-    if (!closedAt) return null;
-    const closeMs = Date.parse(closedAt);
-    return Number.isNaN(closeMs) ? null : closeMs;
-  } catch {
-    return null;
-  }
 }
 
 /**

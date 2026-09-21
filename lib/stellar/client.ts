@@ -184,6 +184,29 @@ export async function getTxStatus(
   }
 }
 
+/**
+ * Close time of the most recent ledger Horizon has ingested, in Unix
+ * milliseconds, or null when that reading is unavailable.
+ *
+ * This is the only clock that can retire an envelope. Stellar evaluates
+ * `maxTime` against ledger close time, not against this host's wall clock, so a
+ * host running even slightly ahead of the network would otherwise declare a
+ * still-includable envelope dead and license a rebuild that settles twice.
+ * Horizon being unreachable is not evidence about the network's clock, so that
+ * case reads as "unknown" rather than as an expiry.
+ */
+export async function latestLedgerCloseMs(): Promise<number | null> {
+  try {
+    const page = await server().ledgers().order("desc").limit(1).call();
+    const closedAt = page.records[0]?.closed_at;
+    if (!closedAt) return null;
+    const closeMs = Date.parse(closedAt);
+    return Number.isNaN(closeMs) ? null : closeMs;
+  } catch {
+    return null;
+  }
+}
+
 /** A Horizon `account.balances[]` line — the subset we read for trustline checks. */
 interface HorizonBalanceLine {
   asset_type: string;
