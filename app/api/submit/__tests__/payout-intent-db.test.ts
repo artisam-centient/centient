@@ -262,6 +262,58 @@ describe("POST /api/submit — every rejected path creates no payout intent", ()
     expect(await errorOf(res)).toBe("already_submitted");
   });
 
+  it.each(["pending", "sent", "confirmed", "accrued"] as const)(
+    "response target reached by another answer that is %s",
+    async (payoutStatus) => {
+      // #37: an accepted answer is written `pending` and paid out of band, so an
+      // in-flight payout must fill the target like a settled one — or the task is
+      // answered, and paid, past its target while payouts are in flight.
+      const user = await createUser();
+      const other = await createUser();
+      const campaign = await createCampaign({ rewardUnits: REWARD });
+      await createCampaignBalance(campaign.id, FUNDED);
+      const task = await createTask({ campaignId: campaign.id, responseTarget: 1 });
+      await prisma.submission.create({
+        data: {
+          userId: other.id,
+          walletAddress: other.walletAddress,
+          taskId: task.id,
+          choice: "A",
+          reason: VALID_REASON,
+          payoutAmountUnits: REWARD,
+          payoutStatus,
+        },
+      });
+      const res = await expectNoPayoutIntent(user.id, task.id, campaign.id);
+      expect(res.status).toBe(409);
+      expect(await errorOf(res)).toBe("response_target_reached");
+    },
+  );
+
+  it.each(["skipped", "failed", "abandoned"] as const)(
+    "a %s answer does not fill the response target",
+    async (payoutStatus) => {
+      const user = await createUser();
+      const other = await createUser();
+      const campaign = await createCampaign({ rewardUnits: REWARD });
+      await createCampaignBalance(campaign.id, FUNDED);
+      const task = await createTask({ campaignId: campaign.id, responseTarget: 1 });
+      await prisma.submission.create({
+        data: {
+          userId: other.id,
+          walletAddress: other.walletAddress,
+          taskId: task.id,
+          choice: "A",
+          reason: VALID_REASON,
+          payoutAmountUnits: 0n,
+          payoutStatus,
+        },
+      });
+      const res = await submit(user.id, task.id);
+      expect(res.status).toBe(200);
+    },
+  );
+
   it("response target reached", async () => {
     const user = await createUser();
     const other = await createUser();
