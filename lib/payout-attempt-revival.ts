@@ -27,23 +27,32 @@ export type Revival = "revived" | "waiting" | "skipped";
 export async function reviveStrandedAttempts(
   horizon?: SettlementHorizon,
 ): Promise<Record<string, Revival>> {
-  const stranded = await prisma.payoutAttempt.findMany({
-    where: {
-      status: "open",
-      expiresAt: { lt: new Date() },
-      submission: {
-        payoutStatus: { in: ["failed", "abandoned"] },
-        payoutTxHash: null,
-        retryCount: { gte: SUBMISSION_RETRY_BUDGET },
-      },
-    },
-    orderBy: { expiresAt: "asc" },
-    take: BATCH,
-    select: { submission: { select: { id: true, walletAddress: true } } },
-  });
+  // Rows this will never revive — refunded, or with no wallet to pay — are
+  // excluded here rather than skipped below. Skipped in code they would stay the
+  // oldest rows, fill every batch, and starve the stranded rows behind them.
+  // The refund match mirrors `hasRefundedSubmission`: by id, or by the note of a
+  // refund written before refunds carried one.
+  const stranded = await prisma.$queryRaw<{ id: string; walletAddress: string }[]>`
+    SELECT s."id", s."walletAddress"
+    FROM "payout_attempts" a
+    JOIN "submissions" s ON s."id" = a."submissionId"
+    WHERE a."status" = 'open'
+      AND a."expiresAt" < NOW()
+      AND s."payoutStatus" IN ('failed', 'abandoned')
+      AND s."payoutTxHash" IS NULL
+      AND s."retryCount" >= ${SUBMISSION_RETRY_BUDGET}
+      AND s."walletAddress" IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM "balance_ledger" b
+        WHERE b."type" = 'REFUND'
+          AND (b."submissionId" = s."id" OR b."note" LIKE '%for submission ' || s."id")
+      )
+    ORDER BY a."expiresAt" ASC
+    LIMIT ${BATCH}
+  `;
 
   const outcome: Record<string, Revival> = {};
-  for (const { submission } of stranded) {
+  for (const submission of stranded) {
     outcome[submission.id] = await revive(submission.id, submission.walletAddress, horizon);
   }
   return outcome;
@@ -51,12 +60,13 @@ export async function reviveStrandedAttempts(
 
 async function revive(
   submissionId: string,
-  walletAddress: string | null,
+  walletAddress: string,
   horizon?: SettlementHorizon,
 ): Promise<Revival> {
   // A refunded payout is over. Paying it now, landed or rebuilt, would be paid
-  // with no funding behind it (#37).
-  if (!walletAddress || (await hasRefundedSubmission(prisma, submissionId))) return "skipped";
+  // with no funding behind it (#37). The query already excludes these; this
+  // re-checks under the time between that read and now.
+  if (await hasRefundedSubmission(prisma, submissionId)) return "skipped";
 
   // Held while settling and handing back, so no admin retry resets the row
   // underneath this.

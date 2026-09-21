@@ -147,7 +147,8 @@ describe("reviving a stranded payout (#38)", () => {
     const { campaign, submission } = await stranded();
     await creditBalance(campaign.id, 4_000_000n, "refund", "REFUND", submission.id);
 
-    expect(await reviveStrandedAttempts()).toEqual({ [submission.id]: "skipped" });
+    // Not even selected: a refunded row is excluded from the batch.
+    expect(await reviveStrandedAttempts()).toEqual({});
     expect(await row(submission.id)).toMatchObject({ retryCount: SUBMISSION_RETRY_BUDGET });
   });
 
@@ -157,5 +158,25 @@ describe("reviving a stranded payout (#38)", () => {
     await prisma.submission.update({ where: { id: inPath.submission.id }, data: { retryCount: 1 } });
 
     expect(await reviveStrandedAttempts()).toEqual({});
+  });
+
+  it("is not starved by rows it will never revive (#38 review)", async () => {
+    // Refunded rows sort first (oldest envelopes) and fill more than a batch.
+    // Selected and skipped every pass, they would hide every row behind them.
+    const { campaign } = await stranded({ expiredMsAgo: 3_600_000 });
+    await prisma.balanceLedger.create({
+      data: { campaignId: campaign.id, type: "REFUND", amountUnits: 1n, note: "refund", submissionId: (await prisma.submission.findFirstOrThrow()).id },
+    });
+    for (let i = 0; i < 21; i++) {
+      const { submission } = await stranded({ campaign, expiredMsAgo: 3_000_000 - i });
+      await creditBalance(campaign.id, 1n, "refund", "REFUND", submission.id);
+    }
+    const noWallet = await stranded({ campaign, expiredMsAgo: 2_000_000 });
+    await prisma.submission.update({ where: { id: noWallet.submission.id }, data: { walletAddress: null } });
+    const real = await stranded({ campaign, expiredMsAgo: 60_000 });
+
+    const outcome = await reviveStrandedAttempts();
+
+    expect(outcome).toEqual({ [real.submission.id]: "revived" });
   });
 });
