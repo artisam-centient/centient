@@ -7,6 +7,7 @@ import { persistAcceptedPayment } from "./payout-broadcast";
 import { retryClaimIsLive, SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
 import { refundSubmissionDebit } from "./payout-refund";
 import { confirmAttempt, settleOpenAttempt } from "./payout-attempts";
+import { hasRefundedSubmission } from "./campaign-balance";
 
 // `needs_reconciliation` marks a payment that settled on-chain but could not be
 // recorded. It is terminal for retry purposes: a human must reconcile it against
@@ -74,6 +75,18 @@ async function claimForRetry(
   // here prevents re-broadcast even if a prior error left the status as "failed".
   if (fresh.payoutTxHash) return null;
   if (retryClaimIsLive(fresh.lastRetriedAt)) return null;
+  // #37, F2: a payer that gave up on this payout returned its campaign debit.
+  // Paying it now would pay with no funding behind it, and a second give-up
+  // would refund it again. The admin retry route refuses a refunded row before
+  // it claims; this is the same rule where every claimant passes, so the retry
+  // cron cannot reach one either — including a row an admin retry refunded on
+  // its way to failing.
+  if (await hasRefundedSubmission(tx, submissionId)) {
+    console.warn(
+      `[payout-service] submission ${submissionId} was refunded — refusing to claim it for a retry`,
+    );
+    return null;
+  }
 
   // Taken before the lock is released, so the next claimant reads it and stands
   // down. The success and failure paths overwrite it, which is correct: each is
@@ -278,11 +291,35 @@ export async function reprocessPayoutWithNonceSafety(submissionId: string): Prom
         },
       });
 
+    // `persistAcceptedPayment` retries this whole callback on any error, and a
+    // commit whose response was lost is an error it cannot tell from one that
+    // rolled back (F3). So the callback has to be safe to run twice: the move to
+    // `sent` under this hash is the one-time transition, and the credit is
+    // gated on winning it. Rewriting the same tuple is harmless; adding to
+    // lifetime totals a second time is not.
     const persisted = await persistAcceptedPayment(accepted, () => prisma.$transaction(async (tx) => {
-        await tx.submission.update({
-          where: { id: submissionId },
+        const { count } = await tx.submission.updateMany({
+          where: { id: submissionId, payoutTxHash: null },
           data: { payoutStatus: "sent", payoutTxHash: txHash, lastRetriedAt: broadcastAt },
         });
+        if (count === 0) {
+          // Someone already recorded a hash here. If it is this one, an earlier
+          // run of this callback committed and its credit stands — finish
+          // without repeating it. Any other hash is not ours to settle.
+          const row = await tx.submission.findUnique({
+            where: { id: submissionId },
+            select: { payoutTxHash: true },
+          });
+          if (row?.payoutTxHash !== txHash) {
+            throw new Error(
+              `[payout-service] submission ${submissionId} carries hash ${row?.payoutTxHash ?? "none"}, not the broadcast ${txHash}`,
+            );
+          }
+          console.warn(
+            `[payout-service] submission ${submissionId} was already recorded as ${txHash} — not crediting it twice`,
+          );
+          return;
+        }
         // In the same write as the hash, so the attempt never reads settled
         // while the submission still reads payable.
         await confirmAttempt(txHash, tx);

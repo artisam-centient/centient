@@ -24,6 +24,7 @@ const {
   mockTxExecuteRaw,
   mockTxFindUnique,
   mockPayoutJobUpsert,
+  mockSubmissionUpdateMany,
 } = vi.hoisted(() => ({
   mockPayReward: vi.fn(),
   mockFindUnique: vi.fn(),
@@ -33,6 +34,7 @@ const {
   mockTxExecuteRaw: vi.fn(),
   mockTxFindUnique: vi.fn(),
   mockPayoutJobUpsert: vi.fn(),
+  mockSubmissionUpdateMany: vi.fn(),
 }));
 
 // Transaction context — used for the advisory-lock re-check and accepted-payment
@@ -41,6 +43,9 @@ const mockTx = {
   submission: {
     findUnique: mockTxFindUnique,
     update: mockSubmissionUpdate,
+    // F3: the move to `sent` is a conditional update, so a replayed persist
+    // callback can tell "I just made this transition" from "it was already made".
+    updateMany: mockSubmissionUpdateMany,
   },
   payoutJob: {
     upsert: mockPayoutJobUpsert,
@@ -61,6 +66,12 @@ vi.mock("@/lib/payout-attempts", () => ({
 }));
 
 vi.mock("@/lib/payout-refund", () => ({ refundSubmissionDebit: vi.fn(async () => {}) }));
+
+// F2: every retry claimant refuses a submission whose campaign debit was
+// returned. The refund ledger itself is covered in payout-retry-refund-db.
+vi.mock("@/lib/campaign-balance", () => ({
+  hasRefundedSubmission: vi.fn(async () => false),
+}));
 
 vi.mock("@/lib/payout", () => ({
   payReward: mockPayReward,
@@ -86,6 +97,8 @@ beforeEach(() => {
   mockUserUpdate.mockResolvedValue({});
   mockTxExecuteRaw.mockResolvedValue(undefined);
   mockPayoutJobUpsert.mockResolvedValue({});
+  // One row matched: this caller won the `sent` transition and so credits.
+  mockSubmissionUpdateMany.mockResolvedValue({ count: 1 });
   mockPayReward.mockReset();
 });
 
@@ -222,9 +235,9 @@ describe("reprocessPayoutWithNonceSafety", () => {
       kind: "submission",
       id: "sub-4",
     });
-    expect(mockSubmissionUpdate).toHaveBeenCalledWith(
+    expect(mockSubmissionUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "sub-4" },
+        where: { id: "sub-4", payoutTxHash: null },
         data: expect.objectContaining({
           payoutStatus: "sent",
           payoutTxHash: TX_1,

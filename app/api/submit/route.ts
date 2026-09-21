@@ -19,6 +19,7 @@ import { checkAndDebit, InsufficientBalanceError } from "@/lib/campaign-balance"
 import { isAnyIdentifierBanned } from "@/lib/ban-identity";
 import { getLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
+import { accountHasUsdcTrustline } from "@/lib/stellar/client";
 import { REWARDED_STATUSES } from "@/lib/constants";
 
 function errorResponse(code: string, status: number, context: Record<string, unknown> = {}) {
@@ -346,6 +347,34 @@ export async function POST(req: NextRequest) {
 
     const amount = resolveRewardUnits(task.rewardUnits, task.campaign?.rewardUnits ?? null);
     const campaignId = task.campaignId;
+
+    // The wallet must be able to hold USDC before this answer is accepted.
+    //
+    // An accepted answer is paid on-chain at once (#37), and the address alone
+    // does not say it can receive the payment: a valid `G…` with no USDC
+    // trustline fails the payout non-retryably with `op_no_trust`. Accepting it
+    // anyway is the trap Codex found on this PR — the row consumes
+    // `@@unique([userId, taskId])`, the worker treats `op_no_trust` as permanent
+    // and refunds the campaign, and the contributor can then neither resubmit
+    // the answer nor ever be paid for it, even after finishing payout setup.
+    //
+    // So the check goes before the write, and its answer is the same
+    // `payout_setup_required` the withdraw route already returns, sending the
+    // contributor to the sponsored-trustline flow with the task still unanswered.
+    // Only a definite "no" refuses: a Horizon that cannot be read says nothing
+    // about the trustline, and refusing on it would stop every contributor
+    // earning during an outage. That is the behaviour this path already had, and
+    // the payout rail is what holds the line behind it.
+    let hasTrustline: boolean;
+    try {
+      hasTrustline = await accountHasUsdcTrustline(walletAddress);
+    } catch (err) {
+      Sentry.captureException(err, { extra: { context: "submit-trustline", userId, taskId } });
+      hasTrustline = true;
+    }
+    if (!hasTrustline) {
+      return errorResponse("payout_setup_required", 409, { userId, taskId });
+    }
 
     // The payout intent is durable in one transaction (#36, #37): the campaign
     // debit (reward + platform fee), the `pending` row carrying the reward, and

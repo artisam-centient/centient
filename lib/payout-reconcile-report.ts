@@ -39,7 +39,9 @@ export type UnreconciledKind =
   /** `confirmed`, but Horizon could not be read for it. */
   | "horizon_unreadable"
   /** `confirmed`, and the report was run without Horizon. */
-  | "horizon_unchecked";
+  | "horizon_unchecked"
+  /** `confirmed`, but its payout job carries no broadcast tuple, so no cap counts it. */
+  | "payout_job_tuple_missing";
 
 export interface Finding {
   kind: UnreconciledKind;
@@ -109,7 +111,7 @@ export async function buildReconcileReport(opts: ReportOptions): Promise<Reconci
       payoutError: true,
       walletAddress: true,
       createdAt: true,
-      payoutJob: { select: { broadcastAt: true } },
+      payoutJob: { select: { txHash: true, amountUnits: true, broadcastAt: true } },
       payoutAttempts: { select: { status: true, expiresAt: true, envelopeHash: true } },
     },
   });
@@ -172,15 +174,16 @@ export async function buildReconcileReport(opts: ReportOptions): Promise<Reconci
       flag("multiple_landed_attempts", `${landed.length} confirmed envelopes: ${landed.map((a) => a.envelopeHash).join(", ")}`);
     }
 
-    if (hash) {
-      if (isFixtureTxHash(hash)) {
-        report.excluded.qaFixture.push({ submissionId: row.id, status, hash });
-        continue;
-      }
-      if (LEGACY_EVM_HASH.test(hash)) {
-        report.excluded.legacyEvm.push({ submissionId: row.id, status, hash });
-        continue;
-      }
+    // F6: exclusion is about the hash Horizon can never answer for, not about
+    // the row. The journal findings above are database facts that hold whatever
+    // the hash looks like, so an excluded row still reports them — skipping the
+    // append (as a `continue` here used to) let a QA fixture or a legacy EVM
+    // hash hide a real `attempt_expired_open` or `multiple_landed_attempts` and
+    // still headline `zeroUnreconciled`.
+    const excluded = hash ? excludedBucket(report, hash) : null;
+    if (hash && excluded) {
+      excluded.push({ submissionId: row.id, status, hash });
+    } else if (hash) {
       if (shared.has(hash)) flag("shared_hash", `hash ${hash} is recorded on more than one submission`);
 
       if (status === "sent") {
@@ -196,6 +199,20 @@ export async function buildReconcileReport(opts: ReportOptions): Promise<Reconci
         if (row.payoutError?.startsWith(PAYOUT_MISMATCH)) flag("held_mismatch", row.payoutError);
         else flag("held", row.payoutError ?? "held for reconciliation");
       } else if (status === "confirmed") {
+        // F4: a payout the quarantine path recorded leaves its job without the
+        // `txHash`/`amountUnits`/`broadcastAt` tuple that both rolling caps sum.
+        // The reconciler repairs it when it confirms a held payment; anything
+        // that still reads confirmed without one is spend no cap can see, and
+        // the report is where that has to surface rather than in a silent
+        // under-count. A submission with no job row at all predates #37 and is
+        // not what this is about.
+        const job = row.payoutJob;
+        if (job && (job.txHash === null || job.amountUnits === null || job.broadcastAt === null)) {
+          flag(
+            "payout_job_tuple_missing",
+            `confirmed under ${hash}, but its payout job carries no broadcast tuple, so the daily caps do not count it`,
+          );
+        }
         const onChain = await checkOnHorizon(opts.horizon, hash, row.walletAddress, row.payoutAmountUnits);
         if (onChain) flag(onChain.kind, onChain.detail);
         else if (!found.length) report.reconciled.push({ submissionId: row.id, hash });
@@ -207,6 +224,17 @@ export async function buildReconcileReport(opts: ReportOptions): Promise<Reconci
 
   report.zeroUnreconciled = report.unreconciled.length === 0;
   return report;
+}
+
+/**
+ * The `excluded` list a hash belongs in, or null when Horizon can answer for it.
+ * Both kinds are hashes no Horizon lookup can ever resolve: one was minted by
+ * the QA fixtures and never broadcast, the other predates the move to Stellar.
+ */
+function excludedBucket(report: ReconcileReport, hash: string): Excluded[] | null {
+  if (isFixtureTxHash(hash)) return report.excluded.qaFixture;
+  if (LEGACY_EVM_HASH.test(hash)) return report.excluded.legacyEvm;
+  return null;
 }
 
 /** Null when Horizon shows the payout applied exactly as owed. */
