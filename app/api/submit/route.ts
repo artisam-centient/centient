@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import prisma from "@/lib/prisma";
@@ -303,41 +304,45 @@ export async function POST(req: NextRequest) {
     }
 
     const amount = resolveRewardUnits(task.rewardUnits, task.campaign?.rewardUnits ?? null);
-    const submission = await prisma.submission.create({
-      data: {
-        walletAddress,
-        userId,
-        taskId,
-        choice,
-        reason: reason.trim(),
-        isGoldCheck: task.isGold,
-        goldPassed: task.isGold ? true : null,
-        payoutAmountUnits: amount,
-        payoutStatus: "accrued",
-      },
-    });
+    const campaignId = !task.isGold ? task.campaignId : null;
+    const answer = {
+      walletAddress,
+      userId,
+      taskId,
+      choice,
+      reason: reason.trim(),
+      isGoldCheck: task.isGold,
+      goldPassed: task.isGold ? true : null,
+    };
 
-    // Prepaid campaign balance: debit reward + platform fee before paying the labeler.
-    // Insufficient balance blocks the payout (402); the submission is recorded as skipped.
-    if (!task.isGold && task.campaignId) {
-      try {
-        await checkAndDebit(task.campaignId, amount, submission.id);
-      } catch (err) {
-        if (err instanceof InsufficientBalanceError) {
-          await prisma.submission.update({
-            where: { id: submission.id },
-            data: { payoutStatus: "skipped" },
-          });
-          return errorResponse("campaign_balance_insufficient", 402, {
-            userId,
-            taskId,
-            campaignId: task.campaignId,
-            balanceUnits: String(err.balanceUnits),
-            requiredUnits: String(err.requiredUnits),
-          });
-        }
-        throw err;
+    // Prepaid campaign balance: debit reward + platform fee, and write the rewarded
+    // submission, in one transaction (#36). A rewarded row never exists without
+    // its debit, nor a debit without its row. Insufficient balance rolls both back
+    // (402) and the answer is recorded as skipped with no amount.
+    let submission: { id: string };
+    try {
+      submission = await prisma.$transaction(async (tx) => {
+        const id = randomUUID();
+        if (campaignId) await checkAndDebit(campaignId, amount, id, tx);
+        return tx.submission.create({
+          data: { id, ...answer, payoutAmountUnits: amount, payoutStatus: "accrued" },
+          select: { id: true },
+        });
+      });
+    } catch (err) {
+      if (err instanceof InsufficientBalanceError) {
+        await prisma.submission.create({
+          data: { ...answer, payoutAmountUnits: 0n, payoutStatus: "skipped" },
+        });
+        return errorResponse("campaign_balance_insufficient", 402, {
+          userId,
+          taskId,
+          campaignId,
+          balanceUnits: String(err.balanceUnits),
+          requiredUnits: String(err.requiredUnits),
+        });
       }
+      throw err;
     }
 
     // Accumulate-then-withdraw (P2a): instead of a per-question on-chain payout,

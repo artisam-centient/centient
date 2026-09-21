@@ -630,7 +630,7 @@ describe("POST /api/submit - campaign balance", () => {
     await submitAs(user.id, validPayload({ taskId: task.id, choice: "A" }));
 
     expect(checkAndDebit).toHaveBeenCalledOnce();
-    expect(checkAndDebit).toHaveBeenCalledWith(campaign.id, expect.any(BigInt), expect.any(String));
+    expect(checkAndDebit).toHaveBeenCalledWith(campaign.id, expect.any(BigInt), expect.any(String), expect.anything());
   });
 
   it("returns 402 and does not pay when the balance is insufficient", async () => {
@@ -751,7 +751,7 @@ describe("POST /api/submit - balance accrual", () => {
     await submitAs(user.id, validPayload({ taskId: task.id, choice: "A" }));
 
     expect(checkAndDebit).toHaveBeenCalledOnce();
-    expect(checkAndDebit).toHaveBeenCalledWith(campaign.id, expect.any(BigInt), expect.any(String));
+    expect(checkAndDebit).toHaveBeenCalledWith(campaign.id, expect.any(BigInt), expect.any(String), expect.anything());
   });
 
   it("does not credit balance when the customer campaign balance is insufficient", async () => {

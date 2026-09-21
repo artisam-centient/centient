@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import type { Prisma } from "@/app/generated/prisma/client";
 
 export class InsufficientBalanceError extends Error {
   constructor(
@@ -25,20 +26,29 @@ export function totalDebitUnits(labelerRewardUnits: bigint): bigint {
   return labelerRewardUnits + getPlatformFeeUnits();
 }
 
+/**
+ * Debit a campaign the labeler reward plus the platform fee for one submission,
+ * or throw {@link InsufficientBalanceError} having debited nothing.
+ *
+ * Pass `tx` to debit inside the caller's transaction, so the debit commits or
+ * rolls back with the row it pays for (#36: the submit route writes the rewarded
+ * submission in the same transaction). Without it the debit is its own.
+ */
 export async function checkAndDebit(
   campaignId: string,
   labelerRewardUnits: bigint,
   submissionId: string,
+  tx?: Prisma.TransactionClient,
 ): Promise<void> {
   const platformFeeUnits = getPlatformFeeUnits();
   const required = totalDebitUnits(labelerRewardUnits);
 
-  await prisma.$transaction(async (tx) => {
+  const debit = async (client: Prisma.TransactionClient) => {
     // Acquire a row-level lock on the campaign balance for the duration of the
     // transaction. Under READ COMMITTED two concurrent submissions for the same
     // campaign could otherwise both read the same balance, both pass the check,
     // and both debit (TOCTOU / overselling). FOR UPDATE serializes them.
-    const locked = await tx.$queryRaw<{ balanceUnits: bigint }[]>`
+    const locked = await client.$queryRaw<{ balanceUnits: bigint }[]>`
       SELECT "balanceUnits" FROM "campaign_balances"
       WHERE "campaignId" = ${campaignId}
       FOR UPDATE
@@ -50,18 +60,21 @@ export async function checkAndDebit(
       throw new InsufficientBalanceError(currentBalance, required);
     }
 
-    await tx.campaignBalance.update({
+    await client.campaignBalance.update({
       where: { campaignId },
       data: { balanceUnits: { decrement: required } },
     });
 
-    await tx.balanceLedger.createMany({
+    await client.balanceLedger.createMany({
       data: [
         { campaignId, type: "DEBIT_REWARD", amountUnits: labelerRewardUnits, submissionId },
         { campaignId, type: "DEBIT_FEE", amountUnits: platformFeeUnits, submissionId },
       ],
     });
-  });
+  };
+
+  if (tx) await debit(tx);
+  else await prisma.$transaction(debit);
 }
 
 export async function creditBalance(
