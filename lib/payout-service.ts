@@ -3,7 +3,7 @@ import { payReward, PayoutCapError } from "./payout";
 import { maybeSendCapAlert } from "./payout-cap";
 import { StellarPaymentError } from "./stellar/client";
 import { isValidStellarAddress } from "./stellar/signature";
-import { abandonAcceptedPayment, persistAcceptedPayment } from "./payout-broadcast";
+import { persistAcceptedPayment } from "./payout-broadcast";
 import { retryClaimIsLive, SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
 import { refundSubmissionDebit } from "./payout-refund";
 import { confirmAttempt, settleOpenAttempt } from "./payout-attempts";
@@ -135,30 +135,6 @@ export function heartbeatRetryClaim(submissionId: string): NodeJS.Timeout {
       })
       .catch(() => {});
   }, RETRY_CLAIM_HEARTBEAT_MS);
-}
-
-/**
- * Credit the user's running totals exactly once, on the first successful send.
- * Runs as a best-effort follow-up: a failure here can leave totals uncredited
- * but can never trigger a re-send (the submission is already "sent").
- */
-/** Credit a paid reward to the user's running totals. */
-async function creditUserTotals(walletAddress: string, amount: bigint): Promise<void> {
-  // claimForRetry already ensures payoutTxHash is null and status is pending/failed,
-  // so no first-send guard is needed here.
-  const user = await prisma.user.findUnique({
-    where: { walletAddress },
-    select: { submissionCount: true, totalEarnedUnits: true },
-  });
-  if (!user) return;
-
-  await prisma.user.update({
-    where: { walletAddress },
-    data: {
-      submissionCount: user.submissionCount + 1,
-      totalEarnedUnits: user.totalEarnedUnits + amount,
-    },
-  });
 }
 
 /**
@@ -310,6 +286,13 @@ export async function reprocessPayoutWithNonceSafety(submissionId: string): Prom
         // In the same write as the hash, so the attempt never reads settled
         // while the submission still reads payable.
         await confirmAttempt(txHash, tx);
+        // Credited in the same write too, so `sent` always means credited: the
+        // reconciler undoes this credit when a `sent` payout turns out to have
+        // failed on-chain (#40), and must never undo one that never landed.
+        await tx.user.update({
+          where: { id: submission.userId },
+          data: { submissionCount: { increment: 1 }, totalEarnedUnits: { increment: amount } },
+        });
         await tx.payoutJob.upsert({
           where: { submissionId },
           create: {
@@ -337,14 +320,6 @@ export async function reprocessPayoutWithNonceSafety(submissionId: string): Prom
     // it inside `payReward` would sum a total that excludes this payout and could
     // skip the threshold crossing it just caused.
     maybeSendCapAlert().catch(() => {});
-
-    try {
-      await creditUserTotals(walletAddress, amount);
-    } catch {
-      // The payment and its hash are recorded; only the totals failed. The stored
-      // hash already blocks re-broadcast, so this just needs a human.
-      await abandonAcceptedPayment(accepted, quarantine);
-    }
   } finally {
     clearInterval(heartbeat);
   }

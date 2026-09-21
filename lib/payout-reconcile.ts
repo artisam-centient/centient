@@ -215,7 +215,9 @@ async function handBackFailedPayment(id: string, txHash: string, from: SettledFr
       where: { envelopeHash: txHash, status: { in: ["open", "confirmed"] } },
       data: { status: "void", outcome: FAILED_ON_CHAIN, resolvedAt: new Date() },
     });
-    // Never below zero: a row whose credit write never landed has nothing to undo.
+    // Both payers credit in the write that records `sent`, so a `sent` row is
+    // always credited and this undoes exactly its own credit. The floor is a
+    // backstop for rows written before that was true.
     if (from === "sent") {
       await tx.user.updateMany({
         where: { id: sub.userId, totalEarnedUnits: { gte: sub.payoutAmountUnits }, submissionCount: { gt: 0 } },

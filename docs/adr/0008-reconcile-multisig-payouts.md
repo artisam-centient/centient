@@ -42,6 +42,11 @@ attempt, undo the totals credit, fail the job. The existing retry path builds th
 one replacement. Each hand-back spends a retry, so an envelope that always fails
 on-chain is not rebuilt forever. On the last one the campaign debit is refunded.
 
+For that undo to be safe, `sent` must mean credited. Both payers now raise
+`totalEarnedUnits` and `submissionCount` in the same write that records `sent`,
+so a credit that cannot land quarantines the payment instead of leaving it
+`sent` and uncredited.
+
 **D4: confirm only what paid what was owed.** The envelope Horizon returns is
 decoded and held to the submission: a fee bump paid by the payout account, an
 inner transaction from that account, exactly one payment, to the bound wallet,
