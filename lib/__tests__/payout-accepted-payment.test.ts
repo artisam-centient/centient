@@ -173,8 +173,12 @@ describe("accepted payment persistence boundary", () => {
   });
 
   it("legacy: totals failure stays inside the accepted-payment boundary", async () => {
-    db.user.findUnique.mockRejectedValue(new Error(secret));
+    // #40: the credit is part of the write that records `sent`, so a credit that
+    // cannot land quarantines the payment rather than leaving it sent uncredited.
+    db.user.update.mockRejectedValue(new Error(secret));
     await expect(reprocessPayoutWithNonceSafety("sub")).resolves.toBeUndefined();
+    const submissionWrites = db.submission.update.mock.calls.map(([args]) => args.data);
+    expect(submissionWrites.at(-1)).toMatchObject({ payoutStatus: "needs_reconciliation", payoutTxHash: hash });
     expect(effects.refund).not.toHaveBeenCalled();
     expect(effects.page).toHaveBeenCalledWith(expect.objectContaining({ severity: "PAGE" }));
     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(secret);

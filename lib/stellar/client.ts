@@ -163,25 +163,36 @@ export function describeStellarError(err: unknown): string {
   return `${message} (${parts.join(", ")})`;
 }
 
+/** A transaction as Horizon reports it: its outcome and, once included, its envelope. */
+export type TxLookup =
+  | { status: "not_found" }
+  | { status: "confirmed" | "failed"; envelopeXdr: string };
+
 /**
- * Look up a transaction by hash and map it to a coarse status for the reconciler
- * (ST-3b): `confirmed` (Horizon `successful: true`), `failed` (explicit
- * failure), or `not_found` (404 — not yet visible or never submitted).
+ * Look up a transaction by hash: `confirmed` (Horizon `successful: true`),
+ * `failed` (included, unsuccessful), or `not_found` (404 — not yet visible or
+ * never submitted). An included transaction carries its `envelope_xdr`, which is
+ * what it actually applied (#40 D4).
  *
  * An inner transaction's hash resolves to the fee bump that carried it, so a
  * sponsorship is looked up by the hash the contributor signed.
  */
+export async function lookupTx(hash: string): Promise<TxLookup> {
+  try {
+    const tx = await server().transactions().transaction(hash).call();
+    return { status: tx.successful ? "confirmed" : "failed", envelopeXdr: tx.envelope_xdr };
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404) return { status: "not_found" };
+    throw err;
+  }
+}
+
+/** `lookupTx`'s outcome alone, for callers that only need to know whether it applied (ST-3b). */
 export async function getTxStatus(
   hash: string,
 ): Promise<"confirmed" | "failed" | "not_found"> {
-  try {
-    const tx = await server().transactions().transaction(hash).call();
-    return tx.successful ? "confirmed" : "failed";
-  } catch (err) {
-    const status = (err as { response?: { status?: number } })?.response?.status;
-    if (status === 404) return "not_found";
-    throw err;
-  }
+  return (await lookupTx(hash)).status;
 }
 
 /**

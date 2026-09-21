@@ -5,6 +5,7 @@ import { getTxStatus } from "./stellar/client";
 import { checkAndAlert } from "./stellar/balance";
 import { refundReversal } from "./user-balance";
 import { reviveStrandedAttempts } from "./payout-attempt-revival";
+import { alertIfStale, claimHeldPayment, reconcileSubmission, settleHeldPayment } from "./payout-reconcile";
 
 const STALE_PROCESSING_MS = 30_000;
 const POLL_IDLE_MS = 5_000;
@@ -41,61 +42,6 @@ async function claimNextSubmission(): Promise<{ id: string; payoutTxHash: string
   });
   return { id: first.id, payoutTxHash: first.payoutTxHash! };
 }
-
-export async function processSubmission(id: string, txHash: string): Promise<void> {
-  currentId = id;
-
-  try {
-    // Horizon lookup (ST-1b) maps to three states: confirmed (successful tx),
-    // failed (tx included but op failed), or not_found (404 — not yet visible).
-    const status = await getTxStatus(txHash);
-
-    if (status === "confirmed") {
-      await prisma.submission.update({
-        where: { id },
-        data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
-      });
-      console.log(`[reconciler] confirmed submission ${id}`);
-    } else if (status === "failed") {
-      await handleSubmissionRetry(id, "transaction failed on Horizon");
-    } else {
-      // not_found: still pending. A submitted Stellar tx is only assigned a hash
-      // once included in a ledger (≈5s finality), so a 404 here is Horizon
-      // read-lag, not a drop. Leave the payout `sent` and re-check next pass —
-      // claimNextSubmission already refreshed lastRetriedAt — without burning a
-      // retry.
-      console.log(`[reconciler] submission ${id} not yet visible on Horizon — leaving sent`);
-    }
-  } catch (err: any) {
-    // A Horizon read error (network / 5xx) is transient — soft-retry so a flaky
-    // Horizon can't strand a real payout as failed.
-    await handleSubmissionRetry(id, err?.message ?? String(err));
-  } finally {
-    currentId = null;
-  }
-}
-
-async function handleSubmissionRetry(id: string, reason: string): Promise<void> {
-  const sub = await prisma.submission.findUnique({ where: { id } });
-  if (!sub) return;
-
-  const newCount = (sub.retryCount ?? 0) + 1;
-  if (newCount >= MAX_RETRIES) {
-    await prisma.submission.update({
-      where: { id },
-      data: { payoutStatus: "failed", retryCount: newCount, lastRetriedAt: new Date() },
-    });
-    console.warn(`[reconciler] submission ${id} marked failed after ${MAX_RETRIES} retries: ${reason}`);
-    Sentry.captureMessage(`[reconciler] submission ${id} failed: ${reason}`, { level: "warning" });
-  } else {
-    await prisma.submission.update({
-      where: { id },
-      data: { retryCount: newCount, lastRetriedAt: new Date() },
-    });
-    console.log(`[reconciler] submission ${id} retry ${newCount}/${MAX_RETRIES}: ${reason}`);
-  }
-}
-
 
 async function claimNextWithdrawal(): Promise<{ id: string; txHash: string; userId: string; amountUnits: bigint } | null> {
   const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS);
@@ -147,8 +93,15 @@ export async function processWithdrawal(id: string, txHash: string, userId: stri
       console.log(`[reconciler] withdrawal ${id} not yet visible on Horizon — leaving processing`);
     }
   } catch (err: any) {
-    // Transient Horizon read error — soft-retry rather than refund a live payout.
-    await handleWithdrawalRetry(id, userId, amountUnits, err?.message ?? String(err));
+    // #40 D2/D7: never refund on a read error. A withdrawal that actually paid
+    // and was then refunded is paid twice.
+    const message = `Horizon read failed: ${err?.message ?? String(err)}`;
+    const job = await prisma.payoutJob.update({
+      where: { id },
+      data: { lastError: message },
+      select: { createdAt: true },
+    });
+    alertIfStale("withdrawal", id, job?.createdAt, message);
   } finally {
     currentId = null;
   }
@@ -185,7 +138,24 @@ export async function runReconcilerLoop(): Promise<void> {
     try {
       const subClaim = await claimNextSubmission();
       if (subClaim) {
-        await processSubmission(subClaim.id, subClaim.payoutTxHash);
+        currentId = subClaim.id;
+        try {
+          await reconcileSubmission(subClaim.id, subClaim.payoutTxHash);
+        } finally {
+          currentId = null;
+        }
+        continue;
+      }
+
+      // #40 D5: payments Horizon accepted that could not be recorded, settled on proof.
+      const heldClaim = await claimHeldPayment();
+      if (heldClaim) {
+        currentId = heldClaim.id;
+        try {
+          await settleHeldPayment(heldClaim.id, heldClaim.payoutTxHash);
+        } finally {
+          currentId = null;
+        }
         continue;
       }
 

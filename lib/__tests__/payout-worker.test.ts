@@ -175,6 +175,38 @@ describe("payout-worker instant submission payout (#37)", () => {
   });
 });
 
+// #40 (Codex P1 on #132): `sent` must mean credited. The reconciler undoes the
+// credit of a `sent` payout that failed on-chain, so a `sent` row whose credit
+// never landed would have it subtract another answer's earnings. The credit is
+// raised in the same write as `sent`; if it cannot land, neither does `sent`.
+describe("payout-worker credits earnings in the write that records the payout (#40)", () => {
+  it("quarantines, never leaves sent-but-uncredited, when the credit write fails", async () => {
+    vi.mocked(payReward).mockResolvedValueOnce(TX_HASH);
+    const { submission, job, user } = await enqueuePendingPayout();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { totalEarnedUnits: 7n, submissionCount: 1 }, // another answer's earnings
+    });
+
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_fail_credit() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'credit write failed'; END $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_fail_credit BEFORE UPDATE ON "users"
+      FOR EACH ROW WHEN (OLD."id" = '${user.id}') EXECUTE FUNCTION test_fail_credit()`);
+    try {
+      await processJob(job.id, submission.id, user.id, AMOUNT_UNITS, "SUBMISSION_PAYOUT").catch(() => {});
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS test_fail_credit ON "users"`);
+    }
+
+    const row = await prisma.submission.findUniqueOrThrow({ where: { id: submission.id } });
+    expect(row).toMatchObject({ payoutStatus: "needs_reconciliation", payoutTxHash: TX_HASH });
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(after).toMatchObject({ totalEarnedUnits: 7n, submissionCount: 1 });
+  });
+});
+
 describe("payout-worker task resolution counts settled answers only (#37)", () => {
   /** A target-2 task holding one other answer in `otherStatus`, plus this one queued to pay. */
   async function secondAnswerOf(otherStatus: string, otherChoice: "A" | "B" = "B") {

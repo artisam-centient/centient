@@ -473,6 +473,21 @@ async function processSubmissionPayout(
           }),
           // Confirmed in the same write as the hash (#38).
           confirmAttempt(txHash),
+          // Credited in the same write too, so `sent` always means credited:
+          // the reconciler undoes this credit when a `sent` payout turns out to
+          // have failed on-chain (#40), and must never undo one that never
+          // landed. Identity is the FK `userId` (ST-5d), not the wallet. The
+          // reward was paid on-chain, so it is earned, never withdrawable:
+          // crediting `pendingBalanceUnits` (and a `CREDIT_REWARD` ledger row)
+          // would let the same reward be withdrawn a second time (#37).
+          prisma.user.update({
+            where: { id: submission.userId },
+            data: {
+              submissionCount: { increment: 1 },
+              totalEarnedUnits: { increment: amount },
+              lastSubmissionAt: new Date(),
+            },
+          }),
         ]),
       quarantine,
     );
@@ -481,20 +496,6 @@ async function processSubmissionPayout(
     // See the note in `processWithdrawalJob`: raised here rather than inside
     // `payReward` so the ledger the alert sums already carries this payout.
     maybeSendCapAlert().catch(() => {});
-
-    // Identity is the FK `userId` (ST-5d), not the wallet — the wallet is just the
-    // on-chain destination validated above. The reward was just paid on-chain, so
-    // it is earned, never withdrawable: crediting `pendingBalanceUnits` (and a
-    // `CREDIT_REWARD` ledger row) here would let the same reward be withdrawn a
-    // second time (#37).
-    await prisma.user.update({
-      where: { id: submission.userId },
-      data: {
-        submissionCount: { increment: 1 },
-        totalEarnedUnits: { increment: amount },
-        lastSubmissionAt: new Date(),
-      },
-    });
 
     const task = submission.task;
     if (!task.isGold && task.responseTarget != null && !task.resolvedAt) {
