@@ -133,6 +133,20 @@ describe("TaskCardView — the reason", () => {
     expect(attrOf(html, 'id="reason"', "aria-invalid")).toBe("false");
   });
 
+  it("leaves an empty reason unflagged: nothing has been typed yet", () => {
+    const html = render({ choice: "A", reason: "   " });
+    expect(attrOf(html, 'id="reason"', "aria-invalid")).toBe("false");
+    expect(html).not.toContain('id="reason-error"');
+  });
+
+  it("marks a too-short reason invalid and says how long it must be", () => {
+    const html = render({ choice: "A", reason: "too short" });
+    expect(attrOf(html, 'id="reason"', "aria-invalid")).toBe("true");
+    const ids = attrOf(html, 'id="reason"', "aria-describedby")!.split(" ");
+    expect(ids).toContain("reason-error");
+    expect(textOf(html, "reason-error")).toBe("Write at least 10 characters.");
+  });
+
   it("marks a spammy reason invalid and points the field at the message", () => {
     const html = render({ choice: "A", reason: "aaaaaaaaaaaaaaa" });
     expect(attrOf(html, 'id="reason"', "aria-invalid")).toBe("true");

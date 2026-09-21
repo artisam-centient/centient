@@ -103,7 +103,15 @@ export function TaskCardView({
 
   // Run the shared validation logic locally for immediate user feedback
   const isReasonValid = validateReason(reason);
-  const showReasonError = reason.trim().length >= 10 && !isReasonValid;
+  // Anything typed that would be refused says why: too short, or too thin.
+  const reasonLength = reason.trim().length;
+  const reasonError =
+    reasonLength === 0 || isReasonValid
+      ? null
+      : reasonLength < 10
+        ? "Write at least 10 characters."
+        : "Please enter a meaningful explanation. Avoid spam characters or keyboard mashing.";
+  const showReasonError = reasonError !== null;
   const canSubmit = choice !== null && isReasonValid && !loading;
 
   function handleKeyDown(side: Side, e: KeyboardEvent<HTMLDivElement>) {
@@ -233,7 +241,7 @@ export function TaskCardView({
 
           {showReasonError && (
             <p id="reason-error" className="mt-2 text-xs font-medium text-error">
-              Please enter a meaningful explanation. Avoid spam characters or keyboard mashing.
+              {reasonError}
             </p>
           )}
         </section>
