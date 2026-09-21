@@ -95,6 +95,8 @@ contributor's submission.
 - **Earnings display.** The earnings badge and account sheet still show the
   withdrawable balance, which instant payouts no longer grow. Switching them to
   `totalEarnedUnits` would under-report earnings accrued before #37, which never
-  touched that column. The display follows #39.
+  touched that column. The display follows #39. **Resolved by
+  [ADR-0007](0007-retire-accumulate-then-withdraw.md)**: the display reads
+  `totalEarnedUnits`, backfilled with each user's accrued answers.
 - **The success screen** says the reward is on its way. Payout progress is
   read from the account sheet, and the ranking screen does not poll.
