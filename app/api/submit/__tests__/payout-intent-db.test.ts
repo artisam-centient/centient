@@ -198,6 +198,49 @@ describe("POST /api/submit — every rejected path creates no payout intent", ()
     expect(await errorOf(res)).toBe("banned");
   });
 
+  it.each([
+    ["WALLET", (u: { walletAddress: string }) => u.walletAddress],
+    ["USER_ID", (u: { id: string }) => u.id],
+    ["EMAIL", (u: { email: string | null }) => u.email!],
+  ] as const)("banned %s identity", async (identifierType, valueOf) => {
+    const user = await createUser({ email: "banned-identity@example.com" });
+    await prisma.bannedIdentity.create({
+      data: { identifierType, identifierValue: valueOf(user as never), reason: "test ban" },
+    });
+    const { campaign, task } = await fundedCampaignTask();
+    const res = await expectNoPayoutIntent(user.id, task.id, campaign.id);
+    expect(res.status).toBe(403);
+    expect(await errorOf(res)).toBe("banned");
+  });
+
+  it("an expired identity ban does not block", async () => {
+    const user = await createUser();
+    await prisma.bannedIdentity.create({
+      data: {
+        identifierType: "WALLET",
+        identifierValue: user.walletAddress,
+        bannedUntil: new Date(Date.now() - 1000),
+      },
+    });
+    const { task } = await fundedCampaignTask();
+    const res = await submit(user.id, task.id);
+    expect(res.status).toBe(200);
+  });
+
+  it("an account banned from a flagged withdrawal (isBanned, no bannedUntil)", async () => {
+    // The admin flagged-withdrawal ban writes `isBanned` with no `bannedUntil`,
+    // which neither isPermanentlyBanned nor isInCooldown reads as a ban. The
+    // BannedIdentity rows it writes alongside are what stop it at submit.
+    const user = await createUser({ isBanned: true, bannedUntil: null });
+    await prisma.bannedIdentity.create({
+      data: { identifierType: "USER_ID", identifierValue: user.id, reason: "flagged withdrawal" },
+    });
+    const { campaign, task } = await fundedCampaignTask();
+    const res = await expectNoPayoutIntent(user.id, task.id, campaign.id);
+    expect(res.status).toBe(403);
+    expect(await errorOf(res)).toBe("banned");
+  });
+
   it("already submitted", async () => {
     const user = await createUser();
     const { campaign, task } = await fundedCampaignTask();

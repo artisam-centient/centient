@@ -22,6 +22,7 @@ import {
   InsufficientBalanceError,
 } from "@/lib/campaign-balance";
 import { creditReward } from "@/lib/user-balance";
+import { isAnyIdentifierBanned } from "@/lib/ban-identity";
 import { getLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
 import { REWARDED_STATUSES } from "@/lib/constants";
@@ -93,6 +94,16 @@ export async function POST(req: NextRequest) {
       return errorResponse("wallet_required", 409, { userId });
     }
     const walletAddress = user.walletAddress;
+
+    // #36: an identity banned on any of its identifiers earns nothing, checked
+    // before any write. The admin flagged-withdrawal ban writes these rows with
+    // no `bannedUntil`, which the cooldown checks below do not read as a ban.
+    // Same 403 `banned` the client already shows; which identifier matched is
+    // logged by type only, never its value.
+    const identityBan = await isAnyIdentifierBanned(user.email, walletAddress, userId);
+    if (identityBan) {
+      return errorResponse("banned", 403, { userId, identifierType: identityBan.bannedIdentifierType });
+    }
 
     if (isPermanentlyBanned(user.isBanned, user.bannedUntil, user.banCount)) {
       return errorResponse("banned", 403, { userId, permanent: true });
