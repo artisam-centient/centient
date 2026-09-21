@@ -6,7 +6,7 @@ import { maybeSendCapAlert } from "./payout-cap";
 import { StellarPaymentError, describeStellarError } from "./stellar/client";
 import { checkAndAlert } from "./stellar/balance";
 import { computeIAA } from "./quality";
-import { REWARDED_STATUSES } from "./constants";
+import { SETTLED_STATUSES } from "./constants";
 import { refundReversal } from "./user-balance";
 import {
   abandonAcceptedPayment,
@@ -482,7 +482,9 @@ async function processSubmissionPayout(
         where: {
           taskId: submission.taskId,
           isGoldCheck: false,
-          payoutStatus: { in: [...REWARDED_STATUSES] },
+          // Settled answers only: an in-flight one may still be refunded, and a
+          // resolved task is never recomputed (#37).
+          payoutStatus: { in: [...SETTLED_STATUSES] },
         },
       });
       if (paidCount >= task.responseTarget) {

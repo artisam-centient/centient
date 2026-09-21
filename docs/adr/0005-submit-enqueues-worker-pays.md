@@ -24,7 +24,8 @@ Five things stood between that dormant rail and paying an answer safely:
    could broadcast.
 4. When the worker refunded a failed payout's campaign debit, it left
    `Submission.retryCount` under the cron's budget, so the cron could pay a row
-   whose funding had been returned.
+   whose funding had been returned. Conversely, when the retry path gave up on
+   a campaign-backed row, nothing returned the campaign debit.
 5. The per-submission status read required an EVM `0x…` wallet parameter and
    rejected every Stellar contributor.
 
@@ -47,16 +48,21 @@ claim (`claimForRetry`, under the per-wallet advisory lock) that the retry cron
 and the admin retry take. It stands down if another payer holds the claim, and
 hands the claim back when an attempt ends without a broadcast. The cron skips
 rows whose job is still `queued` or `processing`. A payer that refunds writes
-`SUBMISSION_RETRY_BUDGET`, so the cron never offers that row again.
+`SUBMISSION_RETRY_BUDGET`, so the cron never offers that row again. Whichever
+payer gives up on a campaign-backed row returns its debit
+(`lib/payout-refund.ts`), except after an `ambiguous_submit`, which may have
+settled.
 
 **Paid rewards are earned, not withdrawable.** The worker credits
 `totalEarnedUnits` and `submissionCount` only. Existing `pendingBalanceUnits`
 stay withdrawable until #39 retires the route. No balance is migrated.
 
-**`pending` fills the response target.** It is part of `REWARDED_STATUSES`,
-which every reader uses to mean "accepted answer": task serving, submit's target
-check, admin counts and agreement scoring. On-chain spend keeps its own set in
-`payout-cap`.
+**`pending` fills the response target, but only settled answers decide it.**
+`pending` is part of `REWARDED_STATUSES`, which reserves room under the target:
+task serving, submit's target check and admin counts. Agreement scoring and task
+resolution use `SETTLED_STATUSES` (`sent`, `confirmed`, `accrued`), because an
+in-flight payout can still fail and be refunded, and a resolved task is never
+recomputed. On-chain spend keeps its own set in `payout-cap`.
 
 **Funding.**
 

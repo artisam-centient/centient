@@ -175,6 +175,65 @@ describe("payout-worker instant submission payout (#37)", () => {
   });
 });
 
+describe("payout-worker task resolution counts settled answers only (#37)", () => {
+  /** A target-2 task holding one other answer in `otherStatus`, plus this one queued to pay. */
+  async function secondAnswerOf(otherStatus: string, otherChoice: "A" | "B" = "B") {
+    const task = await createTask({ campaignId: null, responseTarget: 2 });
+    const other = await createUser();
+    await prisma.submission.create({
+      data: {
+        walletAddress: other.walletAddress,
+        userId: other.id,
+        taskId: task.id,
+        choice: otherChoice,
+        reason: VALID_REASON,
+        payoutAmountUnits: AMOUNT_UNITS,
+        payoutStatus: otherStatus,
+      },
+    });
+    const user = await createUser();
+    const submission = await prisma.submission.create({
+      data: {
+        walletAddress: user.walletAddress,
+        userId: user.id,
+        taskId: task.id,
+        choice: "A",
+        reason: VALID_REASON,
+        payoutAmountUnits: AMOUNT_UNITS,
+        payoutStatus: "pending",
+      },
+    });
+    const job = await prisma.payoutJob.create({
+      data: { type: "SUBMISSION_PAYOUT", submissionId: submission.id, status: "processing" },
+    });
+    return { task, user, submission, job };
+  }
+
+  it("does not resolve a task on an answer whose payout is still in flight", async () => {
+    // The in-flight answer may yet fail and be refunded; a resolved task is
+    // never recomputed, so its choice must not be baked into the result.
+    vi.mocked(payReward).mockResolvedValueOnce(TX_HASH);
+    const { task, user, submission, job } = await secondAnswerOf("pending");
+
+    await processJob(job.id, submission.id, user.id, AMOUNT_UNITS, "SUBMISSION_PAYOUT");
+
+    const after = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(after.resolvedAt).toBeNull();
+    expect(after.majorityAnswer).toBeNull();
+  });
+
+  it("resolves once the target is met by settled answers", async () => {
+    vi.mocked(payReward).mockResolvedValueOnce(TX_HASH);
+    const { task, user, submission, job } = await secondAnswerOf("sent", "A");
+
+    await processJob(job.id, submission.id, user.id, AMOUNT_UNITS, "SUBMISSION_PAYOUT");
+
+    const after = await prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+    expect(after.resolvedAt).not.toBeNull();
+    expect(after.majorityAnswer).toBe("A");
+  });
+});
+
 describe("payout-worker campaign balance refunds", () => {
   it("leaves a cap-blocked submission pending without refunding or burning a retry", async () => {
     vi.mocked(payReward).mockRejectedValueOnce(new PayoutCapError(1n, 1n));
