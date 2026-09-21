@@ -12,6 +12,14 @@ const effects = vi.hoisted(() => ({ pay: vi.fn(), page: vi.fn(), refund: vi.fn()
 // `begin` to snapshot it and `rollback` to restore it, so a write that lands
 // inside a failing transaction is undone the way Postgres would undo it.
 const txn = vi.hoisted(() => ({ begin: undefined as (() => void) | undefined, rollback: undefined as (() => void) | undefined }));
+// #38's envelope settlement runs against a real database in
+// payout-attempt-settlement-db.test.ts; here there is never an open attempt.
+vi.mock("@/lib/payout-attempts", () => ({
+  settleOpenAttempt: vi.fn(async () => ({ kind: "clear" })),
+  confirmAttempt: vi.fn(() => Promise.resolve({ count: 0 })),
+  submissionAttemptJournal: vi.fn(() => undefined),
+}));
+
 vi.mock("../prisma", () => ({ default: { ...db, $transaction: async (fn: any) => {
   if (typeof fn !== "function") return Promise.all(fn);
   txn.begin?.();
@@ -165,8 +173,12 @@ describe("accepted payment persistence boundary", () => {
   });
 
   it("legacy: totals failure stays inside the accepted-payment boundary", async () => {
-    db.user.findUnique.mockRejectedValue(new Error(secret));
+    // #40: the credit is part of the write that records `sent`, so a credit that
+    // cannot land quarantines the payment rather than leaving it sent uncredited.
+    db.user.update.mockRejectedValue(new Error(secret));
     await expect(reprocessPayoutWithNonceSafety("sub")).resolves.toBeUndefined();
+    const submissionWrites = db.submission.update.mock.calls.map(([args]) => args.data);
+    expect(submissionWrites.at(-1)).toMatchObject({ payoutStatus: "needs_reconciliation", payoutTxHash: hash });
     expect(effects.refund).not.toHaveBeenCalled();
     expect(effects.page).toHaveBeenCalledWith(expect.objectContaining({ severity: "PAGE" }));
     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(secret);

@@ -45,8 +45,22 @@ const mockTx = {
   payoutJob: {
     upsert: mockPayoutJobUpsert,
   },
+  // #40: the credit lands in the same write as `sent`.
+  user: { update: mockUserUpdate },
   $executeRaw: mockTxExecuteRaw,
 };
+
+// The campaign refund on a finished payout has its own DB suite
+// (payout-retry-refund-db); here it would need a task lookup the mock lacks.
+// #38's envelope settlement runs against a real database in
+// payout-attempt-settlement-db.test.ts; here there is never an open attempt.
+vi.mock("@/lib/payout-attempts", () => ({
+  settleOpenAttempt: vi.fn(async () => ({ kind: "clear" })),
+  confirmAttempt: vi.fn(() => Promise.resolve({ count: 0 })),
+  submissionAttemptJournal: vi.fn(() => undefined),
+}));
+
+vi.mock("@/lib/payout-refund", () => ({ refundSubmissionDebit: vi.fn(async () => {}) }));
 
 vi.mock("@/lib/payout", () => ({
   payReward: mockPayReward,
@@ -182,6 +196,7 @@ describe("reprocessPayoutWithNonceSafety", () => {
   it("reprocesses failed submission successfully and credits user", async () => {
     mockFindUnique.mockResolvedValueOnce({
       id: "sub-4",
+      userId: "user-4",
       walletAddress: G_B,
       payoutStatus: "failed",
       payoutAmountUnits: 500n,
@@ -197,11 +212,6 @@ describe("reprocessPayoutWithNonceSafety", () => {
     });
 
     mockPayReward.mockResolvedValueOnce(TX_1);
-
-    mockUserFindUnique.mockResolvedValueOnce({
-      submissionCount: 5,
-      totalEarnedUnits: 1000n,
-    });
 
     await reprocessPayoutWithNonceSafety("sub-4");
 
@@ -238,17 +248,16 @@ describe("reprocessPayoutWithNonceSafety", () => {
         status: "done",
       }),
     });
-    expect(mockUserUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { walletAddress: G_B },
-        data: { submissionCount: 6, totalEarnedUnits: 1500n },
-      }),
-    );
+    expect(mockUserUpdate).toHaveBeenCalledWith({
+      where: { id: "user-4" },
+      data: { submissionCount: { increment: 1 }, totalEarnedUnits: { increment: 500n } },
+    });
   });
 
   it("updates user totals for pending submissions on success", async () => {
     mockFindUnique.mockResolvedValueOnce({
       id: "sub-5",
+      userId: "user-5",
       walletAddress: G_C,
       payoutStatus: "pending",
       payoutAmountUnits: 700n,
@@ -265,19 +274,12 @@ describe("reprocessPayoutWithNonceSafety", () => {
 
     mockPayReward.mockResolvedValueOnce(TX_2);
 
-    mockUserFindUnique.mockResolvedValueOnce({
-      submissionCount: 10,
-      totalEarnedUnits: 5000n,
-    });
-
     await reprocessPayoutWithNonceSafety("sub-5");
 
-    expect(mockUserUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { walletAddress: G_C },
-        data: { submissionCount: 11, totalEarnedUnits: 5700n },
-      }),
-    );
+    expect(mockUserUpdate).toHaveBeenCalledWith({
+      where: { id: "user-5" },
+      data: { submissionCount: { increment: 1 }, totalEarnedUnits: { increment: 700n } },
+    });
   });
 
   it("does not re-broadcast when a txHash is already persisted", async () => {

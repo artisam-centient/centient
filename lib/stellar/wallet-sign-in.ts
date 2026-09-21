@@ -12,8 +12,10 @@ export type WalletSignInFailure =
   | "freighter_missing"
   | "rejected"
   | "wrong_account"
+  | "wrong_network"
   | "unsupported"
   | "expired"
+  | "banned"
   | "rate_limited"
   | "network"
   | "failed";
@@ -65,8 +67,14 @@ function failureFromError(err: unknown): WalletSignInFailure {
       case "freighter_missing":
       case "rejected":
       case "wrong_account":
+      case "wrong_network":
       case "unsupported":
         return err.code;
+      // No WalletConnect project id configured: there is no mobile path on
+      // this deployment, so from the contributor's side Freighter is simply
+      // out of reach — the same dead end as a missing extension.
+      case "walletconnect_unconfigured":
+        return "freighter_missing";
       default:
         return "failed";
     }
@@ -107,6 +115,11 @@ export async function signInWithWallet(
       const code = await readError(verifyRes);
       if (code && EXPIRED_REASONS.has(code)) return { ok: false, reason: "expired" };
       if (code && WRONG_ACCOUNT_REASONS.has(code)) return { ok: false, reason: "wrong_account" };
+      // #36: verify refuses a banned identity with 403. Retrying can't clear
+      // it, so say so rather than inviting another attempt.
+      if (verifyRes.status === 403 && code === "banned") {
+        return { ok: false, reason: "banned" };
+      }
       return { ok: false, reason: "failed" };
     }
     const verified = (await verifyRes.json()) as { created?: unknown };
@@ -119,12 +132,18 @@ export async function signInWithWallet(
 /** What the contributor sees for each failure. */
 export const WALLET_SIGN_IN_MESSAGES: Record<WalletSignInFailure, string> = {
   freighter_missing:
-    "Freighter isn't installed or isn't reachable. Install the Freighter browser extension, then try again.",
+    "We couldn't reach Freighter. Install the Freighter browser extension, or open this " +
+    "page on a phone with the Freighter app, then try again.",
   rejected: "You declined the request in Freighter. Nothing was signed — try again when you're ready.",
   wrong_account:
     "Freighter signed with a different account. Switch to the account you connected, then try again.",
+  wrong_network:
+    "Freighter is on a different Stellar network than Centient. Switch networks in " +
+    "Freighter, then try again.",
   unsupported: "This version of Freighter can't sign in. Update Freighter, then try again.",
   expired: "That sign-in request expired. Try again to get a fresh one.",
+  banned:
+    "This account can't sign in. If you think that's a mistake, contact centient@artisam.xyz.",
   rate_limited: "Too many sign-in attempts. Wait a minute, then try again.",
   network: "We couldn't reach Centient. Check your connection and try again.",
   failed: "Sign-in didn't complete. Please try again.",
