@@ -19,6 +19,7 @@ import { call, evidence, key, signIn, short } from "./kit";
 
   const U1 = await signIn(W1), U1b = await signIn(Y1), U2 = await signIn(W2), U3 = await signIn(X4);
   const ids: string[] = [];
+  let scenarioError: unknown;
   try {
     ids.push(await row(U1.userId, X1.publicKey()));
     const x2 = await row(U1.userId, X2.publicKey());
@@ -54,21 +55,33 @@ import { call, evidence, key, signIn, short } from "./kit";
     evidence("024", "E024-1-cap-and-address-lock.json", out);
     console.log(JSON.stringify(out.steps.map((s) => ({ step: s.step, status: s.got.status, body: s.got.body })), null, 1));
 
-  } finally {
-    // Always remove the fake rows: expired-pending rows left behind count against
-    // the real per-user cap and the per-address lock for live staging users.
-    // (users stay)
-    if (ids.length) {
-      try {
-        await db.query(`delete from sponsored_trustlines where id = any($1)`, [ids]);
-      } catch (e) {
-        console.error("CLEANUP FAILED - remove these rows by hand:", ids, e);
-        throw e;
-      } finally {
-        await db.end();
-      }
-    } else {
-      await db.end();
+  } catch (e) {
+    scenarioError = e;
+  }
+
+  // Cleanup always runs, and never replaces the scenario's exception: the fake
+  // rows are expired-pending, so leaving them behind counts against the real
+  // per-user cap and per-address lock for live staging users.
+  const cleanupErrors: unknown[] = [];
+  if (ids.length) {
+    try {
+      await db.query(`delete from sponsored_trustlines where id = any($1)`, [ids]);
+    } catch (e) {
+      console.error("CLEANUP FAILED - remove these rows by hand:", ids, e);
+      cleanupErrors.push(e);
     }
+  }
+  try {
+    await db.end();
+  } catch (e) {
+    cleanupErrors.push(e);
+  }
+
+  if (scenarioError !== undefined && cleanupErrors.length) {
+    throw new AggregateError([scenarioError, ...cleanupErrors], "scenario failed and cleanup failed");
+  }
+  if (scenarioError !== undefined) throw scenarioError;
+  if (cleanupErrors.length) {
+    throw cleanupErrors.length === 1 ? cleanupErrors[0] : new AggregateError(cleanupErrors, "cleanup failed");
   }
 })();
