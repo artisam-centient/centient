@@ -275,6 +275,7 @@ describe("payout-worker campaign balance refunds", () => {
       expect.any(BigInt),
       expect.stringContaining("payout failed"),
       "REFUND",
+      submission.id,
     );
     const updated = await prisma.submission.findUnique({ where: { id: submission.id } });
     expect(updated?.payoutStatus).toBe("failed");
@@ -352,6 +353,7 @@ describe("payout-worker rail-error classification (ST-6a)", () => {
       expect.any(BigInt),
       expect.stringContaining("op_no_trust"),
       "REFUND",
+      submission.id,
     );
     const updated = await prisma.submission.findUnique({ where: { id: submission.id } });
     expect(updated?.payoutStatus).toBe("failed");

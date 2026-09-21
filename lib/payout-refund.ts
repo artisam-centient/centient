@@ -24,6 +24,8 @@ export async function refundCampaignBalance(
     totalDebitUnits(amountUnits),
     `${reason} for submission ${submissionId}`,
     "REFUND",
+    // Keyed, so a second payer giving up on the same payout refunds nothing.
+    submissionId,
   ).catch(() => {});
 }
 

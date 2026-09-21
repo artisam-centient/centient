@@ -51,7 +51,9 @@ rows whose job is still `queued` or `processing`. A payer that refunds writes
 `SUBMISSION_RETRY_BUDGET`, so the cron never offers that row again. Whichever
 payer gives up on a campaign-backed row returns its debit
 (`lib/payout-refund.ts`), except after an `ambiguous_submit`, which may have
-settled.
+settled. A refund is keyed to its submission and applied at most once, and an
+admin retry refuses a submission whose debit was refunded rather than pay it
+from platform funds.
 
 **Paid rewards are earned, not withdrawable.** The worker credits
 `totalEarnedUnits` and `submissionCount` only. Existing `pendingBalanceUnits`
