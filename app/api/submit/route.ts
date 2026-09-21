@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import prisma from "@/lib/prisma";
@@ -21,6 +22,7 @@ import {
   InsufficientBalanceError,
 } from "@/lib/campaign-balance";
 import { creditReward } from "@/lib/user-balance";
+import { isAnyIdentifierBanned } from "@/lib/ban-identity";
 import { getLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
 import { REWARDED_STATUSES } from "@/lib/constants";
@@ -73,8 +75,10 @@ export async function POST(req: NextRequest) {
     return errorResponse("repetitive_reason", 400, { userId, taskId });
   }
 
-  // Rate limit keyed on the userId (opaque bucket key), so wallet-less answerers
-  // are still throttled.
+  // Rate limit keyed on the userId. Since #30 only an account with a bound
+  // Stellar wallet can answer, and a bound wallet never moves between accounts,
+  // so this bucket is per-address too (#36). It stays on the userId because the
+  // session carries it: the throttle runs before, and guards, the user read.
   if (await checkWalletRateLimit(userId)) {
     return errorResponse("rate_limited", 429, { userId });
   }
@@ -92,6 +96,16 @@ export async function POST(req: NextRequest) {
       return errorResponse("wallet_required", 409, { userId });
     }
     const walletAddress = user.walletAddress;
+
+    // #36: an identity banned on any of its identifiers earns nothing, checked
+    // before any write. The admin flagged-withdrawal ban writes these rows with
+    // no `bannedUntil`, which the cooldown checks below do not read as a ban.
+    // Same 403 `banned` the client already shows; which identifier matched is
+    // logged by type only, never its value.
+    const identityBan = await isAnyIdentifierBanned(user.email, walletAddress, userId);
+    if (identityBan) {
+      return errorResponse("banned", 403, { userId, identifierType: identityBan.bannedIdentifierType });
+    }
 
     if (isPermanentlyBanned(user.isBanned, user.bannedUntil, user.banCount)) {
       return errorResponse("banned", 403, { userId, permanent: true });
@@ -181,7 +195,7 @@ export async function POST(req: NextRequest) {
               where: { id: userId },
               data: { isBanned: false, bannedAt: null, bannedReason: null, bannedUntil: null },
             });
-            console.warn("[submit] retest_passed", { userId, accuracy, passed, total: retestGoldSubs.length });
+            console.warn("[submit] retest_passed", { userId });
           } else {
             const refreshed = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
             const next = computeCooldownBan(refreshed.banCount, refreshed.lastBanAt);
@@ -196,7 +210,7 @@ export async function POST(req: NextRequest) {
                 lastBanAt: new Date(),
               },
             });
-            console.warn("[submit] retest_failed", { userId, accuracy, passed, total: retestGoldSubs.length, escalatedTo: next.banCount });
+            console.warn("[submit] retest_failed", { userId, escalatedTo: next.banCount });
           }
         }
 
@@ -249,8 +263,6 @@ export async function POST(req: NextRequest) {
           });
           console.warn("[submit] banned_user", {
             userId,
-            goldAttempted: refreshed.goldAttempted,
-            goldCorrect: refreshed.goldCorrect,
             banCount: cooldown.banCount,
             reason: cooldown.reason,
           });
@@ -293,51 +305,51 @@ export async function POST(req: NextRequest) {
           where: { id: userId },
           data: { lastSubmissionAt: new Date() },
         });
-        return errorResponse("left_bias_detected", 400, {
-          userId,
-          taskId,
-          sameSide,
-          recent: recent.length,
-        });
+        // #36: no `sameSide`/`recent` — they say how close the account is to the line.
+        return errorResponse("left_bias_detected", 400, { userId, taskId });
       }
     }
 
     const amount = resolveRewardUnits(task.rewardUnits, task.campaign?.rewardUnits ?? null);
-    const submission = await prisma.submission.create({
-      data: {
-        walletAddress,
-        userId,
-        taskId,
-        choice,
-        reason: reason.trim(),
-        isGoldCheck: task.isGold,
-        goldPassed: task.isGold ? true : null,
-        payoutAmountUnits: amount,
-        payoutStatus: "accrued",
-      },
-    });
+    const campaignId = !task.isGold ? task.campaignId : null;
+    const answer = {
+      walletAddress,
+      userId,
+      taskId,
+      choice,
+      reason: reason.trim(),
+      isGoldCheck: task.isGold,
+      goldPassed: task.isGold ? true : null,
+    };
 
-    // Prepaid campaign balance: debit reward + platform fee before paying the labeler.
-    // Insufficient balance blocks the payout (402); the submission is recorded as skipped.
-    if (!task.isGold && task.campaignId) {
-      try {
-        await checkAndDebit(task.campaignId, amount, submission.id);
-      } catch (err) {
-        if (err instanceof InsufficientBalanceError) {
-          await prisma.submission.update({
-            where: { id: submission.id },
-            data: { payoutStatus: "skipped" },
-          });
-          return errorResponse("campaign_balance_insufficient", 402, {
-            userId,
-            taskId,
-            campaignId: task.campaignId,
-            balanceUnits: String(err.balanceUnits),
-            requiredUnits: String(err.requiredUnits),
-          });
-        }
-        throw err;
+    // Prepaid campaign balance: debit reward + platform fee, and write the rewarded
+    // submission, in one transaction (#36). A rewarded row never exists without
+    // its debit, nor a debit without its row. Insufficient balance rolls both back
+    // (402) and the answer is recorded as skipped with no amount.
+    let submission: { id: string };
+    try {
+      submission = await prisma.$transaction(async (tx) => {
+        const id = randomUUID();
+        if (campaignId) await checkAndDebit(campaignId, amount, id, tx);
+        return tx.submission.create({
+          data: { id, ...answer, payoutAmountUnits: amount, payoutStatus: "accrued" },
+          select: { id: true },
+        });
+      });
+    } catch (err) {
+      if (err instanceof InsufficientBalanceError) {
+        await prisma.submission.create({
+          data: { ...answer, payoutAmountUnits: 0n, payoutStatus: "skipped" },
+        });
+        return errorResponse("campaign_balance_insufficient", 402, {
+          userId,
+          taskId,
+          campaignId,
+          balanceUnits: String(err.balanceUnits),
+          requiredUnits: String(err.requiredUnits),
+        });
       }
+      throw err;
     }
 
     // Accumulate-then-withdraw (P2a): instead of a per-question on-chain payout,
