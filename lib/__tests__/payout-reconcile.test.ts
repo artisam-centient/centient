@@ -63,33 +63,9 @@ describe("reconcileSubmission", () => {
     expect(mockSubUpdate).not.toHaveBeenCalled();
   });
 
-  it("routes to a bounded retry (increment) when Horizon reports failed", async () => {
-    mockGetTxStatus.mockResolvedValueOnce("failed");
-    mockSubFindUnique.mockResolvedValueOnce({ id: "sub-3", retryCount: 0 });
-
-    await reconcileSubmission("sub-3", TX);
-
-    expect(mockSubUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "sub-3" },
-        data: expect.objectContaining({ retryCount: 1 }),
-      }),
-    );
-  });
-
-  it("marks failed after exhausting the retry budget", async () => {
-    mockGetTxStatus.mockResolvedValueOnce("failed");
-    mockSubFindUnique.mockResolvedValueOnce({ id: "sub-4", retryCount: 2 });
-
-    await reconcileSubmission("sub-4", TX);
-
-    expect(mockSubUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "sub-4" },
-        data: expect.objectContaining({ payoutStatus: "failed", retryCount: 3 }),
-      }),
-    );
-  });
+  // "failed" (included and failed) hands the row back to the retry path; that
+  // needs the attempts table and the retry cron, so it is tested against a real
+  // database in payout-reconcile-db.test.ts.
 
   // #40 D2: a hash that was broadcast may have landed, so only Horizon's answer
   // may move the row. A read that throws is no answer at all.
