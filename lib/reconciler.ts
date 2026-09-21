@@ -10,6 +10,8 @@ const STALE_PROCESSING_MS = 30_000;
 const POLL_IDLE_MS = 5_000;
 const MAX_RETRIES = 3;
 const BATCH_SIZE = 50;
+// #40 D2: a payout still unreadable this long after it was created is paged.
+const READ_ERROR_ALERT_AFTER_MS = 15 * 60_000;
 
 let shouldStop = false;
 let currentId: string | null = null;
@@ -67,9 +69,16 @@ export async function processSubmission(id: string, txHash: string): Promise<voi
       console.log(`[reconciler] submission ${id} not yet visible on Horizon — leaving sent`);
     }
   } catch (err: any) {
-    // A Horizon read error (network / 5xx) is transient — soft-retry so a flaky
-    // Horizon can't strand a real payout as failed.
-    await handleSubmissionRetry(id, err?.message ?? String(err));
+    // #40 D2: a read that throws (network, 5xx, a 400 on a malformed hash) says
+    // nothing about the payment. The hash was broadcast and may have landed, so
+    // neither the status nor the retry budget moves; only Horizon's answer may.
+    const message = `Horizon read failed: ${err?.message ?? String(err)}`;
+    const row = await prisma.submission.update({
+      where: { id },
+      data: { payoutError: message },
+      select: { createdAt: true },
+    });
+    alertIfStale("submission", id, row?.createdAt, message);
   } finally {
     currentId = null;
   }
@@ -147,8 +156,15 @@ export async function processWithdrawal(id: string, txHash: string, userId: stri
       console.log(`[reconciler] withdrawal ${id} not yet visible on Horizon — leaving processing`);
     }
   } catch (err: any) {
-    // Transient Horizon read error — soft-retry rather than refund a live payout.
-    await handleWithdrawalRetry(id, userId, amountUnits, err?.message ?? String(err));
+    // #40 D2/D7: never refund on a read error. A withdrawal that actually paid
+    // and was then refunded is paid twice.
+    const message = `Horizon read failed: ${err?.message ?? String(err)}`;
+    const job = await prisma.payoutJob.update({
+      where: { id },
+      data: { lastError: message },
+      select: { createdAt: true },
+    });
+    alertIfStale("withdrawal", id, job?.createdAt, message);
   } finally {
     currentId = null;
   }
@@ -176,6 +192,16 @@ async function handleWithdrawalRetry(id: string, userId: string, amountUnits: bi
     });
     console.log(`[reconciler] withdrawal ${id} retry ${newCount}/${MAX_RETRIES}: ${reason}`);
   }
+}
+
+function alertIfStale(kind: string, id: string, createdAt: Date | undefined, message: string): void {
+  console.warn(`[reconciler] ${kind} ${id}: ${message} — leaving it for the next pass`);
+  if (!createdAt || Date.now() - createdAt.getTime() < READ_ERROR_ALERT_AFTER_MS) return;
+  Sentry.captureMessage(`[reconciler] ${kind} ${id} still unreadable on Horizon`, {
+    level: "warning",
+    fingerprint: ["reconciler-read-error", kind, id],
+    extra: { message },
+  });
 }
 
 export async function runReconcilerLoop(): Promise<void> {

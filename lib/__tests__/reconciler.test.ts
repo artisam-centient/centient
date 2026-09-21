@@ -43,6 +43,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { processSubmission, processWithdrawal } from "../reconciler";
 import { refundReversal } from "@/lib/user-balance";
+import * as Sentry from "@sentry/nextjs";
 
 const TX = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
 
@@ -105,18 +106,55 @@ describe("processSubmission", () => {
     );
   });
 
-  it("soft-retries (does not mark failed) on a transient Horizon read error", async () => {
-    mockGetTxStatus.mockRejectedValueOnce(new Error("Horizon 503"));
-    mockSubFindUnique.mockResolvedValueOnce({ id: "sub-5", retryCount: 0 });
+  // #40 D2: a hash that was broadcast may have landed, so only Horizon's answer
+  // may move the row. A read that throws is no answer at all.
+  describe("on a Horizon read error", () => {
+    it.each([
+      ["a 5xx", Object.assign(new Error("Horizon 503"), { response: { status: 503 } })],
+      ["a network error", new Error("fetch failed")],
+      // Production row a5e7223b went `failed` this way: a non-hex hash draws a
+      // 400, and three of them used to exhaust the retry budget.
+      ["a 400 on a malformed hash", Object.assign(new Error("Bad Request"), { response: { status: 400 } })],
+    ])("never spends a retry or marks failed, on %s", async (_label, err) => {
+      mockGetTxStatus.mockRejectedValueOnce(err);
+      mockSubFindUnique.mockResolvedValue({ id: "sub-5", retryCount: 2 });
 
-    await processSubmission("sub-5", TX);
+      await processSubmission("sub-5", TX);
 
-    expect(mockSubUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "sub-5" },
-        data: expect.objectContaining({ retryCount: 1 }),
-      }),
-    );
+      for (const [call] of mockSubUpdate.mock.calls) {
+        expect(call.data).not.toHaveProperty("retryCount");
+        expect(call.data).not.toHaveProperty("payoutStatus");
+      }
+    });
+
+    it("records the read error on the row", async () => {
+      mockGetTxStatus.mockRejectedValueOnce(new Error("Horizon 503"));
+
+      await processSubmission("sub-6", TX);
+
+      expect(mockSubUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "sub-6" },
+          data: { payoutError: expect.stringContaining("Horizon 503") },
+        }),
+      );
+    });
+
+    it("pages only once the payout has been unreadable past the threshold", async () => {
+      mockGetTxStatus.mockRejectedValue(new Error("Horizon 503"));
+
+      mockSubUpdate.mockResolvedValueOnce({ createdAt: new Date() });
+      await processSubmission("fresh", TX);
+      expect(Sentry.captureMessage).not.toHaveBeenCalled();
+
+      mockSubUpdate.mockResolvedValueOnce({ createdAt: new Date(Date.now() - 60 * 60_000) });
+      await processSubmission("stale", TX);
+      expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        expect.stringContaining("stale"),
+        expect.objectContaining({ fingerprint: expect.arrayContaining(["stale"]) }),
+      );
+    });
   });
 });
 
@@ -141,6 +179,26 @@ describe("processWithdrawal", () => {
 
     expect(mockJobUpdate).not.toHaveBeenCalled();
     expect(refundReversal).not.toHaveBeenCalled();
+  });
+
+  // #40 D2/D7: refunding a withdrawal that actually paid is a double pay.
+  it("never refunds, fails or spends a retry on a Horizon read error", async () => {
+    mockGetTxStatus.mockRejectedValueOnce(new Error("Horizon 503"));
+    mockJobFindUnique.mockResolvedValue({ id: "job-4", retryCount: 2 });
+
+    await processWithdrawal("job-4", TX, "user-4", 250n);
+
+    expect(refundReversal).not.toHaveBeenCalled();
+    for (const [call] of mockJobUpdate.mock.calls) {
+      expect(call.data).not.toHaveProperty("retryCount");
+      expect(call.data).not.toHaveProperty("status");
+    }
+    expect(mockJobUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "job-4" },
+        data: { lastError: expect.stringContaining("Horizon 503") },
+      }),
+    );
   });
 
   it("refunds and fails the job once the retry budget is exhausted on failed", async () => {
