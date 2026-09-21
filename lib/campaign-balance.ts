@@ -77,13 +77,55 @@ export async function checkAndDebit(
   else await prisma.$transaction(debit);
 }
 
+type LedgerClient = Pick<Prisma.TransactionClient, "balanceLedger">;
+
+/**
+ * Has this submission's campaign debit already been refunded? Refunds carry the
+ * submission id since #37. Earlier ones name it only in their note (`… for
+ * submission <id>`), so that is matched too: a refunded row must read as
+ * refunded whichever era wrote the refund.
+ */
+export async function hasRefundedSubmission(
+  client: LedgerClient,
+  submissionId: string,
+): Promise<boolean> {
+  const refund = await client.balanceLedger.findFirst({
+    where: {
+      type: "REFUND",
+      OR: [{ submissionId }, { note: { endsWith: `for submission ${submissionId}` } }],
+    },
+    select: { id: true },
+  });
+  return refund !== null;
+}
+
+/**
+ * Credit a campaign's balance and record it in the ledger.
+ *
+ * A `REFUND` that names a `submissionId` is applied at most once per
+ * submission: under a lock on the campaign's balance row, a submission already
+ * refunded is left alone and the balance returned unchanged. Two payers that
+ * both give up on the same payout therefore return its debit once (#37).
+ */
 export async function creditBalance(
   campaignId: string,
   amountUnits: bigint,
   note?: string,
   type: "DEPOSIT" | "REFUND" = "DEPOSIT",
+  submissionId?: string,
 ): Promise<bigint> {
   const result = await prisma.$transaction(async (tx) => {
+    if (type === "REFUND" && submissionId) {
+      await tx.$executeRaw`SELECT 1 FROM "campaign_balances" WHERE "campaignId" = ${campaignId} FOR UPDATE`;
+      if (await hasRefundedSubmission(tx, submissionId)) {
+        const current = await tx.campaignBalance.findUnique({
+          where: { campaignId },
+          select: { balanceUnits: true },
+        });
+        return current?.balanceUnits ?? 0n;
+      }
+    }
+
     await tx.campaignBalance.upsert({
       where: { campaignId },
       create: { campaignId, balanceUnits: amountUnits },
@@ -97,7 +139,7 @@ export async function creditBalance(
     });
 
     await tx.balanceLedger.create({
-      data: { campaignId, type, amountUnits, note: note ?? null },
+      data: { campaignId, type, amountUnits, note: note ?? null, submissionId: submissionId ?? null },
     });
 
     return updated!.balanceUnits;
