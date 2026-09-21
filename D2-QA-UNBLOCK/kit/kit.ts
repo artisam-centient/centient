@@ -5,6 +5,8 @@ import { Horizon, Keypair, Networks, TransactionBuilder, Operation, Asset, BASE_
 
 export const BASE = process.env.QA_BASE ?? "https://centient.work";
 export const HORIZON = "https://horizon-testnet.stellar.org";
+/** Per-request deadline for `call`. Override with QA_TIMEOUT_MS. */
+export const TIMEOUT_MS = Number(process.env.QA_TIMEOUT_MS ?? 30_000);
 export const horizon = new Horizon.Server(HORIZON);
 export const EVID = require("node:path").resolve(__dirname, "../evidence") + "/";
 // Deliberately OUTSIDE D2-QA-UNBLOCK: these are throwaway testnet keypairs, but a
@@ -44,6 +46,9 @@ export async function call(method: string, path: string, opts: { cookie?: string
   const at = new Date().toISOString();
   const r = await fetch(BASE + path, {
     method,
+    // Without a deadline a stalled staging response keeps the await pending
+    // forever, and a case that plants fixture rows never reaches its cleanup.
+    signal: AbortSignal.timeout(TIMEOUT_MS),
     headers: {
       ...(opts.json !== undefined ? { "content-type": "application/json" } : {}),
       ...(opts.cookie ? { cookie: opts.cookie } : {}),
