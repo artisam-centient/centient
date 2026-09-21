@@ -38,13 +38,23 @@ vi.mock("@/lib/stellar/client", async (importOriginal) => {
 vi.mock("@/lib/stellar/balance", () => ({ checkAndAlert: vi.fn(async () => {}) }));
 vi.mock("@/lib/health-alert", () => ({ sendDedupedDiscordAlert: vi.fn(async () => "sent") }));
 vi.mock("@sentry/nextjs", () => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
+vi.mock("@/lib/rate-limit", async () => ({ checkWalletRateLimit: vi.fn(async () => false) }));
 
 import { claimNextJob, processJob } from "@/lib/payout-worker";
 import { reprocessPayoutWithNonceSafety } from "@/lib/payout-service";
 import { settleOpenAttempt } from "@/lib/payout-attempts";
 import { StellarPaymentError } from "@/lib/stellar/client";
+import { NextRequest } from "next/server";
+import { POST as submit } from "@/app/api/submit/route";
+import { signLabelerJWT } from "@/lib/labeler-auth";
 import { prisma, truncateAll } from "@/tests/helpers/db";
-import { createTask, createUser, VALID_REASON } from "@/tests/helpers/factories";
+import {
+  createCampaign,
+  createCampaignBalance,
+  createTask,
+  createUser,
+  VALID_REASON,
+} from "@/tests/helpers/factories";
 
 const AMOUNT = 2_500_000n;
 const ORIGINAL_ENV = { ...process.env };
@@ -272,5 +282,51 @@ describe("settleOpenAttempt (#38)", () => {
     const { submission } = await diedAfterSubmit();
     await prisma.payoutAttempt.deleteMany();
     expect(await settleOpenAttempt(submission.id)).toEqual({ kind: "clear" });
+  });
+});
+
+describe("end to end: an accepted answer whose payer is killed mid-broadcast (#38)", () => {
+  it("pays once, debits once, and records one job", async () => {
+    process.env.PLATFORM_FEE_UNITS = "1500000";
+    const campaign = await createCampaign({ rewardUnits: AMOUNT });
+    await createCampaignBalance(campaign.id, 1_000_000_000n);
+    const task = await createTask({ campaignId: campaign.id });
+    const user = await createUser({ walletAddress: Keypair.random().publicKey() });
+
+    const res = await submit(
+      new NextRequest("http://localhost/api/submit", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: `labeler_session=${await signLabelerJWT(user.id)}` },
+        body: JSON.stringify({ taskId: task.id, choice: "A", reason: VALID_REASON }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const { submissionId } = await res.json();
+
+    // The first worker's envelope lands, and the process is killed before the
+    // hash is written. Its catch never runs — a kill leaves no bookkeeping.
+    mockSubmitMultisigPayout.mockImplementationOnce(
+      async (_req: unknown, { attempts }: { attempts?: { open(e: { hash: string; expiresAt: Date }): Promise<void> } }) => {
+        const hash = "k".repeat(64);
+        await attempts?.open({ hash, expiresAt: new Date(Date.now() + 180_000) });
+        broadcasts.push(hash);
+        chain.set(hash, "confirmed");
+        return new Promise<never>(() => {});
+      },
+    );
+    const claimed = await claimNextJob();
+    void processJob(claimed!.id, claimed!.submissionId, claimed!.userId, claimed!.amountUnits, claimed!.type);
+    await vi.waitFor(() => expect(broadcasts).toHaveLength(1));
+
+    // The restart: the dead worker's job heartbeat and row lease have lapsed.
+    await prisma.payoutJob.update({ where: { id: claimed!.id }, data: { workerHeartbeatAt: LONG_AGO() } });
+    await prisma.submission.update({ where: { id: submissionId }, data: { lastRetriedAt: LONG_AGO() } });
+    await workerTick();
+
+    expect(broadcasts).toEqual(["k".repeat(64)]);
+    expect(await row(submissionId)).toMatchObject({ payoutStatus: "sent", payoutTxHash: "k".repeat(64) });
+    expect(await prisma.payoutJob.count()).toBe(1);
+    const debits = await prisma.balanceLedger.findMany({ where: { submissionId }, select: { type: true } });
+    expect(debits.map((d) => d.type).sort()).toEqual(["DEBIT_FEE", "DEBIT_REWARD"]);
   });
 });
