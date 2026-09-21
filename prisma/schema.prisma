@@ -43,6 +43,7 @@ model User {
   identifierHistory UserIdentifierHistory[]
   flaggedWithdrawals FlaggedWithdrawal[]
   sponsoredTrustlines SponsoredTrustline[]
+  legacyEarningsBackfill LegacyEarningsBackfill?
 
   @@map("users")
 }
@@ -461,9 +462,10 @@ enum UserLedgerType {
   REVERSAL
 }
 
-// Off-chain labeler balance ledger — mirrors BalanceLedger. Approved answers credit
-// pendingBalanceUnits (CREDIT_REWARD); withdrawals debit it (WITHDRAWAL); failed/reversed
-// withdrawals re-credit (REVERSAL). Schema only in P0a — no writes yet.
+// Off-chain labeler balance ledger — mirrors BalanceLedger. Approved answers used to
+// credit pendingBalanceUnits (CREDIT_REWARD); withdrawals debit it (WITHDRAWAL);
+// failed/reversed withdrawals re-credit (REVERSAL). #39 retired accrual: no new
+// CREDIT_REWARD is written, and the rows are kept for audit (ADR-0007).
 model UserBalanceLedger {
   id           String         @id @default(uuid())
   userId       String
@@ -476,6 +478,20 @@ model UserBalanceLedger {
 
   @@index([userId, createdAt])
   @@map("user_balance_ledger")
+}
+
+// #39 (ADR-0007): what the legacy earnings backfill added to each user —
+// `amountUnits` to totalEarnedUnits and `accruedCount` to submissionCount, from
+// their `accrued` answers, which accrual credited to pendingBalanceUnits only. One row per user; its presence is what makes the
+// backfill run once.
+model LegacyEarningsBackfill {
+  userId       String   @id
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amountUnits  BigInt
+  accruedCount Int
+  appliedAt    DateTime @default(now())
+
+  @@map("legacy_earnings_backfill")
 }
 
 // Why a withdrawal was blocked by the P4a/P4b anti-fraud gates. Severity orders the
