@@ -34,7 +34,6 @@ export const PAYMENTS_LANE_TEST_GLOBS = [
   // The HTTP and cron edges that start a payout or read its health.
   "app/api/me/withdraw/__tests__/*.test.ts",
   "app/api/me/wallet/sponsor/__tests__/*.test.ts",
-  "app/api/me/balance/__tests__/*.test.ts",
   "app/api/cron/payout-retry/__tests__/*.test.ts",
   "app/api/cron/payout-reconcile/__tests__/*.test.ts",
   "app/api/cron/reserve-refill/__tests__/*.test.ts",

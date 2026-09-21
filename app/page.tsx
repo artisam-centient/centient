@@ -105,7 +105,9 @@ export default function Home() {
   const [screen, setScreen] = useState<Screen>("checking");
   const [wallet, setWallet] = useState<string | null>(null);
   const [task, setTask] = useState<TaskData | null>(null);
-  const [balance, setBalance] = useState("0");
+  // #39: what the contributor has been paid, from /api/me. Answers pay out
+  // on-chain as they are accepted, so there is no withdrawable balance to show.
+  const [totalEarned, setTotalEarned] = useState("0");
   const [submitting, setSubmitting] = useState(false);
   // #35: a failed submission is announced beside the submit action, not only toasted.
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -150,6 +152,7 @@ export default function Home() {
     // contents off a tab that has since been signed out.
     if (sessionGeneration.current !== generation) return null;
     setSubmissionCount(data.submissionCount ?? 0);
+    setTotalEarned(data.totalEarned ?? "0");
     setOnboardingCompleted(data.onboardingCompleted ?? false);
     setUnbannedAt(data.unbannedAt ?? null);
     setBannedReason(data.bannedReason ?? null);
@@ -162,22 +165,6 @@ export default function Home() {
       setScreen("cooldown");
     }
     return data;
-  }, []);
-
-  // Accumulate-then-withdraw (P2b): the labeler's earnings now accrue into a
-  // session-scoped off-chain balance instead of a per-question on-chain payout.
-  // Best-effort: a transient balance fetch failure must not block the flow.
-  const fetchBalance = useCallback(async () => {
-    const generation = sessionGeneration.current;
-    try {
-      const res = await fetch("/api/me/balance");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (sessionGeneration.current !== generation) return;
-      setBalance(data.pendingBalance ?? "0");
-    } catch {
-      // ignore — balance display is non-critical
-    }
   }, []);
 
   /**
@@ -260,14 +247,13 @@ export default function Home() {
     setScreen("loading");
     try {
       const userData = await fetchUserData();
-      await fetchBalance();
       // fetchUserData has already shown the cooldown screen; don't replace it.
       if (userData?.isCooldown) return;
       setScreen(userData?.onboardingCompleted ? "landing" : "onboarding");
     } catch {
       setScreen("wallet_error");
     }
-  }, [fetchUserData, fetchBalance]);
+  }, [fetchUserData]);
 
   const handlePayoutReady = useCallback(
     async ({ address, sponsored }: { address: string; sponsored: boolean }) => {
@@ -324,7 +310,7 @@ export default function Home() {
   /**
    * Logging out clears the session cookie server-side; everything the signed-in
    * session put in client state has to be dropped here too, or the next labeler
-   * to sign in on this tab would flash the previous one's wallet and balance.
+   * to sign in on this tab would flash the previous one's wallet and earnings.
    */
   const handleLogout = useCallback(() => {
     sessionGeneration.current += 1;
@@ -332,7 +318,7 @@ export default function Home() {
     setWallet(null);
     setTask(null);
     setSubmitError(null);
-    setBalance("0");
+    setTotalEarned("0");
     setSubmissionCount(0);
     setOnboardingCompleted(false);
     setUnbannedAt(null);
@@ -416,7 +402,6 @@ export default function Home() {
         // #37: the approved answer is queued for an on-chain payout. Refresh the
         // profile; its status is read from the account sheet, not polled here.
         await fetchUserData();
-        await fetchBalance();
         if (loggedOutSince()) return;
         setScreen("success");
         track("submission_approved", {
@@ -457,7 +442,7 @@ export default function Home() {
   } else if (screen === "landing") {
     body = (
       <InAppLanding
-        totalEarned={balance}
+        totalEarned={totalEarned}
         submissionCount={submissionCount}
         onStart={handleStartEarning}
       />
@@ -494,7 +479,7 @@ export default function Home() {
               aria-label="View account"
               className="rounded-full transition-transform duration-200 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
-              <EarningsBadge totalEarned={balance} />
+              <EarningsBadge totalEarned={totalEarned} />
             </button>
           </div>
         </header>
@@ -513,7 +498,7 @@ export default function Home() {
           open={accountOpen}
           onClose={() => setAccountOpen(false)}
           walletAddress={wallet ?? ""}
-          totalEarned={balance}
+          totalEarned={totalEarned}
           rewardSymbol={REWARD_TOKEN_SYMBOL}
           submissionCount={submissionCount}
           explorerUrl={EXPLORER_URL}
@@ -698,7 +683,7 @@ export default function Home() {
             <span className="font-label text-xs uppercase tracking-[0.18em] text-outline">
               Total earned
             </span>
-            <EarningsBadge totalEarned={balance} />
+            <EarningsBadge totalEarned={totalEarned} />
           </div>
         </div>
       </div>
