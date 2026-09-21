@@ -68,10 +68,15 @@ const TIMEOUT_PROBLEM = {
   const expiresAt = new Date((await row()).expiresAtUtc + "Z");
   while (Date.now() < expiresAt.getTime() + 5_000) {
     await sleep(30_000);
+    // Re-check the boundary AFTER the sleep: the loop condition was evaluated up
+    // to 30s ago, so a poll can land past expiry and must not be counted as one
+    // taken during the window.
+    const withinWindow = Date.now() < expiresAt.getTime();
     const poll = await answer(route.POST(req("POST", { signedXdr: signed })));
     const build = await answer(route.GET(req("GET")));
     out.polls.push({
       at: poll.at,
+      withinWindow,
       resubmitSameEnvelope: `${poll.status} ${JSON.stringify(poll.body)}`,
       buildAnother: `${build.status} ${JSON.stringify(build.body.xdr ? { needed: true, xdr: "<offered>" } : build.body)}`,
       row: (await row())?.status,
@@ -79,7 +84,12 @@ const TIMEOUT_PROBLEM = {
     });
     console.log(out.polls[out.polls.length - 1]);
   }
-  out.steps.push({ step: "2: poll until envelope expiry", envelopeExpiresAtUtc: expiresAt.toISOString(), pollsDuringWindow: out.polls.length });
+  out.steps.push({
+    step: "2: poll until envelope expiry",
+    envelopeExpiresAtUtc: expiresAt.toISOString(),
+    pollsDuringWindow: out.polls.filter((p: any) => p.withinWindow).length,
+    pollsAfterExpiry: out.polls.filter((p: any) => !p.withinWindow).length,
+  });
 
   faulted = false; // Horizon recovers
   const after = await answer(route.POST(req("POST", { signedXdr: signed })));
