@@ -91,6 +91,26 @@ async function claimForRetry(
 }
 
 /**
+ * Take the retry claim on a submission for a broadcast that is not a retry: the
+ * payout worker's first attempt at a `SUBMISSION_PAYOUT` job (#37).
+ *
+ * The worker and the retry cron can both reach a `pending` submission with no
+ * hash, and each has its own lease: the job's heartbeat and this row's
+ * `lastRetriedAt`. Neither reads the other's, so without this a worker holding a
+ * job and a cron treating the same row as stuck would each broadcast it — and
+ * the co-signer, which reads "pending, no hash" for both, would sign both. The
+ * worker taking the same claim, under the same per-wallet lock, is what makes
+ * the second of them stand down. Returns true when this caller now holds it.
+ */
+export async function claimSubmissionForBroadcast(
+  submissionId: string,
+  walletAddress: string,
+): Promise<boolean> {
+  const fresh = await prisma.$transaction((tx) => claimForRetry(tx, submissionId, walletAddress));
+  return fresh !== null;
+}
+
+/**
  * Keep a claimed retry's lease fresh for as long as its payout is in flight.
  *
  * `updateMany` with `payoutTxHash: null` rather than `update` by id, so the
@@ -104,7 +124,7 @@ async function claimForRetry(
  * the lease lapses under a live broadcast anyway. It narrows the window; it does
  * not fence the payout.
  */
-function heartbeatRetryClaim(submissionId: string): NodeJS.Timeout {
+export function heartbeatRetryClaim(submissionId: string): NodeJS.Timeout {
   return setInterval(() => {
     prisma.submission
       .updateMany({

@@ -14,6 +14,8 @@ import {
   persistAcceptedPayment,
   type AcceptedPayment,
 } from "./payout-broadcast";
+import { claimSubmissionForBroadcast, heartbeatRetryClaim } from "./payout-service";
+import { SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
 
 const STALE_PROCESSING_MS = 60_000;
 // Refresh the in-flight job's heartbeat well within STALE_PROCESSING_MS so a slow
@@ -393,6 +395,33 @@ async function processSubmissionPayout(
     return;
   }
 
+  // #37: take the submission's retry claim before broadcasting, so the retry
+  // cron (or an admin retry) that reaches this row stands down. A row someone
+  // else holds, or has already paid, is left to them: the retry path upserts
+  // this job to `done` when it settles, and owns the row if it does not.
+  if (!(await claimSubmissionForBroadcast(submissionId, walletAddress))) {
+    await prisma.payoutJob.update({
+      where: { id: jobId },
+      data: {
+        status: "failed",
+        completedAt: new Date(),
+        lastError: "submission claimed by another payer; left to the retry path",
+      },
+    });
+    console.warn(`[payout-worker] submission job ${jobId} stood down: submission ${submissionId} is claimed or paid`);
+    return;
+  }
+  const claimHeartbeat = heartbeatRetryClaim(submissionId);
+  // Hands the claim back once this attempt has ended without a broadcast, so the
+  // worker's own requeued attempt, or the retry cron, can take it again. Scoped to
+  // a row with no hash: a broadcast row is never re-claimable.
+  const releaseClaim = async () => {
+    clearInterval(claimHeartbeat);
+    await prisma.submission
+      .updateMany({ where: { id: submissionId, payoutTxHash: null }, data: { lastRetriedAt: null } })
+      .catch(() => {});
+  };
+
   const heartbeat = setInterval(() => {
     prisma.payoutJob
       .update({ where: { id: jobId }, data: { workerHeartbeatAt: new Date() } })
@@ -453,28 +482,18 @@ async function processSubmissionPayout(
     // `payReward` so the ledger the alert sums already carries this payout.
     maybeSendCapAlert().catch(() => {});
 
-    await prisma.$transaction(async (tx) => {
-      // Identity is the FK `userId` (ST-5d), not the wallet — the wallet is just the
-      // on-chain destination validated above.
-      await tx.user.update({
-        where: { id: submission.userId },
-        data: {
-          submissionCount: { increment: 1 },
-          totalEarnedUnits: { increment: amount },
-          pendingBalanceUnits: { increment: amount },
-          lastSubmissionAt: new Date(),
-        },
-      });
-
-      await tx.userBalanceLedger.create({
-        data: {
-          userId: submission.userId,
-          type: "CREDIT_REWARD",
-          amountUnits: amount,
-          submissionId: submissionId,
-          note: `Reward for submission ${submissionId}`,
-        },
-      });
+    // Identity is the FK `userId` (ST-5d), not the wallet — the wallet is just the
+    // on-chain destination validated above. The reward was just paid on-chain, so
+    // it is earned, never withdrawable: crediting `pendingBalanceUnits` (and a
+    // `CREDIT_REWARD` ledger row) here would let the same reward be withdrawn a
+    // second time (#37).
+    await prisma.user.update({
+      where: { id: submission.userId },
+      data: {
+        submissionCount: { increment: 1 },
+        totalEarnedUnits: { increment: amount },
+        lastSubmissionAt: new Date(),
+      },
     });
 
     const task = submission.task;
@@ -514,6 +533,8 @@ async function processSubmissionPayout(
       await abandonAcceptedPayment(accepted, quarantinePayoutJob(jobId));
       return;
     }
+    // Nothing was broadcast, so this attempt's claim on the row ends here.
+    await releaseClaim();
     // F-04b: same reasoning as the withdrawal path — keep Horizon's result codes.
     const message = describeStellarError(err);
 
@@ -552,9 +573,11 @@ async function processSubmissionPayout(
         ? `needs manual reconciliation (${err.code})`
         : `non-retryable (${err.code})`;
       await prisma.$transaction([
+        // The cron's budget, not the worker's: this row is refunded below (or
+        // needs a human), and a row the cron still reads as retryable is paid again.
         prisma.submission.update({
           where: { id: submissionId },
-          data: { payoutStatus: "failed", payoutError: label, retryCount: MAX_RETRIES },
+          data: { payoutStatus: "failed", payoutError: label, retryCount: SUBMISSION_RETRY_BUDGET },
         }),
         prisma.payoutJob.update({
           where: { id: jobId },
@@ -582,7 +605,13 @@ async function processSubmissionPayout(
           // F-04b: this branch used to set only the status, leaving payoutError
           // NULL — so the retry-exhausted failures an operator most needs to read
           // were the ones carrying no explanation at all.
-          data: { payoutStatus: "failed", payoutError: `retries exhausted: ${message}` },
+          // #37: and exhaust the retry cron's budget. This row is refunded below, and
+          // the cron would otherwise offer it again and pay it with no funding.
+          data: {
+            payoutStatus: "failed",
+            payoutError: `retries exhausted: ${message}`,
+            retryCount: SUBMISSION_RETRY_BUDGET,
+          },
         }),
         prisma.payoutJob.update({
           where: { id: jobId },
@@ -601,6 +630,7 @@ async function processSubmissionPayout(
     }
   } finally {
     clearInterval(heartbeat);
+    clearInterval(claimHeartbeat);
   }
 }
 
