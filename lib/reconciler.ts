@@ -4,6 +4,7 @@ import prisma from "./prisma";
 import { getTxStatus } from "./stellar/client";
 import { checkAndAlert } from "./stellar/balance";
 import { refundReversal } from "./user-balance";
+import { reviveStrandedAttempts } from "./payout-attempt-revival";
 
 const STALE_PROCESSING_MS = 30_000;
 const POLL_IDLE_MS = 5_000;
@@ -193,6 +194,12 @@ export async function runReconcilerLoop(): Promise<void> {
         await processWithdrawal(wdClaim.id, wdClaim.txHash, wdClaim.userId, wdClaim.amountUnits);
         continue;
       }
+
+      // #38: hand back stranded payouts whose unknown envelope is now proven.
+      await reviveStrandedAttempts().catch((err) => {
+        console.error("[reconciler] payout attempt revival failed:", err);
+        Sentry.captureException(err, { extra: { context: "reconciler-attempt-revival" } });
+      });
 
       await checkAndAlert();
       await sleep(POLL_IDLE_MS);

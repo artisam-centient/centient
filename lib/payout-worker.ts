@@ -16,6 +16,7 @@ import {
 import { claimSubmissionForBroadcast, heartbeatRetryClaim } from "./payout-service";
 import { SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
 import { refundCampaignBalance } from "./payout-refund";
+import { confirmAttempt, settleOpenAttempt } from "./payout-attempts";
 
 const STALE_PROCESSING_MS = 60_000;
 // Refresh the in-flight job's heartbeat well within STALE_PROCESSING_MS so a slow
@@ -127,6 +128,8 @@ export async function claimNextJob(): Promise<{
       WHERE "type" IN ('SUBMISSION_PAYOUT', 'WITHDRAWAL')
         AND ("status" = 'queued'
              OR ("status" = 'processing' AND "workerHeartbeatAt" < ${staleBefore}))
+        -- #38: a job waiting on an unsettled envelope is not due yet.
+        AND ("notBefore" IS NULL OR "notBefore" <= NOW())
       ORDER BY "createdAt" ASC
       LIMIT 1
       FOR UPDATE SKIP LOCKED
@@ -410,10 +413,25 @@ async function processSubmissionPayout(
 
   let accepted: AcceptedPayment | undefined;
   try {
-    const txHash = await payReward(walletAddress, amount, {
-      kind: "submission",
-      id: submissionId,
-    });
+    // #38: an envelope left open by an earlier attempt — this worker killed by a
+    // redeploy after Horizon accepted it, say — is settled by its hash before
+    // anything new is built. If it applied, it is recorded and nothing is sent.
+    // If it may still apply, the job waits until `notBefore` without spending a
+    // retry, and hands the submission's claim back.
+    const settled = await settleOpenAttempt(submissionId);
+    if (settled.kind === "wait") {
+      await releaseClaim();
+      await prisma.payoutJob.update({
+        where: { id: jobId },
+        data: { status: "queued", workerHeartbeatAt: null, notBefore: settled.until, lastError: settled.reason },
+      });
+      console.warn(`[payout-worker] submission job ${jobId} waiting on an unsettled envelope: ${settled.reason}`);
+      return;
+    }
+    const txHash =
+      settled.kind === "paid"
+        ? settled.hash
+        : await payReward(walletAddress, amount, { kind: "submission", id: submissionId });
     const broadcastAt = new Date();
     accepted = { reference: `payout_job:${jobId}`, txHash, amountUnits: amount, broadcastAt };
 
@@ -453,6 +471,8 @@ async function processSubmissionPayout(
             where: { id: submissionId },
             data: { payoutStatus: "sent", payoutTxHash: txHash },
           }),
+          // Confirmed in the same write as the hash (#38).
+          confirmAttempt(txHash),
         ]),
       quarantine,
     );

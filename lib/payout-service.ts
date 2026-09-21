@@ -6,6 +6,7 @@ import { isValidStellarAddress } from "./stellar/signature";
 import { abandonAcceptedPayment, persistAcceptedPayment } from "./payout-broadcast";
 import { retryClaimIsLive, SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
 import { refundSubmissionDebit } from "./payout-refund";
+import { confirmAttempt, settleOpenAttempt } from "./payout-attempts";
 
 // `needs_reconciliation` marks a payment that settled on-chain but could not be
 // recorded. It is terminal for retry purposes: a human must reconcile it against
@@ -217,8 +218,23 @@ export async function reprocessPayoutWithNonceSafety(submissionId: string): Prom
     // txHash is now a Stellar hash (plain string) — the full payout-service port to
     // `payUsdc`/`G…` destinations is ST-3d (#298); this widens the type to keep the
     // build green in the meantime.
+    //
+    // #38: first settle any envelope an earlier payer left open — a process that
+    // died after Horizon accepted it, or a submit whose outcome never came back.
+    // If it applied, record it and send nothing. If it may still apply, send
+    // nothing now and spend no retry; the row stays claimable for a later pass.
+    const settled = await settleOpenAttempt(submissionId);
+    if (settled.kind === "wait") {
+      throw new StellarPaymentError(
+        `[payout-service] submission ${submissionId} has an unsettled payout envelope (${settled.reason}); not before ${settled.until.toISOString()}`,
+        "attempt_unsettled",
+        true,
+      );
+    }
     let txHash: string;
-    try {
+    if (settled.kind === "paid") {
+      txHash = settled.hash;
+    } else try {
       txHash = await payReward(walletAddress, amount, {
         kind: "submission",
         id: submissionId,
@@ -291,6 +307,9 @@ export async function reprocessPayoutWithNonceSafety(submissionId: string): Prom
           where: { id: submissionId },
           data: { payoutStatus: "sent", payoutTxHash: txHash, lastRetriedAt: broadcastAt },
         });
+        // In the same write as the hash, so the attempt never reads settled
+        // while the submission still reads payable.
+        await confirmAttempt(txHash, tx);
         await tx.payoutJob.upsert({
           where: { submissionId },
           create: {

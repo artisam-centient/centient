@@ -19,6 +19,8 @@ const {
 
 vi.mock("@/lib/stellar/client", () => ({
   getTxStatus: mockGetTxStatus,
+  // #38's stranded-attempt revival reads it; covered in payout-attempt-revival-db.
+  latestLedgerCloseMs: vi.fn(async () => null),
 }));
 
 vi.mock("@sentry/nextjs", () => ({
