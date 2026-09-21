@@ -18,7 +18,7 @@ import OnboardingScreen from "@/components/OnboardingScreen";
 import DisputeForm from "@/components/DisputeForm";
 import { identify, track } from "@/lib/analytics";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
-import { isValidStellarAddress } from "@/lib/stellar/signature";
+import { sessionStep, type SessionMe } from "@/lib/contributor-session";
 
 const MIN_LOADING_MS = 1500;
 
@@ -117,6 +117,8 @@ export default function Home() {
   const [balance, setBalance] = useState("0");
   const [recentCredits, setRecentCredits] = useState<BalanceLedgerEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  // #35: a failed submission is announced beside the submit action, not only toasted.
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [submissionCount, setSubmissionCount] = useState(0);
   const [accountOpen, setAccountOpen] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -189,6 +191,10 @@ export default function Home() {
     }
   }, []);
 
+  /**
+   * Loads the next task for this session onto the ranking surface, clearing the
+   * previous task's submit error; with none left, shows no_tasks.
+   */
   const fetchTask = useCallback(async () => {
     const res = await fetch("/api/task");
     // #30: an account without a bound wallet is served no work until it claims one.
@@ -198,6 +204,7 @@ export default function Home() {
     }
     const data = await res.json();
     if (data.task) {
+      setSubmitError(null);
       setTask({
         id: data.task.id,
         prompt: data.task.prompt,
@@ -224,17 +231,11 @@ export default function Home() {
   const resolveSession = useCallback(async (): Promise<Screen> => {
     const res = await fetch("/api/auth/me");
     if (!res.ok) return "login";
-    const data = (await res.json()) as {
-      authenticated?: boolean;
-      userId?: string;
-      wallet?: string | null;
-    };
-    if (!data.authenticated) return "login";
-    if (data.userId) identify(data.userId);
-    // No wallet, or a legacy EVM `0x…` that can never receive USDC: claim one.
-    if (!data.wallet || !isValidStellarAddress(data.wallet)) return "claim_wallet";
-    setWallet(data.wallet);
-    return "payout_setup";
+    const data = (await res.json()) as SessionMe;
+    const next = sessionStep(data);
+    if (next.step !== "login" && data.userId) identify(data.userId);
+    if (next.step === "payout_setup") setWallet(next.wallet);
+    return next.step;
   }, []);
 
   useEffect(() => {
@@ -331,14 +332,17 @@ export default function Home() {
     fetchTask();
   }, [fetchTask]);
 
-  // Logging out clears the session cookie server-side; everything the signed-in
-  // session put in client state has to be dropped here too, or the next labeler
-  // to sign in on this tab would flash the previous one's wallet and balance.
+  /**
+   * Logging out clears the session cookie server-side; everything the signed-in
+   * session put in client state has to be dropped here too, or the next labeler
+   * to sign in on this tab would flash the previous one's wallet and balance.
+   */
   const handleLogout = useCallback(() => {
     sessionGeneration.current += 1;
     setAccountOpen(false);
     setWallet(null);
     setTask(null);
+    setSubmitError(null);
     setBalance("0");
     setRecentCredits([]);
     setSubmissionCount(0);
@@ -357,11 +361,17 @@ export default function Home() {
     track("onboarding_completed");
   }, []);
 
+  /**
+   * Submits a ranking. Outcomes that leave the task move to their screen; a
+   * failure stays on it as `submitError`, which TaskCard announces beside the
+   * submit action with the choice and reason kept for a retry.
+   */
   async function handleSubmit(choice: "A" | "B", reason: string) {
     if (!task) return;
     const generation = sessionGeneration.current;
     const loggedOutSince = () => sessionGeneration.current !== generation;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       let res: Response;
       try {
@@ -373,7 +383,7 @@ export default function Home() {
         });
       } catch (err) {
         console.error("[submit] network error", err);
-        showToast("Network error. Please check your connection and try again.", "error");
+        setSubmitError("Network error. Please check your connection and try again.");
         return;
       }
 
@@ -422,7 +432,7 @@ export default function Home() {
       }
 
       console.error("[submit] error response", { status: res.status, error: data.error });
-      showToast(submitErrorMessage(res.status, data.error), "error");
+      setSubmitError(submitErrorMessage(res.status, data.error));
     } finally {
       setSubmitting(false);
     }
@@ -493,7 +503,15 @@ export default function Home() {
           </div>
         </header>
         <main className="mx-auto max-w-lg px-4 py-6">
-          <TaskCard task={task} onSubmit={handleSubmit} loading={submitting} reward={task.rewardDisplay} tokenSymbol={task.rewardSymbol} />
+          <TaskCard
+            key={task.id}
+            task={task}
+            onSubmit={handleSubmit}
+            loading={submitting}
+            error={submitError}
+            reward={task.rewardDisplay}
+            tokenSymbol={task.rewardSymbol}
+          />
         </main>
         <AccountSheet
           open={accountOpen}
