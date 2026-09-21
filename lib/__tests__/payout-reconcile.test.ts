@@ -112,6 +112,14 @@ describe("reconcileSubmission", () => {
       }
     });
 
+    it("does not mistake a database error after Horizon answered for a read error", async () => {
+      mockGetTxStatus.mockResolvedValueOnce("confirmed");
+      mockSubUpdate.mockRejectedValueOnce(new Error("connection reset"));
+
+      await expect(reconcileSubmission("sub-7", TX)).rejects.toThrow("connection reset");
+      expect(mockSubUpdate).toHaveBeenCalledTimes(1);
+    });
+
     it("records the read error on the row", async () => {
       mockGetTxStatus.mockRejectedValueOnce(new Error("Horizon 503"));
 

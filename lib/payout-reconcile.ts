@@ -15,27 +15,11 @@ const READ_ERROR_ALERT_AFTER_MS = 15 * 60_000;
  * moves on Horizon's word.
  */
 export async function reconcileSubmission(id: string, txHash: string): Promise<void> {
+  // Horizon lookup (ST-1b) maps to three states: confirmed (successful tx),
+  // failed (tx included but op failed), or not_found (404 — not yet visible).
+  let status: Awaited<ReturnType<typeof getTxStatus>>;
   try {
-    // Horizon lookup (ST-1b) maps to three states: confirmed (successful tx),
-    // failed (tx included but op failed), or not_found (404 — not yet visible).
-    const status = await getTxStatus(txHash);
-
-    if (status === "confirmed") {
-      await prisma.submission.update({
-        where: { id },
-        data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
-      });
-      console.log(`[reconciler] confirmed submission ${id}`);
-    } else if (status === "failed") {
-      await handleSubmissionRetry(id, "transaction failed on Horizon");
-    } else {
-      // not_found: still pending. A submitted Stellar tx is only assigned a hash
-      // once included in a ledger (≈5s finality), so a 404 here is Horizon
-      // read-lag, not a drop. Leave the payout `sent` and re-check next pass —
-      // the loop's claim already refreshed lastRetriedAt — without burning a
-      // retry.
-      console.log(`[reconciler] submission ${id} not yet visible on Horizon — leaving sent`);
-    }
+    status = await getTxStatus(txHash);
   } catch (err: any) {
     // #40 D2: a read that throws (network, 5xx, a 400 on a malformed hash) says
     // nothing about the payment. The hash was broadcast and may have landed, so
@@ -47,6 +31,24 @@ export async function reconcileSubmission(id: string, txHash: string): Promise<v
       select: { createdAt: true },
     });
     alertIfStale("submission", id, row?.createdAt, message);
+    return;
+  }
+
+  if (status === "confirmed") {
+    await prisma.submission.update({
+      where: { id },
+      data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
+    });
+    console.log(`[reconciler] confirmed submission ${id}`);
+  } else if (status === "failed") {
+    await handleSubmissionRetry(id, "transaction failed on Horizon");
+  } else {
+    // not_found: still pending. A submitted Stellar tx is only assigned a hash
+    // once included in a ledger (≈5s finality), so a 404 here is Horizon
+    // read-lag, not a drop. Leave the payout `sent` and re-check next pass —
+    // the loop's claim already refreshed lastRetriedAt — without burning a
+    // retry.
+    console.log(`[reconciler] submission ${id} not yet visible on Horizon — leaving sent`);
   }
 }
 
