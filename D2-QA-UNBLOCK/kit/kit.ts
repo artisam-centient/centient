@@ -89,6 +89,9 @@ export async function signIn(kp: Keypair): Promise<{ cookie: string; userId: str
   if (v.status !== 200) throw new Error(`verify ${v.status} ${JSON.stringify(v.body)}`);
   const cookie = (v.headers["set-cookie"] ?? "").split(";")[0];
   const me = await call("GET", "/api/auth/me", { cookie });
+  if (me.status !== 200 || typeof me.body?.userId !== "string") {
+    throw new Error(`me ${me.status} ${JSON.stringify(me.body)}`);
+  }
   return { cookie, userId: me.body.userId };
 }
 
