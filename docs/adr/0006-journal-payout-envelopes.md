@@ -35,6 +35,11 @@ status of `open`, `confirmed` or `void`. A partial unique index allows **one
   - an absence proven past its time bounds.
 - An unprovable outcome stays `open`.
 - `payReward` journals every submission payout, so no caller can skip it.
+- Opening an attempt locks the submission row and refuses unless the row is
+  still payable (`pending`/`failed`, no hash). The one-open index alone would
+  let a payer that took its signatures early open a second envelope the moment
+  the first is confirmed. The lock serializes it with the write that records
+  the payment, so it sees that payment and stops.
 
 **Settle before building.** After taking the row claim, and before building
 anything, the worker and the retry path (and through it, admin retry) call
@@ -55,7 +60,8 @@ Confirming it first would let a crash in between leave a row with no hash and
 no open attempt, which reads as unpaid.
 
 **The co-signer refuses while an attempt is open.** `readLedgerPayout` returns
-the submission's open attempt, and `assertLedgerAgrees` refuses to sign. Both
+the submission's open attempt, read in the same SQL statement as the row so the
+two are one snapshot, and `assertLedgerAgrees` refuses to sign. Both
 signatures for an envelope are taken before its attempt opens, so a legitimate
 attempt is never refused. The migration grants the co-signer's read-only role
 (`centient_cosigner`) `SELECT` on `payout_attempts`, where that role exists.
