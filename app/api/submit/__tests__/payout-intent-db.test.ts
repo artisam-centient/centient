@@ -3,9 +3,10 @@
 // "Payout intent" is anything a payout could be hung off: a campaign debit
 // (`BalanceLedger` + `CampaignBalance`), a labeler credit (`UserBalanceLedger` +
 // `User.pendingBalanceUnits`), a `PayoutJob`, or a `Submission` that reads as
-// rewarded (a rewarded status or a non-zero amount). #37 turns the accepted
-// path into an instant payout, so a rejection that leaves any of these behind
-// would be paid. The debit and credit run for real here; only the rate limit
+// rewarded (a rewarded status or a non-zero amount). #37 made the accepted
+// path an instant payout — a pending row plus a SUBMISSION_PAYOUT job the
+// worker broadcasts — so a rejection that leaves any of these behind would be
+// paid. The debit and credit run for real here; only the rate limit
 // and the repetition check are stubbed, to trigger them deterministically.
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
@@ -128,24 +129,90 @@ async function errorOf(res: Response) {
 }
 
 describe("POST /api/submit — the accepted path creates payout intent", () => {
-  it("debits the campaign, credits the labeler, and writes an accrued submission", async () => {
+  /** The accepted row and every job hung off it. */
+  async function acceptedIntent(userId: string, taskId: string) {
+    const sub = await prisma.submission.findUniqueOrThrow({
+      where: { userId_taskId: { userId, taskId } },
+    });
+    const jobs = await prisma.payoutJob.findMany({ where: { submissionId: sub.id } });
+    return { sub, jobs };
+  }
+
+  it("debits the campaign, writes a pending submission, and queues exactly one payout job", async () => {
     const user = await createUser();
     const { campaign, task } = await fundedCampaignTask();
     const before = await payoutIntent(user.id, campaign.id);
 
     const res = await submit(user.id, task.id);
     expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("pending");
 
     const after = await payoutIntent(user.id, campaign.id);
     expect(after.campaignLedger).toBe(before.campaignLedger + 2);
-    expect(after.userLedger).toBe(before.userLedger + 1);
-    expect(after.pendingBalanceUnits).toBe(REWARD);
     expect(after.campaignBalanceUnits).toBe(FUNDED - REWARD - 1_500_000n);
-    const sub = await prisma.submission.findUniqueOrThrow({
-      where: { userId_taskId: { userId: user.id, taskId: task.id } },
-    });
-    expect(sub.payoutStatus).toBe("accrued");
+    // #37: paid on-chain by the worker, so no withdrawable credit as well.
+    expect(after.userLedger).toBe(before.userLedger);
+    expect(after.pendingBalanceUnits).toBe(before.pendingBalanceUnits);
+    expect(after.payoutJobs).toBe(before.payoutJobs + 1);
+
+    const { sub, jobs } = await acceptedIntent(user.id, task.id);
+    expect(sub.id).toBe(body.submissionId);
+    expect(sub.payoutStatus).toBe("pending");
     expect(sub.payoutAmountUnits).toBe(REWARD);
+    expect(sub.payoutTxHash).toBeNull();
+    expect(sub.walletAddress).toBe(user.walletAddress);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ type: "SUBMISSION_PAYOUT", status: "queued", txHash: null });
+  });
+
+  it("queues a platform-funded payout for a campaign-less task, with no debit", async () => {
+    const user = await createUser();
+    const { campaign } = await fundedCampaignTask();
+    // The live tester questions: no campaign, a per-task reward (0.25 USDC).
+    const task = await createTask({ campaignId: null });
+    await prisma.task.update({ where: { id: task.id }, data: { rewardUnits: REWARD } });
+    const before = await payoutIntent(user.id, campaign.id);
+
+    const res = await submit(user.id, task.id);
+    expect(res.status).toBe(200);
+
+    const after = await payoutIntent(user.id, campaign.id);
+    expect(after.campaignLedger).toBe(before.campaignLedger);
+    expect(after.campaignBalanceUnits).toBe(before.campaignBalanceUnits);
+    expect(after.pendingBalanceUnits).toBe(before.pendingBalanceUnits);
+    const { sub, jobs } = await acceptedIntent(user.id, task.id);
+    expect(sub.payoutStatus).toBe("pending");
+    expect(sub.payoutAmountUnits).toBe(REWARD);
+    expect(jobs).toHaveLength(1);
+  });
+
+  it("rolls back the debit and the row together when the job insert fails", async () => {
+    // A real database failure on the third write of the transaction, not a mock:
+    // proves the debit, the row, and the job are one unit.
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_refuse_payout_job() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'forced payout_jobs insert failure'; END;
+      $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_refuse_payout_job BEFORE INSERT ON "payout_jobs"
+      FOR EACH ROW EXECUTE FUNCTION test_refuse_payout_job()`);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const user = await createUser();
+      const { campaign, task } = await fundedCampaignTask();
+      const before = await payoutIntent(user.id, campaign.id);
+
+      const res = await submit(user.id, task.id);
+      expect(res.status).toBe(500);
+
+      expect(await payoutIntent(user.id, campaign.id)).toEqual(before);
+      expect(await prisma.submission.count({ where: { userId: user.id, taskId: task.id } })).toBe(0);
+    } finally {
+      error.mockRestore();
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS test_refuse_payout_job ON "payout_jobs"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS test_refuse_payout_job()`);
+    }
   });
 });
 
@@ -351,6 +418,19 @@ describe("POST /api/submit — every rejected path creates no payout intent", ()
     const res = await expectNoPayoutIntent(user.id, gold.id, campaign.id);
     expect(res.status).toBe(200);
     expect(await errorOf(res)).toBe("quality_check_failed");
+  });
+
+  it("passed gold check (#37: unpaid, revealed only after the answer)", async () => {
+    const user = await createUser();
+    const { campaign } = await fundedCampaignTask();
+    const gold = await createGoldTask("A");
+    const res = await expectNoPayoutIntent(user.id, gold.id, campaign.id);
+    expect(res.status).toBe(200);
+    expect(await errorOf(res)).toBe("quality_check_passed");
+    const row = await prisma.submission.findUniqueOrThrow({
+      where: { userId_taskId: { userId: user.id, taskId: gold.id } },
+    });
+    expect(row.goldPassed).toBe(true);
   });
 
   it("gold check during retest", async () => {

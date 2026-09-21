@@ -378,9 +378,9 @@ async function processSubmissionPayout(
   const amount = submission.payoutAmountUnits;
 
   // A submission with no linked wallet (email-only answerer, ST-5d) has no on-chain
-  // destination. New earnings accrue off-chain and are never enqueued here, so this
-  // legacy per-submission path only meets a wallet-less row defensively — fail it
-  // rather than attempt an unpayable transfer.
+  // destination. Submit refuses to accept an answer without a bound wallet (#30),
+  // so this path only meets a wallet-less row defensively — fail it rather than
+  // attempt an unpayable transfer.
   if (!walletAddress) {
     await prisma.$transaction([
       prisma.submission.update({
