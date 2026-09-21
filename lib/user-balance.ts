@@ -34,39 +34,6 @@ export interface WithdrawalResult {
   newBalanceUnits: bigint;
 }
 
-export async function creditReward(
-  userId: string,
-  amountUnits: bigint,
-  submissionId?: string,
-  note?: string,
-): Promise<bigint> {
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: userId },
-      data: { pendingBalanceUnits: { increment: amountUnits } },
-    });
-
-    const updated = await tx.user.findUnique({
-      where: { id: userId },
-      select: { pendingBalanceUnits: true },
-    });
-
-    await tx.userBalanceLedger.create({
-      data: {
-        userId,
-        type: "CREDIT_REWARD",
-        amountUnits,
-        submissionId: submissionId ?? null,
-        note: note ?? null,
-      },
-    });
-
-    return updated!.pendingBalanceUnits;
-  });
-
-  return result;
-}
-
 export async function debitForWithdrawal(
   userId: string,
   amountUnits: bigint,
