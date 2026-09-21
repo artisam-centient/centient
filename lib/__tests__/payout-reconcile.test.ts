@@ -17,7 +17,13 @@ const USDC = new Asset("USDC", Keypair.random().publicKey());
 const PAYOUT_ACCOUNT = Keypair.random().publicKey();
 const WALLET = Keypair.random().publicKey();
 
-vi.mock("@/lib/stellar/client", () => ({ lookupTx: mockLookupTx }));
+// getTxStatus and latestLedgerCloseMs are read when #38's attempts module
+// loads; nothing here calls them.
+vi.mock("@/lib/stellar/client", () => ({
+  lookupTx: mockLookupTx,
+  getTxStatus: vi.fn(),
+  latestLedgerCloseMs: vi.fn(),
+}));
 vi.mock("@/lib/stellar/payout-verify", () => ({ verifySettledPayout: mockVerify }));
 vi.mock("@/lib/stellar/config", () => ({ usdcAsset: () => USDC }));
 

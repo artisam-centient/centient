@@ -49,14 +49,15 @@ vi.mock("@/lib/stellar/client", async (importOriginal) => {
       const status = chain.get(hash);
       return status ? { status, envelopeXdr: envelopes.get(hash)! } : { status: "not_found" };
     }),
-    latestLedgerCloseMs: vi.fn(async () => Date.now()),
+    latestLedgerCloseMs: vi.fn(async () => Date.now() + 3_600_000),
   };
 });
 vi.mock("@/lib/stellar/balance", () => ({ checkAndAlert: vi.fn(async () => {}) }));
 vi.mock("@/lib/health-alert", () => ({ sendDedupedDiscordAlert: vi.fn(async () => "sent") }));
 vi.mock("@sentry/nextjs", () => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
 
-import { reconcileSubmission } from "@/lib/payout-reconcile";
+import { claimHeldPayment, reconcileSubmission, settleHeldPayment } from "@/lib/payout-reconcile";
+import { refundSubmissionDebit } from "@/lib/payout-refund";
 import { reprocessPayoutWithNonceSafety } from "@/lib/payout-service";
 import { POST as retryCron } from "@/app/api/cron/payout-retry/route";
 import { SUBMISSION_RETRY_BUDGET } from "@/lib/payout-retry-claim";
@@ -250,5 +251,152 @@ describe("a sent payout Horizon reports applied (#40 D4)", () => {
     expect(await totals(user.id)).toEqual({ submissionCount: 1, totalEarnedUnits: AMOUNT });
     await runRetryCron();
     expect(broadcasts).toEqual([hash]);
+  });
+});
+
+/**
+ * A payment Horizon accepted that could not be recorded (#73): quarantined as
+ * `needs_reconciliation` with its hash, its attempt still open, no job tuple and
+ * no totals credit, exactly as the worker's quarantine leaves it.
+ */
+async function held(opts: { retryCount?: number; attempt?: "open" | "confirmed" } = {}) {
+  const campaign = await createCampaign({ rewardUnits: AMOUNT });
+  await createCampaignBalance(campaign.id, 1_000_000_000n);
+  const user = await createUser({ walletAddress: Keypair.random().publicKey() });
+  const task = await createTask({ campaignId: campaign.id, prompt: `Held ${Math.random()}?` });
+  const hash = `held-${Math.random().toString(36).slice(2)}`;
+  const submission = await prisma.submission.create({
+    data: {
+      userId: user.id,
+      walletAddress: user.walletAddress,
+      taskId: task.id,
+      choice: "A",
+      reason: VALID_REASON,
+      payoutAmountUnits: AMOUNT,
+      payoutStatus: "needs_reconciliation",
+      payoutTxHash: hash,
+      retryCount: opts.retryCount ?? 0,
+      lastRetriedAt: LONG_AGO(),
+      createdAt: LONG_AGO(),
+    },
+  });
+  await prisma.payoutJob.create({
+    data: {
+      type: "SUBMISSION_PAYOUT",
+      submissionId: submission.id,
+      status: "failed",
+      lastError: "accepted payment needs manual reconciliation",
+    },
+  });
+  await prisma.payoutAttempt.create({
+    data: {
+      submissionId: submission.id,
+      envelopeHash: hash,
+      expiresAt: LONG_AGO(),
+      status: opts.attempt ?? "open",
+    },
+  });
+  chain.set(hash, "confirmed");
+  envelopes.set(hash, payoutEnvelope(user.walletAddress!, "0.2500000"));
+  return { submission, user, hash };
+}
+
+const attempt = (hash: string) => prisma.payoutAttempt.findUniqueOrThrow({ where: { envelopeHash: hash } });
+
+describe("a held payout, settled on proof only (#40 D5)", () => {
+  it("is confirmed when Horizon shows it applied as the submission owed, and credited once", async () => {
+    const { submission, user, hash } = await held();
+
+    await settleHeldPayment(submission.id, hash);
+    await settleHeldPayment(submission.id, hash);
+
+    expect(await row(submission.id)).toMatchObject({ payoutStatus: "confirmed", payoutTxHash: hash });
+    expect(await attempt(hash)).toMatchObject({ status: "confirmed" });
+    expect(await totals(user.id)).toEqual({ submissionCount: 1, totalEarnedUnits: AMOUNT });
+  });
+
+  it("stays held, marked, when what applied does not match; later passes leave it alone", async () => {
+    const { submission, user, hash } = await held();
+    envelopes.set(hash, payoutEnvelope(Keypair.random().publicKey(), "0.2500000"));
+
+    await settleHeldPayment(submission.id, hash);
+
+    const after = await row(submission.id);
+    expect(after).toMatchObject({ payoutStatus: "needs_reconciliation", payoutTxHash: hash });
+    expect(after.payoutError).toMatch(/^payout mismatch: .*destination/);
+    expect(await totals(user.id)).toEqual({ submissionCount: 0, totalEarnedUnits: 0n });
+    expect(await claimHeldPayment()).toBeNull();
+  });
+
+  it("is handed back when Horizon shows it included and failed, for exactly one replacement", async () => {
+    const { submission, user, hash } = await held();
+    chain.set(hash, "failed");
+
+    await settleHeldPayment(submission.id, hash);
+
+    expect(await row(submission.id)).toMatchObject({ payoutStatus: "failed", payoutTxHash: null, retryCount: 1 });
+    expect(await attempt(hash)).toMatchObject({ status: "void", outcome: "included and failed" });
+    // Its credit was never raised, so there is nothing to undo.
+    expect(await totals(user.id)).toEqual({ submissionCount: 0, totalEarnedUnits: 0n });
+
+    await runRetryCron();
+    await runRetryCron();
+    expect(broadcasts).toEqual(["envelope-1"]);
+    expect(await row(submission.id)).toMatchObject({ payoutStatus: "sent", payoutTxHash: "envelope-1" });
+    expect(await totals(user.id)).toEqual({ submissionCount: 1, totalEarnedUnits: AMOUNT });
+  });
+
+  it("is not handed back once its campaign debit was refunded", async () => {
+    const { submission, hash } = await held();
+    await refundSubmissionDebit(submission.id, AMOUNT, "refund: test");
+    chain.set(hash, "failed");
+
+    await settleHeldPayment(submission.id, hash);
+    await runRetryCron();
+
+    expect(await row(submission.id)).toMatchObject({ payoutStatus: "needs_reconciliation", payoutTxHash: hash });
+    expect(broadcasts).toEqual([]);
+  });
+
+  // Horizon accepted this envelope, so "absent" cannot mean "never paid": it
+  // means lost history, such as a testnet reset. Paying again on it would pay
+  // twice. It stays for a human, however long past its time bounds.
+  it("stays held when Horizon no longer shows it, even far past its time bounds", async () => {
+    const { submission, hash } = await held();
+    chain.delete(hash);
+
+    await settleHeldPayment(submission.id, hash);
+    await runRetryCron();
+
+    expect(await row(submission.id)).toMatchObject({ payoutStatus: "needs_reconciliation", payoutTxHash: hash });
+    expect(await attempt(hash)).toMatchObject({ status: "open" });
+    expect(broadcasts).toEqual([]);
+  });
+
+  it("stays held, untouched, on a Horizon read error", async () => {
+    const { submission, hash } = await held();
+    const { lookupTx } = await import("@/lib/stellar/client");
+    vi.mocked(lookupTx).mockRejectedValueOnce(Object.assign(new Error("Bad Request"), { response: { status: 400 } }));
+    const before = await row(submission.id);
+
+    await settleHeldPayment(submission.id, hash);
+
+    expect(await row(submission.id)).toEqual(before);
+  });
+});
+
+describe("claimHeldPayment", () => {
+  it("claims a held payout with a hash, then not again until its recheck interval passes", async () => {
+    const { submission, hash } = await held();
+
+    expect(await claimHeldPayment()).toEqual({ id: submission.id, payoutTxHash: hash });
+    expect(await claimHeldPayment()).toBeNull();
+  });
+
+  it("never claims a held payout with no hash to look up", async () => {
+    const { submission } = await held();
+    await prisma.submission.update({ where: { id: submission.id }, data: { payoutTxHash: null } });
+
+    expect(await claimHeldPayment()).toBeNull();
   });
 });

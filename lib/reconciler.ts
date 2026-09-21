@@ -5,7 +5,7 @@ import { getTxStatus } from "./stellar/client";
 import { checkAndAlert } from "./stellar/balance";
 import { refundReversal } from "./user-balance";
 import { reviveStrandedAttempts } from "./payout-attempt-revival";
-import { alertIfStale, reconcileSubmission } from "./payout-reconcile";
+import { alertIfStale, claimHeldPayment, reconcileSubmission, settleHeldPayment } from "./payout-reconcile";
 
 const STALE_PROCESSING_MS = 30_000;
 const POLL_IDLE_MS = 5_000;
@@ -141,6 +141,18 @@ export async function runReconcilerLoop(): Promise<void> {
         currentId = subClaim.id;
         try {
           await reconcileSubmission(subClaim.id, subClaim.payoutTxHash);
+        } finally {
+          currentId = null;
+        }
+        continue;
+      }
+
+      // #40 D5: payments Horizon accepted that could not be recorded, settled on proof.
+      const heldClaim = await claimHeldPayment();
+      if (heldClaim) {
+        currentId = heldClaim.id;
+        try {
+          await settleHeldPayment(heldClaim.id, heldClaim.payoutTxHash);
         } finally {
           currentId = null;
         }

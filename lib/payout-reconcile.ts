@@ -5,9 +5,28 @@ import { usdcAsset } from "./stellar/config";
 import { verifySettledPayout } from "./stellar/payout-verify";
 import { refundSubmissionDebit } from "./payout-refund";
 import { SUBMISSION_RETRY_BUDGET } from "./payout-retry-claim";
+import { confirmAttempt } from "./payout-attempts";
+import { hasRefundedSubmission } from "./campaign-balance";
 
 // #40 D2: a payout still unreadable this long after it was created is paged.
 const READ_ERROR_ALERT_AFTER_MS = 15 * 60_000;
+// #40 D5: how often a held payout is looked up again.
+const HELD_RECHECK_MS = 5 * 60_000;
+
+/**
+ * Leads the `payoutError` of a payout held because what applied on-chain does
+ * not match the submission (D4). Such a row stays held for a human: the
+ * reconciler never claims it again, and the reconcile report counts it.
+ */
+export const PAYOUT_MISMATCH = "payout mismatch:";
+
+/** Rows not already held for a mismatch. NULL is spelled out: `NOT LIKE` is not true of NULL. */
+const notMarkedMismatch = {
+  OR: [{ payoutError: null }, { NOT: { payoutError: { startsWith: PAYOUT_MISMATCH } } }],
+};
+
+/** The two states a payout with a broadcast hash can be settled from. */
+type SettledFrom = "sent" | "needs_reconciliation";
 
 /**
  * Settle one `sent` submission against Horizon's answer for its hash (#40).
@@ -38,9 +57,9 @@ export async function reconcileSubmission(id: string, txHash: string): Promise<v
   }
 
   if (lookup.status === "confirmed") {
-    await settleConfirmedPayment(id, txHash, lookup.envelopeXdr);
+    await settleConfirmedPayment(id, txHash, lookup.envelopeXdr, "sent");
   } else if (lookup.status === "failed") {
-    await handBackFailedPayment(id, txHash);
+    await handBackFailedPayment(id, txHash, "sent");
   } else {
     // not_found: still pending. A submitted Stellar tx is only assigned a hash
     // once included in a ledger (≈5s finality), so a 404 here is Horizon
@@ -58,12 +77,23 @@ export async function reconcileSubmission(id: string, txHash: string): Promise<v
  * as `needs_reconciliation` for a human, never confirmed.
  *
  * Without the payout account or USDC issuer configured there is nothing to hold
- * the envelope to, so nothing is confirmed: the row stays `sent` and pages.
+ * the envelope to, so nothing is confirmed: the row stays where it is and pages.
+ *
+ * A held row (D5) confirmed here was quarantined because the write recording it
+ * failed, so its attempt was never confirmed and the user's totals never
+ * raised; both land in the same write as its status. A held row whose envelope
+ * does not match already carries the credit from when it was `sent`, and it
+ * never reaches that write: it cannot match.
  */
-async function settleConfirmedPayment(id: string, txHash: string, envelopeXdr: string): Promise<void> {
+async function settleConfirmedPayment(
+  id: string,
+  txHash: string,
+  envelopeXdr: string,
+  from: SettledFrom,
+): Promise<void> {
   const sub = await prisma.submission.findUnique({
     where: { id },
-    select: { walletAddress: true, payoutAmountUnits: true },
+    select: { userId: true, walletAddress: true, payoutAmountUnits: true },
   });
   if (!sub) return;
 
@@ -76,7 +106,7 @@ async function settleConfirmedPayment(id: string, txHash: string, envelopeXdr: s
   } catch (err) {
     const message = `cannot verify payout ${txHash}: ${(err as Error).message}`;
     await prisma.submission.update({ where: { id }, data: { payoutError: message } });
-    console.error(`[reconciler] submission ${id}: ${message} — leaving it sent`);
+    console.error(`[reconciler] submission ${id}: ${message} — leaving it ${from}`);
     Sentry.captureMessage(`[reconciler] ${message}`, {
       level: "error",
       fingerprint: ["reconciler-cannot-verify"],
@@ -93,21 +123,36 @@ async function settleConfirmedPayment(id: string, txHash: string, envelopeXdr: s
       })
     : ({ ok: false, mismatches: ["submission has no bound wallet to check the destination against"] } as const);
 
-  // Both writes are conditional on the row still being `sent` under this hash,
-  // so a second reader of the same answer changes nothing.
-  const stillSent = { id, payoutStatus: "sent", payoutTxHash: txHash };
+  // Every write is conditional on the row still being where it was read, under
+  // this hash, so a second reader of the same answer changes nothing.
+  const unchanged = { id, payoutStatus: from, payoutTxHash: txHash };
   if (verdict.ok) {
-    await prisma.submission.updateMany({
-      where: stillSent,
-      data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
-    });
+    if (from === "sent") {
+      await prisma.submission.updateMany({
+        where: unchanged,
+        data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
+      });
+    } else {
+      await prisma.$transaction(async (tx) => {
+        const { count } = await tx.submission.updateMany({
+          where: unchanged,
+          data: { payoutStatus: "confirmed", payoutError: null, lastRetriedAt: new Date() },
+        });
+        if (count === 0) return;
+        await confirmAttempt(txHash, tx);
+        await tx.user.update({
+          where: { id: sub.userId },
+          data: { totalEarnedUnits: { increment: sub.payoutAmountUnits }, submissionCount: { increment: 1 } },
+        });
+      });
+    }
     console.log(`[reconciler] confirmed submission ${id}`);
     return;
   }
 
-  const reason = `payout ${txHash} applied but does not match the submission: ${verdict.mismatches.join("; ")}`;
+  const reason = `${PAYOUT_MISMATCH} ${txHash} applied but does not match the submission: ${verdict.mismatches.join("; ")}`;
   const { count } = await prisma.submission.updateMany({
-    where: stillSent,
+    where: from === "sent" ? unchanged : { ...unchanged, ...notMarkedMismatch },
     data: { payoutStatus: "needs_reconciliation", payoutError: reason },
   });
   if (count === 0) return;
@@ -130,19 +175,29 @@ const FAILED_ON_CHAIN = "included and failed";
  * every time would be rebuilt forever. On the last retry the payout is over, and
  * the campaign debit is returned the way the retry path returns it.
  *
- * Everything is conditional on the row still being `sent` under this hash, in
- * one transaction, so a second reader of the same failure changes nothing.
+ * A held row (D5) is handed back the same way, with two differences. Its
+ * credit was never raised, so there is none to undo. And a held row whose
+ * campaign debit was already refunded stays held: paying it now would pay with
+ * no funding behind it (#37).
+ *
+ * Everything is conditional on the row still being where it was read, under
+ * this hash, in one transaction, so a second reader of the same failure changes
+ * nothing.
  */
-async function handBackFailedPayment(id: string, txHash: string): Promise<void> {
+async function handBackFailedPayment(id: string, txHash: string, from: SettledFrom): Promise<void> {
   const handedBack = await prisma.$transaction(async (tx) => {
     const [sub] = await tx.$queryRaw<
       { userId: string; payoutAmountUnits: bigint; retryCount: number }[]
     >`
       SELECT "userId", "payoutAmountUnits", "retryCount" FROM "submissions"
-      WHERE "id" = ${id} AND "payoutStatus" = 'sent' AND "payoutTxHash" = ${txHash}
+      WHERE "id" = ${id} AND "payoutStatus" = ${from} AND "payoutTxHash" = ${txHash}
       FOR UPDATE
     `;
     if (!sub) return null;
+    if (from === "needs_reconciliation" && (await hasRefundedSubmission(tx, id))) {
+      console.warn(`[reconciler] held submission ${id}: ${FAILED_ON_CHAIN}, but already refunded — leaving it held`);
+      return null;
+    }
 
     const retryCount = sub.retryCount + 1;
     await tx.submission.update({
@@ -161,10 +216,12 @@ async function handBackFailedPayment(id: string, txHash: string): Promise<void> 
       data: { status: "void", outcome: FAILED_ON_CHAIN, resolvedAt: new Date() },
     });
     // Never below zero: a row whose credit write never landed has nothing to undo.
-    await tx.user.updateMany({
-      where: { id: sub.userId, totalEarnedUnits: { gte: sub.payoutAmountUnits }, submissionCount: { gt: 0 } },
-      data: { totalEarnedUnits: { decrement: sub.payoutAmountUnits }, submissionCount: { decrement: 1 } },
-    });
+    if (from === "sent") {
+      await tx.user.updateMany({
+        where: { id: sub.userId, totalEarnedUnits: { gte: sub.payoutAmountUnits }, submissionCount: { gt: 0 } },
+        data: { totalEarnedUnits: { decrement: sub.payoutAmountUnits }, submissionCount: { decrement: 1 } },
+      });
+    }
     await tx.payoutJob.updateMany({
       where: { submissionId: id, txHash },
       data: { status: "failed", lastError: `${FAILED_ON_CHAIN} on Horizon` },
@@ -179,6 +236,61 @@ async function handBackFailedPayment(id: string, txHash: string): Promise<void> 
   if (handedBack.retryCount >= SUBMISSION_RETRY_BUDGET) {
     await refundSubmissionDebit(id, handedBack.amount, "refund: payout failed on-chain with its retries spent");
   }
+}
+
+/**
+ * #40 D5: settle a held payout (`needs_reconciliation` with a hash) on proof
+ * only. Held rows are payments Horizon accepted that could not be recorded, so
+ * nothing here assumes they did not pay:
+ *
+ * - applied, and matching the submission (D4) → `confirmed`;
+ * - applied, not matching → stays held, marked `PAYOUT_MISMATCH`;
+ * - included and failed → handed back to the retry path (D3);
+ * - absent, or unreadable → stays held. Horizon accepted this envelope, so its
+ *   absence means lost history (a testnet reset, a pruned Horizon), not a
+ *   payment that never happened. Rebuilding on it would pay twice.
+ */
+export async function settleHeldPayment(id: string, txHash: string): Promise<void> {
+  let lookup: TxLookup;
+  try {
+    lookup = await lookupTx(txHash);
+  } catch (err: any) {
+    console.warn(`[reconciler] held submission ${id}: Horizon read failed (${err?.message ?? String(err)}) — leaving it held`);
+    return;
+  }
+
+  if (lookup.status === "confirmed") {
+    await settleConfirmedPayment(id, txHash, lookup.envelopeXdr, "needs_reconciliation");
+  } else if (lookup.status === "failed") {
+    await handBackFailedPayment(id, txHash, "needs_reconciliation");
+  } else {
+    console.warn(`[reconciler] held submission ${id}: ${txHash} not on Horizon — leaving it held for a human`);
+  }
+}
+
+/**
+ * Take the next held payout due a recheck, or null. A row held for a mismatch
+ * is never taken: what applied is known, and only a human can settle it. The
+ * lease is taken conditionally, so two reconcilers never take the same row.
+ */
+export async function claimHeldPayment(): Promise<{ id: string; payoutTxHash: string } | null> {
+  const dueBefore = new Date(Date.now() - HELD_RECHECK_MS);
+  const next = await prisma.submission.findFirst({
+    where: {
+      payoutStatus: "needs_reconciliation",
+      payoutTxHash: { not: null },
+      AND: [notMarkedMismatch, { OR: [{ lastRetriedAt: null }, { lastRetriedAt: { lt: dueBefore } }] }],
+    },
+    orderBy: { lastRetriedAt: { sort: "asc", nulls: "first" } },
+    select: { id: true, payoutTxHash: true, lastRetriedAt: true },
+  });
+  if (!next) return null;
+
+  const { count } = await prisma.submission.updateMany({
+    where: { id: next.id, payoutStatus: "needs_reconciliation", lastRetriedAt: next.lastRetriedAt },
+    data: { lastRetriedAt: new Date() },
+  });
+  return count === 1 ? { id: next.id, payoutTxHash: next.payoutTxHash! } : null;
 }
 
 export function alertIfStale(kind: string, id: string, createdAt: Date | undefined, message: string): void {
