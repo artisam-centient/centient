@@ -51,6 +51,11 @@ deploy.
 **D2: "Total earned" reads `totalEarnedUnits`, backfilled.**
 - The earnings badge, the landing and the account sheet read `/api/me`
   `totalEarned`.
+- The worker raises `totalEarnedUnits` only after it has paid, which is after
+  submit returns. After an accepted answer, the page polls that submission's
+  status in the background (`lib/payout-settle-watch.ts`) and refreshes
+  `/api/me` once it is `sent` or `confirmed`. Opening the account sheet also
+  refreshes it. The success screen still shows no payout progress.
 - Accrued answers never raised that column, nor `submissionCount`. Migration
   `20260921210000_legacy_earnings_backfill` adds each user's sum of `accrued`
   `payoutAmountUnits` to `totalEarnedUnits`, and their count of `accrued`

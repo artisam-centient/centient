@@ -19,6 +19,7 @@ import DisputeForm from "@/components/DisputeForm";
 import { identify, track } from "@/lib/analytics";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 import { sessionStep, type SessionMe } from "@/lib/contributor-session";
+import { waitForPayoutToSettle } from "@/lib/payout-settle-watch";
 
 const MIN_LOADING_MS = 1500;
 
@@ -166,6 +167,11 @@ export default function Home() {
     }
     return data;
   }, []);
+
+  // #39: the sheet shows earnings, which may have risen since the last refresh.
+  useEffect(() => {
+    if (accountOpen) fetchUserData().catch(() => {});
+  }, [accountOpen, fetchUserData]);
 
   /**
    * Loads the next task for this session onto the ranking surface, clearing the
@@ -400,10 +406,17 @@ export default function Home() {
 
       if (data.status === "pending") {
         // #37: the approved answer is queued for an on-chain payout. Refresh the
-        // profile; its status is read from the account sheet, not polled here.
+        // profile; its status is read from the account sheet, not shown here.
         await fetchUserData();
         if (loggedOutSince()) return;
         setScreen("success");
+        // #39: earnings rise only once the worker has paid, after this returns.
+        // Refresh them when it has, so the last answer of a session is counted.
+        if (typeof data.submissionId === "string") {
+          void waitForPayoutToSettle(data.submissionId, { isCancelled: loggedOutSince }).then((paid) => {
+            if (paid && !loggedOutSince()) fetchUserData().catch(() => {});
+          });
+        }
         track("submission_approved", {
           task_id: task.id,
           choice,
