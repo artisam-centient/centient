@@ -90,7 +90,8 @@ contributor's submission.
 - **The retry claim's residual is unchanged.** The claim is a lease with a
   best-effort heartbeat. A process that dies mid-broadcast lets the lease
   expire without a stored hash. Closing that needs the envelope hash persisted
-  before submit, which is #38's state-machine change.
+  before submit, which is #38's state-machine change. **Closed by
+  [ADR-0006](0006-journal-payout-envelopes.md)** (#38).
 - **Earnings display.** The earnings badge and account sheet still show the
   withdrawable balance, which instant payouts no longer grow. Switching them to
   `totalEarnedUnits` would under-report earnings accrued before #37, which never
