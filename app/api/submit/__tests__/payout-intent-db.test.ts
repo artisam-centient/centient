@@ -216,6 +216,24 @@ describe("POST /api/submit — the accepted path creates payout intent", () => {
   });
 });
 
+describe("POST /api/submit — a repeated request converges (#38)", () => {
+  it("answers a concurrent duplicate 409 already_submitted, with one debit and one job", async () => {
+    const user = await createUser();
+    const { campaign, task } = await fundedCampaignTask();
+
+    const responses = await Promise.all(Array.from({ length: 4 }, () => submit(user.id, task.id)));
+
+    const statuses = responses.map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 409, 409, 409]);
+    for (const res of responses.filter((r) => r.status === 409)) {
+      expect(await errorOf(res)).toBe("already_submitted");
+    }
+    expect(await prisma.submission.count({ where: { userId: user.id, taskId: task.id } })).toBe(1);
+    expect(await prisma.payoutJob.count()).toBe(1);
+    expect(await prisma.balanceLedger.count({ where: { campaignId: campaign.id, type: "DEBIT_REWARD" } })).toBe(1);
+  });
+});
+
 describe("POST /api/submit — every rejected path creates no payout intent", () => {
   it("spam reason", async () => {
     const user = await createUser();

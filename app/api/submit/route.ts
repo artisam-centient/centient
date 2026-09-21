@@ -390,6 +390,13 @@ export async function POST(req: NextRequest) {
       submissionId: submission.id,
     });
   } catch (err) {
+    // #38: a repeated request converges. Two concurrent submits for one task can
+    // both pass the `existing` check above; the second then hits
+    // `@@unique([userId, taskId])`, its transaction rolls back (no debit, no row,
+    // no job), and it gets the same answer a sequential duplicate does.
+    if ((err as { code?: string } | null)?.code === "P2002") {
+      return errorResponse("already_submitted", 409, { userId, taskId });
+    }
     console.error("[submit] UNHANDLED ERROR:", err);
     Sentry.captureException(err, {
       extra: { userId, taskId },
