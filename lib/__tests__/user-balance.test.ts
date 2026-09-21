@@ -7,7 +7,7 @@ import {
   getUserPendingBalance,
   enqueueWithdrawal,
   InsufficientUserBalanceError,
-  BelowMinimumWithdrawalError,
+  NoBalanceToWithdrawError,
   WithdrawalInFlightError,
 } from "@/lib/user-balance";
 
@@ -167,12 +167,11 @@ describe("ledger completeness", () => {
 
 describe("enqueueWithdrawal", () => {
   const DEST = "0x000000000000000000000000000000000000dEaD";
-  const MIN = 1000000000000000000n; // 1 token
 
   it("creates a single WITHDRAWAL PayoutJob for the full balance and zeroes it", async () => {
     const user = await createUser({ pendingBalanceUnits: 5000000000000000000n });
 
-    const result = await enqueueWithdrawal(user.id, DEST, MIN);
+    const result = await enqueueWithdrawal(user.id, DEST);
 
     expect(result.amountUnits).toBe(5000000000000000000n);
     expect(result.newBalanceUnits).toBe(0n);
@@ -195,45 +194,34 @@ describe("enqueueWithdrawal", () => {
     expect(withdrawals[0].amountUnits).toBe(5000000000000000000n);
   });
 
-  it("throws BelowMinimumWithdrawalError and changes nothing when balance < minimum", async () => {
-    const user = await createUser({ pendingBalanceUnits: 500000000000000000n });
+  it("throws NoBalanceToWithdrawError and changes nothing when the balance is zero", async () => {
+    const user = await createUser({ pendingBalanceUnits: 0n });
 
-    await expect(enqueueWithdrawal(user.id, DEST, MIN)).rejects.toThrow(
-      BelowMinimumWithdrawalError,
-    );
+    await expect(enqueueWithdrawal(user.id, DEST)).rejects.toThrow(NoBalanceToWithdrawError);
 
-    const updated = await prisma.user.findUnique({ where: { id: user.id } });
-    expect(updated?.pendingBalanceUnits).toBe(500000000000000000n);
     expect(await prisma.payoutJob.count({ where: { userId: user.id } })).toBe(0);
     expect(await prisma.userBalanceLedger.count({ where: { userId: user.id } })).toBe(0);
   });
 
-  it("throws BelowMinimumWithdrawalError when the balance is zero", async () => {
-    const user = await createUser({ pendingBalanceUnits: 0n });
+  // #39: no minimum applies to a legacy balance; a single unit is still owed.
+  it("withdraws a balance of a single unit", async () => {
+    const user = await createUser({ pendingBalanceUnits: 1n });
 
-    await expect(enqueueWithdrawal(user.id, DEST, MIN)).rejects.toThrow(
-      BelowMinimumWithdrawalError,
-    );
-  });
+    const result = await enqueueWithdrawal(user.id, DEST);
 
-  it("succeeds when balance exactly equals the minimum", async () => {
-    const user = await createUser({ pendingBalanceUnits: MIN });
-
-    const result = await enqueueWithdrawal(user.id, DEST, MIN);
-
-    expect(result.amountUnits).toBe(MIN);
+    expect(result.amountUnits).toBe(1n);
     expect(result.newBalanceUnits).toBe(0n);
   });
 
   it("throws WithdrawalInFlightError when a withdrawal is already queued", async () => {
     const user = await createUser({ pendingBalanceUnits: 5000000000000000000n });
-    await enqueueWithdrawal(user.id, DEST, MIN);
+    await enqueueWithdrawal(user.id, DEST);
 
-    // Top the balance back up so the second request passes the minimum check and
+    // Top the balance back up so the second request passes the balance check and
     // is only stopped by the one-in-flight guard.
     await createUserBalance(user.id, 5000000000000000000n);
 
-    await expect(enqueueWithdrawal(user.id, DEST, MIN)).rejects.toThrow(
+    await expect(enqueueWithdrawal(user.id, DEST)).rejects.toThrow(
       WithdrawalInFlightError,
     );
 
@@ -247,8 +235,8 @@ describe("enqueueWithdrawal", () => {
     const user = await createUser({ pendingBalanceUnits: 5000000000000000000n });
 
     const results = await Promise.allSettled([
-      enqueueWithdrawal(user.id, DEST, MIN),
-      enqueueWithdrawal(user.id, DEST, MIN),
+      enqueueWithdrawal(user.id, DEST),
+      enqueueWithdrawal(user.id, DEST),
     ]);
 
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);

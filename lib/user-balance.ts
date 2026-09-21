@@ -11,13 +11,10 @@ export class InsufficientUserBalanceError extends Error {
   }
 }
 
-export class BelowMinimumWithdrawalError extends Error {
-  constructor(
-    public readonly balanceUnits: bigint,
-    public readonly minimumUnits: bigint,
-  ) {
-    super(`Withdrawal below minimum: balance ${balanceUnits}, minimum ${minimumUnits}`);
-    this.name = "BelowMinimumWithdrawalError";
+export class NoBalanceToWithdrawError extends Error {
+  constructor(public readonly balanceUnits: bigint) {
+    super(`Nothing to withdraw: balance ${balanceUnits}`);
+    this.name = "NoBalanceToWithdrawError";
   }
 }
 
@@ -113,11 +110,15 @@ export async function refundReversal(
 }
 
 /**
- * Atomically converts a user's full accumulated balance into a single queued
- * lump-sum `PayoutJob` (the "one payout" of the withdrawal flow).
+ * Atomically converts a user's full legacy balance into a single queued lump-sum
+ * `PayoutJob` (the "one payout" of the withdrawal flow).
+ *
+ * #39: nothing accrues any more, so every balance this sees predates instant
+ * payout, and it is withdrawn whatever its size — the old minimum would have
+ * stranded most of them (ADR-0007).
  *
  * The whole thing runs in one transaction: the user row is locked `FOR UPDATE`,
- * the balance is checked against `minimumUnits`, decremented, a `WITHDRAWAL` ledger
+ * the balance is checked to be non-zero, decremented, a `WITHDRAWAL` ledger
  * row is written, and the `PayoutJob` is created. Because it is one transaction,
  * a failure at any step (including the one-in-flight unique index) rolls back the
  * decrement, so funds can never be debited without a job to pay them out.
@@ -127,13 +128,12 @@ export async function refundReversal(
  * guarantees at most one queued/processing withdrawal per user — together these
  * make double-spend impossible.
  *
- * @throws {BelowMinimumWithdrawalError} balance is below `minimumUnits` (or zero).
+ * @throws {NoBalanceToWithdrawError} the balance is zero.
  * @throws {WithdrawalInFlightError} the user already has a withdrawal in flight.
  */
 export async function enqueueWithdrawal(
   userId: string,
   destinationAddress: string,
-  minimumUnits: bigint,
 ): Promise<WithdrawalResult> {
   try {
     return await prisma.$transaction(async (tx) => {
@@ -145,8 +145,8 @@ export async function enqueueWithdrawal(
 
       const balance = locked[0]?.pendingBalanceUnits ?? 0n;
 
-      if (balance <= 0n || balance < minimumUnits) {
-        throw new BelowMinimumWithdrawalError(balance, minimumUnits);
+      if (balance <= 0n) {
+        throw new NoBalanceToWithdrawError(balance);
       }
 
       // Withdraw the entire accumulated balance as one lump sum.
