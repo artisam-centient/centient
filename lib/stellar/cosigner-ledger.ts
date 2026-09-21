@@ -24,6 +24,12 @@ export interface LedgerPayout {
   status: string;
   /** Non-null once Horizon accepted a payment for this row. */
   txHash: string | null;
+  /**
+   * #38: the hash of an envelope already signed for this row whose fate is not
+   * yet settled — it may still land. Always null for a payout job, which is
+   * not journalled.
+   */
+  openAttemptHash: string | null;
   /** Where the *ledger* says to pay — never where the request says. */
   destination: string | null;
   amountUnits: bigint | null;
@@ -72,6 +78,14 @@ export function assertLedgerAgrees(
       `payout co-signer: ${kind} ${id} already carries broadcast hash ${row.txHash} — refusing to sign a second payment for it`,
     );
   }
+  // #38: an envelope signed earlier may still land. Until the payer settles it
+  // by its hash, a new signature would be a second payment in waiting — the
+  // double-pay a process killed mid-broadcast used to leave behind.
+  if (row.openAttemptHash) {
+    throw new Error(
+      `payout co-signer: ${kind} ${id} has an unsettled envelope ${row.openAttemptHash} — refusing to sign another until it is settled`,
+    );
+  }
   if (!SIGNABLE_STATUSES[kind].includes(row.status)) {
     throw new Error(
       `payout co-signer: ${kind} ${id} has status "${row.status}", which is not signable (expected one of ${SIGNABLE_STATUSES[kind].join(", ")})`,
@@ -106,6 +120,12 @@ export function assertLedgerAgrees(
  * instead of the instance is what lets the two stay separate.
  */
 export interface LedgerReader {
+  payoutAttempt: {
+    findFirst(args: {
+      where: { submissionId: string; status: "open" };
+      select: { envelopeHash: true };
+    }): Promise<{ envelopeHash: string } | null>;
+  };
   submission: {
     findUnique(args: {
       where: { id: string };
@@ -160,11 +180,16 @@ export async function readLedgerPayout(
       },
     });
     if (!row) return null;
+    const open = await client.payoutAttempt.findFirst({
+      where: { submissionId: reference.id, status: "open" },
+      select: { envelopeHash: true },
+    });
     return {
       kind: "submission",
       id: reference.id,
       status: row.payoutStatus,
       txHash: row.payoutTxHash,
+      openAttemptHash: open?.envelopeHash ?? null,
       destination: row.walletAddress,
       amountUnits: row.payoutAmountUnits,
     };
@@ -180,6 +205,7 @@ export async function readLedgerPayout(
     id: reference.id,
     status: row.status,
     txHash: row.txHash,
+    openAttemptHash: null,
     destination: row.destinationAddress,
     amountUnits: row.amountUnits,
   };

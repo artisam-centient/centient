@@ -23,6 +23,7 @@ function submissionRow(overrides: Partial<LedgerPayout> = {}): LedgerPayout {
     id: "sub-1",
     status: "pending",
     txHash: null,
+    openAttemptHash: null,
     destination,
     amountUnits,
     ...overrides,
@@ -35,6 +36,7 @@ function payoutJobRow(overrides: Partial<LedgerPayout> = {}): LedgerPayout {
     id: "job-1",
     status: "queued",
     txHash: null,
+    openAttemptHash: null,
     destination,
     amountUnits,
     ...overrides,
@@ -78,6 +80,18 @@ describe("assertLedgerAgrees", () => {
     expect(() => assertLedgerAgrees(submissionRow({ txHash: "abc123" }), request())).toThrow(
       /already/i,
     );
+  });
+
+  it("refuses a submission with an unsettled envelope, which may still land (#38)", () => {
+    expect(() =>
+      assertLedgerAgrees(submissionRow({ openAttemptHash: "e".repeat(64) }), request()),
+    ).toThrow(/unsettled envelope/);
+  });
+
+  it("refuses an unsettled envelope even on a failed row the retry path may re-sign (#38)", () => {
+    expect(() =>
+      assertLedgerAgrees(submissionRow({ status: "failed", openAttemptHash: "e".repeat(64) }), request()),
+    ).toThrow(/unsettled envelope/);
   });
 
   it("refuses a submission already in a terminal payout state", () => {

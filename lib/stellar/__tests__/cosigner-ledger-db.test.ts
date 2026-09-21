@@ -35,6 +35,7 @@ describe("readLedgerPayout", () => {
       id: submission.id,
       status: "pending",
       txHash: null,
+      openAttemptHash: null,
       destination: submission.walletAddress,
       amountUnits: 25_000_000n,
     });
@@ -59,6 +60,7 @@ describe("readLedgerPayout", () => {
       id: job.id,
       status: "queued",
       txHash: null,
+      openAttemptHash: null,
       destination: user.walletAddress,
       amountUnits: 500_000_000n,
     });
@@ -75,6 +77,20 @@ describe("readLedgerPayout", () => {
 
     expect(row?.txHash).toBe("already-broadcast");
     expect(row?.status).toBe("sent");
+  });
+
+  it("carries a submission's open envelope through, and only an open one (#38)", async () => {
+    const submission = await seedPendingSubmission();
+    const expiresAt = new Date(Date.now() + 180_000);
+    await prisma.payoutAttempt.create({
+      data: { submissionId: submission.id, envelopeHash: "a".repeat(64), expiresAt, status: "void" },
+    });
+    expect((await readLedgerPayout(prisma, { kind: "submission", id: submission.id }))?.openAttemptHash).toBeNull();
+
+    await prisma.payoutAttempt.create({ data: { submissionId: submission.id, envelopeHash: "b".repeat(64), expiresAt } });
+
+    const row = await readLedgerPayout(prisma, { kind: "submission", id: submission.id });
+    expect(row?.openAttemptHash).toBe("b".repeat(64));
   });
 
   it("returns null for a reference the ledger has no row for", async () => {
