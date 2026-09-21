@@ -35,7 +35,6 @@ export const PAYMENTS_LANE_TEST_GLOBS = [
   "app/api/me/withdraw/__tests__/*.test.ts",
   "app/api/me/wallet/sponsor/__tests__/*.test.ts",
   "app/api/cron/payout-retry/__tests__/*.test.ts",
-  "app/api/cron/payout-reconcile/__tests__/*.test.ts",
   "app/api/cron/reserve-refill/__tests__/*.test.ts",
   "app/api/cron/wallet-health/__tests__/*.test.ts",
   "app/api/health/wallet/__tests__/*.test.ts",

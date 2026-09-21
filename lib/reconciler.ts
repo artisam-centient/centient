@@ -5,13 +5,12 @@ import { getTxStatus } from "./stellar/client";
 import { checkAndAlert } from "./stellar/balance";
 import { refundReversal } from "./user-balance";
 import { reviveStrandedAttempts } from "./payout-attempt-revival";
+import { alertIfStale, reconcileSubmission } from "./payout-reconcile";
 
 const STALE_PROCESSING_MS = 30_000;
 const POLL_IDLE_MS = 5_000;
 const MAX_RETRIES = 3;
 const BATCH_SIZE = 50;
-// #40 D2: a payout still unreadable this long after it was created is paged.
-const READ_ERROR_ALERT_AFTER_MS = 15 * 60_000;
 
 let shouldStop = false;
 let currentId: string | null = null;
@@ -43,68 +42,6 @@ async function claimNextSubmission(): Promise<{ id: string; payoutTxHash: string
   });
   return { id: first.id, payoutTxHash: first.payoutTxHash! };
 }
-
-export async function processSubmission(id: string, txHash: string): Promise<void> {
-  currentId = id;
-
-  try {
-    // Horizon lookup (ST-1b) maps to three states: confirmed (successful tx),
-    // failed (tx included but op failed), or not_found (404 — not yet visible).
-    const status = await getTxStatus(txHash);
-
-    if (status === "confirmed") {
-      await prisma.submission.update({
-        where: { id },
-        data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
-      });
-      console.log(`[reconciler] confirmed submission ${id}`);
-    } else if (status === "failed") {
-      await handleSubmissionRetry(id, "transaction failed on Horizon");
-    } else {
-      // not_found: still pending. A submitted Stellar tx is only assigned a hash
-      // once included in a ledger (≈5s finality), so a 404 here is Horizon
-      // read-lag, not a drop. Leave the payout `sent` and re-check next pass —
-      // claimNextSubmission already refreshed lastRetriedAt — without burning a
-      // retry.
-      console.log(`[reconciler] submission ${id} not yet visible on Horizon — leaving sent`);
-    }
-  } catch (err: any) {
-    // #40 D2: a read that throws (network, 5xx, a 400 on a malformed hash) says
-    // nothing about the payment. The hash was broadcast and may have landed, so
-    // neither the status nor the retry budget moves; only Horizon's answer may.
-    const message = `Horizon read failed: ${err?.message ?? String(err)}`;
-    const row = await prisma.submission.update({
-      where: { id },
-      data: { payoutError: message },
-      select: { createdAt: true },
-    });
-    alertIfStale("submission", id, row?.createdAt, message);
-  } finally {
-    currentId = null;
-  }
-}
-
-async function handleSubmissionRetry(id: string, reason: string): Promise<void> {
-  const sub = await prisma.submission.findUnique({ where: { id } });
-  if (!sub) return;
-
-  const newCount = (sub.retryCount ?? 0) + 1;
-  if (newCount >= MAX_RETRIES) {
-    await prisma.submission.update({
-      where: { id },
-      data: { payoutStatus: "failed", retryCount: newCount, lastRetriedAt: new Date() },
-    });
-    console.warn(`[reconciler] submission ${id} marked failed after ${MAX_RETRIES} retries: ${reason}`);
-    Sentry.captureMessage(`[reconciler] submission ${id} failed: ${reason}`, { level: "warning" });
-  } else {
-    await prisma.submission.update({
-      where: { id },
-      data: { retryCount: newCount, lastRetriedAt: new Date() },
-    });
-    console.log(`[reconciler] submission ${id} retry ${newCount}/${MAX_RETRIES}: ${reason}`);
-  }
-}
-
 
 async function claimNextWithdrawal(): Promise<{ id: string; txHash: string; userId: string; amountUnits: bigint } | null> {
   const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS);
@@ -194,16 +131,6 @@ async function handleWithdrawalRetry(id: string, userId: string, amountUnits: bi
   }
 }
 
-function alertIfStale(kind: string, id: string, createdAt: Date | undefined, message: string): void {
-  console.warn(`[reconciler] ${kind} ${id}: ${message} — leaving it for the next pass`);
-  if (!createdAt || Date.now() - createdAt.getTime() < READ_ERROR_ALERT_AFTER_MS) return;
-  Sentry.captureMessage(`[reconciler] ${kind} ${id} still unreadable on Horizon`, {
-    level: "warning",
-    fingerprint: ["reconciler-read-error", kind, id],
-    extra: { message },
-  });
-}
-
 export async function runReconcilerLoop(): Promise<void> {
   console.log("[reconciler] starting loop");
 
@@ -211,7 +138,12 @@ export async function runReconcilerLoop(): Promise<void> {
     try {
       const subClaim = await claimNextSubmission();
       if (subClaim) {
-        await processSubmission(subClaim.id, subClaim.payoutTxHash);
+        currentId = subClaim.id;
+        try {
+          await reconcileSubmission(subClaim.id, subClaim.payoutTxHash);
+        } finally {
+          currentId = null;
+        }
         continue;
       }
 
