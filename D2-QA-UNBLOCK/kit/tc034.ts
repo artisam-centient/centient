@@ -19,6 +19,10 @@ import { byFixture, snapshot } from "./reclaim-view";
     columns: Object.keys(run),
   };
 
+  // scan.stellarAccountIds records every G... in the stored row, which includes the
+  // sponsor's own key from the `sponsor` column. Only contributor keys matter here.
+  const contributorAccountIds = (scan.stellarAccountIds as string[]).filter((g) => g !== run.sponsor);
+
   const before = await snapshot(db);
   const second = execFileSync("npx", ["tsx", "scripts/stellar-sponsorship-reclaim.ts", "execute", "--network=testnet"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   const p = require("node:path").resolve(__dirname, "../../exec2.json");
@@ -27,7 +31,7 @@ import { byFixture, snapshot } from "./reclaim-view";
   const r2 = byFixture(p);
 
   evidence("034", "E034-2-report-and-second-run.json", {
-    step1_storedReport: { runId: run.id, scan, expect: "0 account ids, 0 seeds, 0 user ids", sample: stored.slice(0, 1500) },
+    step1_storedReport: { runId: run.id, scan, contributorAccountIds, sponsorKeyPresent: (scan.stellarAccountIds as string[]).includes(run.sponsor), expect: "0 seeds, 0 user ids, 0 CONTRIBUTOR account ids; the platform sponsor's own key may appear (run.sponsor column, by design)", sample: stored.slice(0, 1500) },
     step2_secondExecute: {
       expect: "sends nothing",
       sponsorSequence: { before: before.sponsorSequence, after: after.sponsorSequence },
