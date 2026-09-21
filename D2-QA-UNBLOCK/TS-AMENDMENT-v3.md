@@ -19,7 +19,9 @@
 
 ## TSA-01 — Proxy-supplied `x-real-ip`: the header-absent branch can't be reached on the deployment
 
-**Finding.** Railway's proxy sets `x-real-ip` on every inbound request and overwrites any value the client sends. Proof (E023-3.1): 20 challenges claiming IP `198.51.100.10`, then a 21st claiming `198.51.100.20` → still **429**. A client can neither remove nor change the header, so the app's "skip the per-IP throttle without a proxy-supplied IP" branch (`app/api/auth/wallet/challenge/route.ts:43`) never runs for outside traffic. The branch is verified in the build lane: `route.test.ts › skips the per-IP throttle without a proxy-supplied IP, rather than pooling every caller` passed at `8f660cc`.
+**Finding.** Railway's proxy sets `x-real-ip` on every inbound request and overwrites any value the client sends. Proof (E023-3.1): 20 challenges claiming IP `198.51.100.10`, then a 21st claiming `198.51.100.20` → still **429**. A client can neither remove nor change the header, so the app's "skip the per-IP throttle without a proxy-supplied IP" branch (`app/api/auth/wallet/challenge/route.ts:43`) never runs for outside traffic.
+
+**Evidence boundary.** E023-3.1 as recorded proves only the *changed*-header half: every request in it supplied an `x-real-ip`. The *omitted*-header half is carried by the lane-of-record test named below, not by that run. `kit/tc023.ts` has since been extended to send a header-less request, so re-running it evidences both halves live. The branch is verified in the build lane: `route.test.ts › skips the per-IP throttle without a proxy-supplied IP, rather than pooling every caller` passed at `8f660cc`.
 
 **§7 step 2** — replace "no IP throttle when `x-real-ip` is absent (the address throttle still applies)" with:
 > On the Railway deployment the proxy supplies `x-real-ip` for every request and a client value is ignored, so both throttles always apply. Without a proxy-supplied IP (non-proxied deployments only) the per-IP throttle is skipped and the address throttle still applies — verified in the build lane, not reachable from outside staging.

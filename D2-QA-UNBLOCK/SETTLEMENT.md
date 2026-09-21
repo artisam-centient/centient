@@ -36,7 +36,9 @@ Evidence lives in `D2-QA-UNBLOCK/evidence/<tc>/`. Every file was scanned: no see
 
 ## D2-TC-023 — FAIL → PASS on deployed behaviour (test-design correction)
 
-**New evidence (E023-3.1-spoofed-x-real-ip.json).** 20 challenges sent with `x-real-ip: 198.51.100.10`, then a 21st with a *different* claimed IP, `198.51.100.20`. That 21st request still answered **429**. The client's `x-real-ip` never reaches the app: Railway's proxy overwrites it on every request. Two consequences:
+**New evidence (E023-3.1-spoofed-x-real-ip.json).** 20 challenges sent with `x-real-ip: 198.51.100.10`, then a 21st with a *different* claimed IP, `198.51.100.20`. That 21st request still answered **429**.
+
+**What that run does and does not prove.** It proves a client cannot *choose* its own bucket by changing the header. It does **not**, on its own, prove what happens when the header is *absent*, because every request in the run carried one — and the absent-header branch is precisely what TSA-01 speaks to. That half rests on the lane-of-record test (`route.test.ts › skips the per-IP throttle without a proxy-supplied IP`) rather than on this live run. `kit/tc023.ts` now sends a final request with the header omitted, so a re-run closes the gap directly. The client's `x-real-ip` never reaches the app: Railway's proxy overwrites it on every request. Two consequences:
 
 1. In QA's step 1, the `203.0.113.77` header had no effect either. All 21 requests counted against QA's real IP. The 429 was still correct.
 2. The step 2 expectation ("no IP throttle when the header is absent") describes a code branch (`challenge/route.ts:43`) that no request from outside can reach. That branch is proven in the build lane of record: `route.test.ts › skips the per-IP throttle without a proxy-supplied IP` passed at `8f660cc` ([build log](https://github.com/webnxt-2030/Centient/actions/runs/35189732179/job/105099431092)).
@@ -70,8 +72,10 @@ No offered XDR was signed. One note for the record: while an own pending row is 
 
 **Horizon-timeout class.** Timing out Horizon for the shared `web` service would break onboarding for live testers and needs a redeploy. Instead, the deployed route code (worktree at `8f660cc`) ran in-process against the staging DB. Its `STELLAR_HORIZON_URL` pointed at a local proxy that forwards every Horizon call to testnet, except `POST /transactions`, which gets Horizon's own `504 Timeout` problem response. Sign-in used the real deployed endpoints. (E029-1)
 
+**Scope of this evidence.** This is **commit-level in-process integration evidence, not deployed-route evidence.** It proves the route code at `8f660cc` behaves as described against the staging database. It does **not** establish that the deployed `web` service ran that same code, with the same environment variables, or that Railway's own egress to Horizon behaves like the local proxy. Those three properties remain unverified for this case, and the lane of record plus the deployment SHA are what carry them.
+
 - Submit → **202 `{established:false, pending:true}`**, row `pending`.
-- 5 polls over the 180 s envelope window: resubmitting the same envelope gave **202 every time**. Building another gave **409 `submission_pending`** while the envelope was live (the contributor is never asked to sign twice), and a fresh envelope only once it had expired. F1 was **404 on-chain** throughout.
+- 5 polls, of which **4 fall inside the 180 s envelope window and the 5th is 27.7 s past expiry** (expiry `02:48:50.000Z`, poll `02:49:17.722Z`). Resubmitting the same envelope gave **202 every time**, in-window and after. The `pollsDuringWindow: 5` field inside `E029-1` over-counts by one: the script tested the loop boundary before a 30 s sleep, so the last poll landed late and was still counted. The raw file is left exactly as the run produced it; `kit/tc029.ts` now tags each poll and reports the two counts separately. Building another gave **409 `submission_pending`** while the envelope was live (the contributor is never asked to sign twice), and a fresh envelope only once it had expired. F1 was **404 on-chain** throughout.
 - After expiry, with Horizon answering again: resubmit → 502 `submit_failed`, row **released to `failed`**, F1 still 404. No partial account or trustline.
 
 ## D2-TC-030 — `tx_bad_seq` inside the bump: matches expected
