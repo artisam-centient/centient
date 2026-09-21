@@ -18,7 +18,7 @@ import OnboardingScreen from "@/components/OnboardingScreen";
 import DisputeForm from "@/components/DisputeForm";
 import { identify, track } from "@/lib/analytics";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
-import { isValidStellarAddress } from "@/lib/stellar/signature";
+import { sessionStep, type SessionMe } from "@/lib/contributor-session";
 
 const MIN_LOADING_MS = 1500;
 
@@ -224,17 +224,11 @@ export default function Home() {
   const resolveSession = useCallback(async (): Promise<Screen> => {
     const res = await fetch("/api/auth/me");
     if (!res.ok) return "login";
-    const data = (await res.json()) as {
-      authenticated?: boolean;
-      userId?: string;
-      wallet?: string | null;
-    };
-    if (!data.authenticated) return "login";
-    if (data.userId) identify(data.userId);
-    // No wallet, or a legacy EVM `0x…` that can never receive USDC: claim one.
-    if (!data.wallet || !isValidStellarAddress(data.wallet)) return "claim_wallet";
-    setWallet(data.wallet);
-    return "payout_setup";
+    const data = (await res.json()) as SessionMe;
+    const next = sessionStep(data);
+    if (next.step !== "login" && data.userId) identify(data.userId);
+    if (next.step === "payout_setup") setWallet(next.wallet);
+    return next.step;
   }, []);
 
   useEffect(() => {
