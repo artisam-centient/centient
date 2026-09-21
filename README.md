@@ -5,9 +5,9 @@
 Centient is a **data labeling platform** where people earn **USDC on Stellar** by
 ranking AI-generated response pairs. AI developers upload output pairs to be judged
 by a human crowd; built-in quality guards (gold tasks, rate limiting, spam and bias
-detection, inter-annotator agreement) keep the results reliable. Labelers accrue an
-off-chain balance as they work and cash it out to any Stellar wallet in a single
-on-chain withdrawal.
+detection, inter-annotator agreement) keep the results reliable. Each accepted answer
+is paid on-chain, straight to the labeler's Stellar wallet, through a 2-of-3 multisig
+payout (see [ADR-0005](docs/adr/0005-submit-enqueues-worker-pays.md)).
 
 **Goal:** Make AI alignment through human feedback accessible and instantly
 rewarding for anyone with an internet connection — no bank account required.
@@ -73,8 +73,8 @@ Choosing classic Horizon payments over a Soroban contract means:
 
 The one Stellar-native constraint we *do* handle is **trustlines**: a recipient must
 hold a USDC trustline before they can be paid (a payment to an untrusted account
-fails with `op_no_trust`). We pre-check this at withdrawal and optionally
-platform-sponsor the trustline reserve (see `lib/sponsored-trustline.ts`).
+fails with `op_no_trust`). Payout setup establishes it when a wallet is bound, and we
+optionally platform-sponsor the trustline reserve (see `lib/sponsored-trustline.ts`).
 
 > **Network:** everything runs on Stellar **testnet** by default and flips to
 > **mainnet** by changing `STELLAR_NETWORK` + the USDC issuer env — no code change.
@@ -143,14 +143,18 @@ The core design splits two things that used to be the same object:
 
 - **Identity** — a labeler is a `User.id` (UUID), logged in with **email + password**
   (bcrypt). No wallet is needed to sign up or to earn.
-- **Payout target** — a Stellar `G…` address, supplied only **at withdrawal**.
+- **Payout target** — the Stellar `G…` address the account proved at wallet sign-in or
+  claim (#30). Every payout goes there; none is typed at payout time.
 
-Earnings accrue to an **off-chain balance** (`User.pendingBalanceUnits`, audited via
-`UserBalanceLedger`). Nothing touches the chain until the labeler withdraws, at which
-point the whole accrued balance is paid out in **one lump-sum USDC transfer**. This
-"accumulate-then-withdraw" model minimizes on-chain fees and cleanly separates cheap,
-mass-createable email identities from the money-moving boundary where anti-fraud
-gates live.
+Earnings are paid **instantly**: each accepted answer enqueues one `SUBMISSION_PAYOUT`
+job, and the payout worker sends that reward to the bound wallet on-chain, raising
+`User.totalEarnedUnits`. Nothing is held off-chain on the labeler's behalf.
+
+> **Retired: accumulate-then-withdraw.** Answers used to accrue to an off-chain
+> balance (`User.pendingBalanceUnits`, audited via `UserBalanceLedger`) that the
+> labeler withdrew as one lump sum. Nothing accrues any more. Balances earned before
+> instant payout can still be withdrawn, with no minimum, until they reach zero (#39,
+> [ADR-0007](docs/adr/0007-retire-accumulate-then-withdraw.md)).
 
 ### Money & precision
 
@@ -200,7 +204,7 @@ sequenceDiagram
     end
 ```
 
-### 2. Earning — submit an answer (off-chain accrual, no on-chain tx)
+### 2. Earning — submit an answer (paid on-chain, instantly)
 
 ```mermaid
 sequenceDiagram
@@ -208,6 +212,8 @@ sequenceDiagram
     participant API as /api/submit
     participant Q as Quality guards
     participant DB as PostgreSQL
+    participant PW as Payout Worker
+    participant HZ as Stellar Horizon
 
     L->>API: POST { taskId, choice, reason } (session cookie)
     API->>Q: spam / repetition / rate-limit / left-bias checks
@@ -218,20 +224,25 @@ sequenceDiagram
         opt gold task
             API->>API: compare to goldAnswer, ban/cooldown on repeated fails
         end
-        API->>DB: create Submission (payoutStatus = accrued)
-        API->>DB: checkAndDebit(campaign balance) reward + platform fee
+        API->>DB: one transaction: debit campaign (reward + platform fee),<br/>create Submission (payoutStatus = pending), enqueue SUBMISSION_PAYOUT
         alt insufficient campaign balance
             DB-->>API: InsufficientBalanceError
             API-->>L: 402 campaign_balance_insufficient
         else funded
-            API->>DB: creditReward -> pendingBalanceUnits += reward<br/>+ UserBalanceLedger CREDIT_REWARD
-            API-->>L: 200 { status: pending } (balance updated)
+            API-->>L: 200 { status: pending }
+            PW->>DB: claim job, journal the envelope (ADR-0006)
+            PW->>HZ: 2-of-3 co-signed USDC payment to the bound wallet
+            PW->>DB: Submission sent, totalEarnedUnits += reward
         end
     end
-    Note over API,DB: No PayoutJob, no Horizon call —<br/>earnings are off-chain until withdrawal.
+    Note over API,DB: No off-chain balance: pendingBalanceUnits and<br/>UserBalanceLedger are never written (#39).
 ```
 
-### 3. Withdrawal — one on-chain USDC lump sum
+### 3. Legacy withdrawal — one on-chain USDC lump sum
+
+Legacy only (#39, [ADR-0007](docs/adr/0007-retire-accumulate-then-withdraw.md)). It is
+shown only while an account still holds a balance accrued before instant payout, and
+no minimum applies. A zero balance is refused with `409 no_balance`.
 
 ```mermaid
 sequenceDiagram
@@ -311,7 +322,6 @@ container, applies migrations, and seeds test data.
 | `STELLAR_OPS_SIGNER_SECRET` | `S…` seed of the ops signer — signature #1 of the 2-of-3 payout. This is the *only* payout-account seed a deployment may hold |
 | `STELLAR_PLATFORM_SECRET` | `S…` seed of the payout account master. **Do not set this alongside `STELLAR_OPS_SIGNER_SECRET`** — one deployment holding two of the three seeds meets the threshold on its own and the payout path refuses to start (F-01) |
 | `STELLAR_USDC_ISSUER` | USDC issuer `G…` (testnet default is Circle's test USDC) |
-| `MIN_WITHDRAWAL_UNITS` | Minimum withdrawal in USDC units (default `10000000` = 1 USDC) |
 
 Once seeded, log in to test every area:
 
@@ -360,8 +370,8 @@ on [stellar.expert](https://stellar.expert).
 
 ```
 ├── app/                    # Next.js App Router pages + API routes
-│   ├── api/submit          #   earn: validate answer -> accrue off-chain balance
-│   ├── api/me/withdraw     #   cash out: one on-chain USDC lump sum
+│   ├── api/submit          #   earn: validate answer -> enqueue its on-chain payout
+│   ├── api/me/withdraw     #   legacy: withdraw a pre-#39 balance as one lump sum
 │   ├── api/auth            #   labeler email+password login/register
 │   └── admin               #   SUPER_ADMIN dashboard (campaigns, users, ops)
 ├── components/             # React components
@@ -369,7 +379,7 @@ on [stellar.expert](https://stellar.expert).
 │   ├── stellar/            #   config, client (payUsdc), balance, signature, wallet
 │   ├── payout-worker.ts    #   claims PayoutJobs, submits payments, retries + refunds
 │   ├── reconciler.ts       #   confirms tx receipts (sent -> confirmed)
-│   ├── user-balance.ts     #   off-chain balance ledger (credit / withdraw / reversal)
+│   ├── user-balance.ts     #   legacy off-chain balance (withdraw / reversal)
 │   ├── campaign-balance.ts #   prepaid customer balance debit/credit/refund
 │   ├── sponsored-trustline.ts  # platform-sponsored USDC trustlines (bounded)
 │   └── ...                 #   quality, rate-limit, anti-fraud, withdrawal-eligibility

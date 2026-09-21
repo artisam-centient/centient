@@ -88,7 +88,8 @@ bounds.
   refuses to sign, and payouts retry. That is safe, but deploy `web` (which
   migrates) before or with `cosigner`.
 - **Withdrawals are not journalled.** `WITHDRAWAL` jobs keep the old window
-  until #39 retires them.
+  until #39 retires them. #39 sunsets withdrawal to legacy balances only and
+  leaves them unjournalled; see [ADR-0007](0007-retire-accumulate-then-withdraw.md).
 - **Out of scope, owned by #40:**
   - `needs_reconciliation` quarantines, which carry a hash and stay manual;
   - the in-process reconciler turning three Horizon read errors into `failed`.
