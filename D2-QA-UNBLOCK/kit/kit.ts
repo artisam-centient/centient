@@ -6,7 +6,9 @@ import { Horizon, Keypair, Networks, TransactionBuilder, Operation, Asset, BASE_
 export const BASE = process.env.QA_BASE ?? "https://centient.work";
 export const HORIZON = "https://horizon-testnet.stellar.org";
 export const horizon = new Horizon.Server(HORIZON);
-export const EVID = require("node:path").resolve(__dirname, "../../evidence") + "/";
+export const EVID = require("node:path").resolve(__dirname, "../evidence") + "/";
+// Deliberately OUTSIDE D2-QA-UNBLOCK: these are throwaway testnet keypairs, but a
+// keystore inside a committed tree is one `git add -A` away from being published.
 const KEYS = require("node:path").resolve(__dirname, "../../keys.json");
 
 /** Named fixture keypairs, persisted in the scratchpad (never in evidence). */
