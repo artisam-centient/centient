@@ -120,23 +120,8 @@ export function assertLedgerAgrees(
  * instead of the instance is what lets the two stay separate.
  */
 export interface LedgerReader {
-  payoutAttempt: {
-    findFirst(args: {
-      where: { submissionId: string; status: "open" };
-      select: { envelopeHash: true };
-    }): Promise<{ envelopeHash: string } | null>;
-  };
-  submission: {
-    findUnique(args: {
-      where: { id: string };
-      select: { walletAddress: true; payoutAmountUnits: true; payoutStatus: true; payoutTxHash: true };
-    }): Promise<{
-      walletAddress: string | null;
-      payoutAmountUnits: bigint;
-      payoutStatus: string;
-      payoutTxHash: string | null;
-    } | null>;
-  };
+  /** One SQL statement: the submission read below must be a single snapshot. */
+  $queryRaw<T = unknown>(query: TemplateStringsArray, ...values: unknown[]): PromiseLike<T>;
   payoutJob: {
     aggregate(args: {
       _sum: { amountUnits: true };
@@ -170,26 +155,33 @@ export async function readLedgerPayout(
   reference: PayoutReference,
 ): Promise<LedgerPayout | null> {
   if (reference.kind === "submission") {
-    const row = await client.submission.findUnique({
-      where: { id: reference.id },
-      select: {
-        walletAddress: true,
-        payoutAmountUnits: true,
-        payoutStatus: true,
-        payoutTxHash: true,
-      },
-    });
+    // The row and its open envelope in ONE statement, so one snapshot (#38
+    // review). Read separately, a payer recording its payment in between turns
+    // the row's "pending, no hash" and the envelope's "confirmed" into a stale
+    // pair that looks unpaid with nothing in flight, and this signs again.
+    const [row] = await client.$queryRaw<
+      {
+        walletAddress: string | null;
+        payoutAmountUnits: bigint;
+        payoutStatus: string;
+        payoutTxHash: string | null;
+        openAttemptHash: string | null;
+      }[]
+    >`
+      SELECT s."walletAddress", s."payoutAmountUnits", s."payoutStatus", s."payoutTxHash",
+             (SELECT a."envelopeHash" FROM "payout_attempts" a
+               WHERE a."submissionId" = s."id" AND a."status" = 'open'
+               LIMIT 1) AS "openAttemptHash"
+      FROM "submissions" s
+      WHERE s."id" = ${reference.id}
+    `;
     if (!row) return null;
-    const open = await client.payoutAttempt.findFirst({
-      where: { submissionId: reference.id, status: "open" },
-      select: { envelopeHash: true },
-    });
     return {
       kind: "submission",
       id: reference.id,
       status: row.payoutStatus,
       txHash: row.payoutTxHash,
-      openAttemptHash: open?.envelopeHash ?? null,
+      openAttemptHash: row.openAttemptHash,
       destination: row.walletAddress,
       amountUnits: row.payoutAmountUnits,
     };
