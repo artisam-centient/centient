@@ -117,6 +117,8 @@ export default function Home() {
   const [balance, setBalance] = useState("0");
   const [recentCredits, setRecentCredits] = useState<BalanceLedgerEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  // #35: a failed submission is announced beside the submit action, not only toasted.
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [submissionCount, setSubmissionCount] = useState(0);
   const [accountOpen, setAccountOpen] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -198,6 +200,7 @@ export default function Home() {
     }
     const data = await res.json();
     if (data.task) {
+      setSubmitError(null);
       setTask({
         id: data.task.id,
         prompt: data.task.prompt,
@@ -333,6 +336,7 @@ export default function Home() {
     setAccountOpen(false);
     setWallet(null);
     setTask(null);
+    setSubmitError(null);
     setBalance("0");
     setRecentCredits([]);
     setSubmissionCount(0);
@@ -356,6 +360,7 @@ export default function Home() {
     const generation = sessionGeneration.current;
     const loggedOutSince = () => sessionGeneration.current !== generation;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       let res: Response;
       try {
@@ -367,7 +372,7 @@ export default function Home() {
         });
       } catch (err) {
         console.error("[submit] network error", err);
-        showToast("Network error. Please check your connection and try again.", "error");
+        setSubmitError("Network error. Please check your connection and try again.");
         return;
       }
 
@@ -416,7 +421,7 @@ export default function Home() {
       }
 
       console.error("[submit] error response", { status: res.status, error: data.error });
-      showToast(submitErrorMessage(res.status, data.error), "error");
+      setSubmitError(submitErrorMessage(res.status, data.error));
     } finally {
       setSubmitting(false);
     }
@@ -487,7 +492,15 @@ export default function Home() {
           </div>
         </header>
         <main className="mx-auto max-w-lg px-4 py-6">
-          <TaskCard task={task} onSubmit={handleSubmit} loading={submitting} reward={task.rewardDisplay} tokenSymbol={task.rewardSymbol} />
+          <TaskCard
+            key={task.id}
+            task={task}
+            onSubmit={handleSubmit}
+            loading={submitting}
+            error={submitError}
+            reward={task.rewardDisplay}
+            tokenSymbol={task.rewardSymbol}
+          />
         </main>
         <AccountSheet
           open={accountOpen}
