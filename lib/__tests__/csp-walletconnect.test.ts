@@ -21,3 +21,16 @@ describe("CSP connect-src", () => {
     );
   });
 });
+
+describe("CSP frame-src", () => {
+  it("lets WalletConnect Verify frame, so Freighter sees a verified centient.work origin", async () => {
+    const rules = await config.headers!();
+    const csp = rules
+      .flatMap((rule) => rule.headers)
+      .find((header) => header.key === "Content-Security-Policy")!.value;
+    const directive = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("frame-src "));
+    expect(directive?.split(/\s+/).slice(1)).toEqual(
+      expect.arrayContaining(["https://verify.walletconnect.org", "https://verify.walletconnect.com"]),
+    );
+  });
+});

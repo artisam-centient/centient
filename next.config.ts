@@ -6,6 +6,9 @@ import type { NextConfig } from "next";
 // The WalletConnect hosts carry Freighter's phone pairing (lib/stellar/wallet-connect.ts):
 // the relay socket, the registry lookup behind the deep link, and SDK telemetry. With the
 // relay blocked, `display_uri` never fires and "Connect Freighter" hangs silently.
+// Verify is framed, not fetched: the SDK loads it in an iframe to attest this origin
+// to the wallet, and with it blocked Freighter only ever sees an unverified request.
+const walletConnectVerify = ["https://verify.walletconnect.org", "https://verify.walletconnect.com"];
 const walletConnect = [
   "wss://relay.walletconnect.org",
   "wss://relay.walletconnect.com",
@@ -21,6 +24,7 @@ const csp = [
   "font-src 'self' https://fonts.gstatic.com",
   `connect-src 'self' https://*.sentry.io ${walletConnect.join(" ")}`,
   "worker-src 'self' blob:",
+  `frame-src 'self' ${walletConnectVerify.join(" ")}`,
   "frame-ancestors 'self'",
   "base-uri 'self'",
   "form-action 'self'",
