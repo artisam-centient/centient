@@ -399,8 +399,18 @@ function focusWallet(provider: WalletConnectProvider): void {
  * already gave up. Giving up can't withdraw a proposal (the SDK's
  * `abortPairingAttempt()` is a no-op), and its URI can still reach the screen
  * after a retry has started, so the user may approve that one instead.
+ *
+ * Kept per provider: an approval opens a session only on the provider that
+ * proposed it, so a provider replaced since (by `disconnect()`) is no help.
  */
-const unansweredProposals = new Set<Promise<unknown>>();
+const unansweredProposals = new WeakMap<WalletConnectProvider, Set<Promise<unknown>>>();
+
+/** The proposals `provider` is still waiting on, created on first use. */
+function proposalsOf(provider: WalletConnectProvider): Set<Promise<unknown>> {
+  let proposals = unansweredProposals.get(provider);
+  if (!proposals) unansweredProposals.set(provider, (proposals = new Set()));
+  return proposals;
+}
 
 /** Rejects the pairing `connect()` is waiting on; null when none is. */
 let abandonPairing: ((reason: WalletError) => void) | null = null;
@@ -457,15 +467,16 @@ export async function connect(): Promise<{ address: string; wallet: "freighter" 
       },
     },
   });
-  unansweredProposals.add(approval);
-  const answered = () => void unansweredProposals.delete(approval);
+  const proposals = proposalsOf(provider);
+  proposals.add(approval);
+  const answered = () => void proposals.delete(approval);
   approval.then(answered, answered);
 
-  // Approving *any* outstanding proposal opens a session on the shared
-  // provider, which is all this attempt needs. Only this attempt's own
+  // Approving *any* of this provider's outstanding proposals opens a session
+  // on it, which is all this attempt needs. Only this attempt's own
   // proposal can fail it: an older one failing says nothing about this one.
   const approvedAny = new Promise<void>((resolve) => {
-    for (const proposal of unansweredProposals) proposal.then(() => resolve(), () => {});
+    for (const proposal of proposals) proposal.then(() => resolve(), () => {});
   });
 
   try {
