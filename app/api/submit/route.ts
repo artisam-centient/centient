@@ -225,7 +225,13 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        return NextResponse.json({ paid: false, reason: "quality_check_failed" });
+        // Answer for this question, not the retest as a whole: a correct answer
+        // said "failed" (found in #37, QA OQ-10), which is untrue even though it
+        // was recorded as passed and counts toward lifting the ban.
+        return NextResponse.json({
+          paid: false,
+          reason: correct ? "quality_check_passed" : "quality_check_failed",
+        });
       }
 
       if (!correct) {
