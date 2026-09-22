@@ -96,7 +96,9 @@ export async function signInWithWallet(
   deps: WalletSignInDeps = defaultDeps,
 ): Promise<WalletSignInResult> {
   try {
-    const { address } = await deps.connect();
+    // Fresh: a stored mobile session may be one Freighter no longer holds, and
+    // then the challenge below would be dropped there without a word.
+    const { address } = await deps.connect({ fresh: true });
 
     const challengeRes = await postJson(deps, "/api/auth/wallet/challenge", { address });
     if (!challengeRes.ok) {
@@ -139,7 +141,7 @@ export const WALLET_SIGN_IN_MESSAGES: Record<WalletSignInFailure, string> = {
     "We couldn't reach Freighter. Install the Freighter browser extension, or open this " +
     "page on a phone with the Freighter app, then try again.",
   rejected: "You declined the request in Freighter. Nothing was signed — try again when you're ready.",
-  cancelled: "You cancelled connecting Freighter. Nothing was signed — try again when you're ready.",
+  cancelled: "You cancelled the request to Freighter. Nothing was signed — try again when you're ready.",
   timed_out: "Freighter didn't answer in time. Open the Freighter app, then try again.",
   wrong_account:
     "Freighter signed with a different account. Switch to the account you connected, then try again.",

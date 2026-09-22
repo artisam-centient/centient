@@ -52,6 +52,8 @@ describe("signInWithWallet — success", () => {
     await expect(signInWithWallet(deps)).resolves.toEqual({ ok: true, address: ADDR, created: true });
 
     expect(bodyOf(fetchMock, "/api/auth/wallet/challenge")).toEqual({ address: ADDR });
+    // A stored mobile session may be one Freighter no longer holds.
+    expect(deps.connect).toHaveBeenCalledWith({ fresh: true });
     expect(deps.signOwnership).toHaveBeenCalledWith(CHALLENGE.message, ADDR);
     expect(bodyOf(fetchMock, "/api/auth/wallet/verify")).toEqual({
       address: ADDR,
