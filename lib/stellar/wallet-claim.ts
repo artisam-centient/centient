@@ -86,7 +86,9 @@ function failureFromError(err: unknown): WalletClaimFailure {
 /** Run the whole claim. Resolves, never rejects. */
 export async function claimWallet(deps: WalletClaimDeps = defaultDeps): Promise<WalletClaimResult> {
   try {
-    const { address } = await deps.connect();
+    // Fresh, for the same reason as sign-in: a stale mobile session drops the
+    // ownership request on the wallet's side without a word.
+    const { address } = await deps.connect({ fresh: true });
 
     const challengeRes = await deps.fetch(`/api/me/wallet?address=${encodeURIComponent(address)}`);
     if (!challengeRes.ok) {
@@ -115,7 +117,7 @@ export const WALLET_CLAIM_MESSAGES: Record<WalletClaimFailure, string> = {
     "We couldn't reach Freighter. Install the Freighter browser extension, or open this " +
     "page on a phone with the Freighter app, then try again.",
   rejected: "You declined the request in Freighter. Nothing was signed — try again when you're ready.",
-  cancelled: "You cancelled connecting Freighter. Nothing was signed — try again when you're ready.",
+  cancelled: "You cancelled the request to Freighter. Nothing was signed — try again when you're ready.",
   timed_out: "Freighter didn't answer in time. Open the Freighter app, then try again.",
   wrong_account:
     "Freighter signed with a different account. Switch to the account you connected, then try again.",

@@ -10,7 +10,10 @@ process.env.STELLAR_USDC_ISSUER = Keypair.random().publicKey();
 
 import {
   PAIRING_TIMEOUT_MS,
+  DROP_SESSION_WAIT_MS,
+  REQUEST_TIMEOUT_MS,
   cancelPairing,
+  cancelWalletRequest,
   connect,
   formatNativeUrl,
   isFreighterInAppBrowser,
@@ -419,6 +422,164 @@ describe("connect — relay news that lands after the attempt ended", () => {
 
     expect(seen).toEqual([]);
     unsubscribe();
+  });
+});
+
+describe("connect — a fresh pairing", () => {
+  it("drops a stored session and pairs again, so the wallet is asked, not assumed", async () => {
+    // The stored session can be one Freighter no longer holds: requests over it
+    // are dropped there without a word, which is the hang this exists to avoid.
+    const provider = fakeProvider({ accounts: [OTHER] });
+    provider.disconnect = vi.fn(async () => {
+      provider.session = undefined;
+    });
+    provider.connect = vi.fn().mockImplementation(() => {
+      provider.session = { namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+      return Promise.resolve(undefined);
+    });
+    setWalletConnectProvider(provider);
+
+    await expect(connect({ fresh: true })).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+    expect(provider.disconnect).toHaveBeenCalled();
+    expect(provider.connect).toHaveBeenCalled();
+  });
+
+  it("still pairs when dropping the stored session fails", async () => {
+    const provider = fakeProvider({ accounts: [OTHER] });
+    provider.disconnect = vi.fn(async () => {
+      provider.session = undefined;
+      throw new Error("relay gone");
+    });
+    provider.connect = vi.fn().mockImplementation(() => {
+      provider.session = { namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+      return Promise.resolve(undefined);
+    });
+    setWalletConnectProvider(provider);
+
+    await expect(connect({ fresh: true })).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+  });
+
+  it("does not wait on a relay that never confirms the drop", async () => {
+    vi.useFakeTimers();
+    const provider = fakeProvider({ accounts: [OTHER] });
+    // The SDK only clears its session after the relay answers the disconnect.
+    provider.disconnect = vi.fn(() => new Promise<never>(() => {}));
+    provider.connect = vi.fn().mockImplementation(() => {
+      provider.session = { namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+      return Promise.resolve(undefined);
+    });
+    setWalletConnectProvider(provider);
+
+    const attempt = expect(connect({ fresh: true })).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+    await vi.advanceTimersByTimeAsync(DROP_SESSION_WAIT_MS);
+    await attempt;
+    vi.useRealTimers();
+  });
+
+  it("reuses a stored session when not asked for a fresh one", async () => {
+    const provider = fakeProvider({ accounts: [ADDR] });
+    setWalletConnectProvider(provider);
+
+    await expect(connect()).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+    expect(provider.disconnect).not.toHaveBeenCalled();
+    expect(provider.connect).not.toHaveBeenCalled();
+  });
+});
+
+describe("signing — a request the wallet never answers", () => {
+  /** A provider with a session whose requests Freighter never answers. */
+  function unansweredProvider(): WalletConnectProvider & { request: ReturnType<typeof vi.fn> } {
+    const provider = fakeProvider({ accounts: [ADDR] });
+    provider.request.mockImplementation(() => new Promise<never>(() => {}));
+    provider.disconnect = vi.fn(async () => {
+      provider.session = undefined;
+    });
+    return provider;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("gives up on a signature with timed_out and drops the session", async () => {
+    vi.useFakeTimers();
+    const provider = unansweredProvider();
+    setWalletConnectProvider(provider);
+
+    const attempt = expect(signOwnership(MESSAGE, ADDR)).rejects.toMatchObject({ code: "timed_out" });
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
+    await attempt;
+    // The next attempt must pair afresh rather than talk to the same dead session.
+    expect(provider.disconnect).toHaveBeenCalled();
+  });
+
+  it("gives up on a transaction signature the same way", async () => {
+    vi.useFakeTimers();
+    const provider = unansweredProvider();
+    setWalletConnectProvider(provider);
+
+    const attempt = expect(signTransaction("AAAA", ADDR)).rejects.toMatchObject({ code: "timed_out" });
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
+    await attempt;
+    expect(provider.disconnect).toHaveBeenCalled();
+  });
+
+  it("stops at once with cancelled when the contributor cancels, and drops the session", async () => {
+    const provider = unansweredProvider();
+    setWalletConnectProvider(provider);
+
+    const attempt = signOwnership(MESSAGE, ADDR);
+    await vi.waitFor(() => expect(provider.request).toHaveBeenCalled());
+    cancelWalletRequest();
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+    expect(provider.disconnect).toHaveBeenCalled();
+  });
+
+  it("reports a cancel promptly even when the relay never confirms the drop", async () => {
+    vi.useFakeTimers();
+    const provider = unansweredProvider();
+    provider.disconnect = vi.fn(() => new Promise<never>(() => {}));
+    setWalletConnectProvider(provider);
+
+    const attempt = signOwnership(MESSAGE, ADDR);
+    attempt.catch(() => {});
+    await vi.waitFor(() => expect(provider.request).toHaveBeenCalled());
+    cancelWalletRequest();
+    await vi.advanceTimersByTimeAsync(DROP_SESSION_WAIT_MS);
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+    // Forgotten here even so, so the retry pairs afresh.
+    expect(provider.session).toBeUndefined();
+  });
+
+  it("cancels a pairing too, so one Cancel covers the whole wait", async () => {
+    const provider = fakeProvider();
+    provider.connect = vi.fn(() => new Promise<never>(() => {}));
+    setWalletConnectProvider(provider);
+
+    const attempt = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    cancelWalletRequest();
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  it("does nothing when nothing is pending", () => {
+    expect(() => cancelWalletRequest()).not.toThrow();
+  });
+});
+
+describe("signing — with no session", () => {
+  it("pairs first instead of failing, then signs", async () => {
+    const signature = sep53Sign(MESSAGE);
+    const provider = fakeProvider();
+    provider.connect = vi.fn().mockImplementation(() => {
+      provider.session = { namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+      return Promise.resolve(undefined);
+    });
+    provider.request.mockResolvedValue({ signature });
+    setWalletConnectProvider(provider);
+
+    await expect(signOwnership(MESSAGE, ADDR)).resolves.toMatchObject({ address: ADDR, signature });
+    expect(provider.connect).toHaveBeenCalled();
   });
 });
 

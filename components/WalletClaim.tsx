@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { track } from "@/lib/analytics";
+import CancelWalletWait from "./CancelWalletWait";
 import FreighterPairing from "./FreighterPairing";
-import { prepareWallet, type WalletTransport } from "@/lib/stellar/wallet";
+import SignOutForm from "./SignOutForm";
+import { cancelWalletRequest, prepareWallet, type WalletTransport } from "@/lib/stellar/wallet";
 import {
   WALLET_CLAIM_MESSAGES,
   claimWallet,
@@ -22,6 +24,8 @@ interface WalletClaimViewProps {
   /** Which Freighter this browser will reach; null until resolved. */
   transport?: WalletTransport | null;
   onConnect: () => void;
+  /** Stop waiting on the Freighter app. Shown only while waiting on it. */
+  onCancel?: () => void;
 }
 
 /**
@@ -33,6 +37,7 @@ export function WalletClaimView({
   reason,
   transport,
   onConnect,
+  onCancel,
 }: WalletClaimViewProps) {
   const connecting = phase === "connecting";
   const failure = phase === "failed" ? (reason ?? "failed") : null;
@@ -77,6 +82,8 @@ export function WalletClaimView({
           {label}
         </button>
 
+        {connecting && mobile && onCancel && <CancelWalletWait onCancel={onCancel} />}
+
         <div role="status" aria-live="polite" className="w-full">
           {failure && (
             <p
@@ -98,14 +105,7 @@ export function WalletClaimView({
           )}
         </div>
 
-        <form action="/api/auth/logout" method="post">
-          <button
-            type="submit"
-            className="font-label text-sm font-semibold text-on-surface-variant underline-offset-2 hover:underline"
-          >
-            Sign out
-          </button>
-        </form>
+        <SignOutForm className="font-label text-sm font-semibold text-on-surface-variant underline-offset-2 hover:underline" />
       </div>
     </div>
   );
@@ -157,6 +157,7 @@ export default function WalletClaim({ onClaimed, claim = claimWallet }: WalletCl
         reason={reason}
         transport={transport}
         onConnect={handleConnect}
+        onCancel={() => void cancelWalletRequest()}
       />
       <FreighterPairing />
     </>

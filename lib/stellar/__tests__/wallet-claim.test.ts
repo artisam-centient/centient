@@ -47,6 +47,7 @@ describe("claimWallet — success", () => {
     await expect(claimWallet(deps)).resolves.toEqual({ ok: true, address: ADDR });
 
     expect(String(fetchMock.mock.calls[0][0])).toBe(`/api/me/wallet?address=${encodeURIComponent(ADDR)}`);
+    expect(deps.connect).toHaveBeenCalledWith({ fresh: true });
     expect(deps.signOwnership).toHaveBeenCalledWith(CHALLENGE.message, ADDR);
     const [url, init] = fetchMock.mock.calls[1];
     expect(String(url)).toBe("/api/me/wallet");

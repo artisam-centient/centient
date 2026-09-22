@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { track } from "@/lib/analytics";
+import CancelWalletWait from "./CancelWalletWait";
 import FreighterPairing from "./FreighterPairing";
-import { prepareWallet, type WalletTransport } from "@/lib/stellar/wallet";
+import { cancelWalletRequest, prepareWallet, type WalletTransport } from "@/lib/stellar/wallet";
 import {
   WALLET_SIGN_IN_MESSAGES,
   signInWithWallet,
@@ -22,6 +23,8 @@ interface WalletSignInViewProps {
   /** Which Freighter this browser will reach; null until resolved. */
   transport?: WalletTransport | null;
   onConnect: () => void;
+  /** Stop waiting on the Freighter app. Shown only while waiting on it. */
+  onCancel?: () => void;
 }
 
 /**
@@ -41,6 +44,7 @@ export function WalletSignInView({
   reason,
   transport,
   onConnect,
+  onCancel,
 }: WalletSignInViewProps) {
   const connecting = phase === "connecting";
   const failure = phase === "failed" ? (reason ?? "failed") : null;
@@ -69,6 +73,8 @@ export function WalletSignInView({
         </span>
         {label}
       </button>
+
+      {connecting && mobile && onCancel && <CancelWalletWait onCancel={onCancel} />}
 
       <div role="status" aria-live="polite" className="w-full text-center">
         {failure && (
@@ -145,6 +151,7 @@ export default function WalletSignIn({ onSignedIn, signIn = signInWithWallet }: 
         reason={reason}
         transport={transport}
         onConnect={handleConnect}
+        onCancel={() => void cancelWalletRequest()}
       />
       <FreighterPairing />
     </>

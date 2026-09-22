@@ -74,6 +74,15 @@ const WC_USER_REJECTED = 5000;
  */
 export const PAIRING_TIMEOUT_MS = 3 * 60_000;
 
+/**
+ * How long a signing request waits for Freighter before giving up. A request
+ * sent over a session Freighter no longer holds is dropped there without a
+ * word (its handler returns when it finds no active session for the account),
+ * so without a deadline the contributor waits on a wallet that will never
+ * answer.
+ */
+export const REQUEST_TIMEOUT_MS = 3 * 60_000;
+
 /** WalletConnect's registry, which publishes each wallet's mobile deep link. */
 const WC_EXPLORER_API = "https://explorer-api.walletconnect.com/v3/wallets";
 
@@ -429,13 +438,102 @@ export function cancelPairing(): void {
   abandonPairing?.(new WalletError("cancelled", "You cancelled connecting Freighter."));
 }
 
+/** Rejects the signing request a caller is waiting on; null when none is. */
+let abandonRequest: ((reason: WalletError) => void) | null = null;
+
 /**
- * Connect Freighter mobile and return its `G…` address, reusing a live session
- * when there is one so a returning user isn't asked to pair again.
+ * Stop waiting on Freighter, whatever for: the pairing prompt or a signature.
+ * The waiting call rejects with `cancelled`. A no-op when nothing is pending.
  */
-export async function connect(): Promise<{ address: string; wallet: "freighter" }> {
+export function cancelWalletRequest(): void {
+  cancelPairing();
+  abandonRequest?.(new WalletError("cancelled", "You cancelled the request to Freighter."));
+}
+
+/** How long dropping a session waits for the relay before forgetting it anyway. */
+export const DROP_SESSION_WAIT_MS = 2_000;
+
+/**
+ * Forget the session, telling the wallet if the relay lets us. The SDK's
+ * `disconnect()` clears its session only *after* the relay answers, and the
+ * relay (or the wallet behind it) is exactly what may not be there, so it gets
+ * {@link DROP_SESSION_WAIT_MS} and then the session is cleared here regardless.
+ * Whatever the relay does later, the next request can't go out over it.
+ */
+async function dropSession(provider: WalletConnectProvider): Promise<void> {
+  if (!provider.session) return;
+  const told = provider.disconnect().catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    told,
+    new Promise<void>((resolve) => (timer = setTimeout(resolve, DROP_SESSION_WAIT_MS))),
+  ]);
+  clearTimeout(timer);
+  provider.session = undefined;
+}
+
+/**
+ * Wait for Freighter to answer a signing request, but not forever: give up
+ * after {@link REQUEST_TIMEOUT_MS} or when the contributor cancels. Either way
+ * the session is dropped, because a session Freighter didn't answer on can't be
+ * trusted to carry the next request, and the retry should pair afresh.
+ */
+async function awaitAnswer<T>(provider: WalletConnectProvider, pending: Promise<T>): Promise<T> {
+  pending.catch(() => {}); // answered after we gave up: nowhere to go
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let giveUp: ((reason: WalletError) => void) | undefined;
+  const givenUp = new Promise<never>((_, reject) => {
+    giveUp = reject;
+    abandonRequest = reject;
+    timer = setTimeout(
+      () =>
+        reject(
+          new WalletError(
+            "timed_out",
+            "Freighter didn't answer in time. Open Freighter, then try again.",
+          ),
+        ),
+      REQUEST_TIMEOUT_MS,
+    );
+  });
+
+  try {
+    return await Promise.race([pending, givenUp]);
+  } catch (err) {
+    if (err instanceof WalletError && (err.code === "timed_out" || err.code === "cancelled")) {
+      await dropSession(provider);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (abandonRequest === giveUp) abandonRequest = null;
+  }
+}
+
+/**
+ * Make sure there is a session to send a request over, pairing if there isn't:
+ * the one sign-in opened can expire, or have been dropped after an unanswered
+ * request, and the SDK refuses a request with no session at all.
+ */
+async function ensureSession(provider: WalletConnectProvider): Promise<void> {
+  if (sessionAccounts(provider).length === 0) await connect();
+}
+
+/**
+ * Connect Freighter mobile and return its `G…` address.
+ *
+ * A live session is reused unless `fresh` is set, so a returning user isn't
+ * asked to pair again for a signature. Sign-in and wallet claim pass `fresh`:
+ * they exist to reach the wallet, and a session stored in this browser can be
+ * one Freighter no longer holds (it outlives deploys, and the wallet can drop
+ * it on its side), in which case every request over it is silently ignored.
+ */
+export async function connect(
+  options: { fresh?: boolean } = {},
+): Promise<{ address: string; wallet: "freighter" }> {
   const provider = await getProvider();
 
+  if (options.fresh) await dropSession(provider);
   const existing = sessionAccounts(provider);
   if (existing.length > 0) return { address: existing[0], wallet: "freighter" };
 
@@ -514,6 +612,7 @@ export async function signOwnership(
   expectedAddress: string,
 ): Promise<StellarSignedMessage> {
   const provider = await getProvider();
+  await ensureSession(provider);
 
   const accounts = sessionAccounts(provider);
   if (accounts.length > 0 && !accounts.includes(expectedAddress)) {
@@ -532,7 +631,7 @@ export async function signOwnership(
       caipChainId(),
     );
     focusWallet(provider);
-    result = await pending;
+    result = await awaitAnswer(provider, pending);
   } catch (err) {
     throw walletConnectError(err, "Freighter signing failed");
   }
@@ -564,6 +663,7 @@ export async function signTransaction(
   expectedAddress: string,
 ): Promise<string> {
   const provider = await getProvider();
+  await ensureSession(provider);
 
   let result: { signedXDR?: unknown };
   try {
@@ -573,7 +673,7 @@ export async function signTransaction(
       caipChainId(),
     );
     focusWallet(provider);
-    result = await pending;
+    result = await awaitAnswer(provider, pending);
   } catch (err) {
     throw walletConnectError(err, "Freighter signing failed");
   }
