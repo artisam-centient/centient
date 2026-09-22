@@ -41,6 +41,8 @@ export const FREIGHTER_REQUIRED_MESSAGE =
  *
  *   • `freighter_missing`         — no extension, and no mobile path available.
  *   • `rejected`                  — the user declined access or signing.
+ *   • `cancelled`                 — the user closed the mobile pairing prompt.
+ *   • `timed_out`                 — Freighter mobile never answered the pairing.
  *   • `wrong_account`             — Freighter signed with a different account.
  *   • `wrong_network`             — the wallet is on a different Stellar network.
  *   • `unsupported`               — this Freighter build cannot sign messages.
@@ -51,6 +53,8 @@ export const FREIGHTER_REQUIRED_MESSAGE =
 export type WalletErrorCode =
   | "freighter_missing"
   | "rejected"
+  | "cancelled"
+  | "timed_out"
   | "wrong_account"
   | "wrong_network"
   | "unsupported"

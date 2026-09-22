@@ -64,6 +64,16 @@ const STELLAR_EVENTS = ["accountsChanged"] as const;
 /** WalletConnect's JSON-RPC error code for "the user said no". */
 const WC_USER_REJECTED = 5000;
 
+/**
+ * How long `connect()` waits for the wallet to answer a pairing before giving
+ * up. Long enough to switch apps, unlock Freighter and approve, short enough
+ * that a contributor who walked away isn't left on a dialog that can never
+ * close. `provider.connect()` has no deadline of its own that we can lean on
+ * (sign-client's proposal expiry is thirty days), which is the hang #138
+ * exists to remove.
+ */
+export const PAIRING_TIMEOUT_MS = 3 * 60_000;
+
 /** WalletConnect's registry, which publishes each wallet's mobile deep link. */
 const WC_EXPLORER_API = "https://explorer-api.walletconnect.com/v3/wallets";
 
@@ -177,7 +187,17 @@ let providerPromise: Promise<WalletConnectProvider> | null = null;
 
 /** Replace the cached provider. Tests inject a stand-in; `null` clears it. */
 export function setWalletConnectProvider(provider: WalletConnectProvider | null): void {
+  // Wired exactly as a real provider is, so the pairing hand-off is testable.
+  provider?.on("display_uri", onDisplayUri as (...args: never[]) => void);
   providerPromise = provider ? Promise.resolve(provider) : null;
+}
+
+/**
+ * The relay hands us the pairing URI asynchronously, after `connect()` has
+ * already been called, so the UI learns about it through the subscription.
+ */
+function onDisplayUri(uri: string): void {
+  void publishPairingFor(uri);
 }
 
 /**
@@ -207,11 +227,7 @@ async function getProvider(): Promise<WalletConnectProvider> {
       },
     })) as unknown as WalletConnectProvider;
 
-    // The relay hands us the pairing URI asynchronously, after `connect()` has
-    // already been called, so the UI learns about it through the subscription.
-    provider.on("display_uri", ((uri: string) => {
-      void publishPairingFor(uri);
-    }) as (...args: never[]) => void);
+    provider.on("display_uri", onDisplayUri as (...args: never[]) => void);
 
     return provider;
   })();
@@ -239,10 +255,18 @@ function appUrl(): string {
  * its QR code without waiting on a network round trip, and again once the
  * registry answers. On a phone `warmUp` has usually already cached that answer,
  * so the second publish lands in the same tick as the first.
+ *
+ * Both publishes belong to the attempt that was live when the URI arrived, and
+ * are dropped once it has settled. The relay can deliver a URI after a cancel
+ * or timeout, and the registry can answer after one: reopening the prompt then
+ * would leave a dialog whose Cancel has nothing left to cancel.
  */
 async function publishPairingFor(uri: string): Promise<void> {
+  const attempt = abandonPairing;
+  if (!attempt) return;
   publishPairing({ uri, deepLink: null, linkIsExact: false });
   const link = await freighterMobileLink();
+  if (abandonPairing !== attempt) return;
   publishPairing({
     uri,
     deepLink: formatNativeUrl(link ?? FREIGHTER_NATIVE_FALLBACK, uri),
@@ -371,6 +395,31 @@ function focusWallet(provider: WalletConnectProvider): void {
 }
 
 /**
+ * Every proposal the wallet hasn't answered yet, including ones whose attempt
+ * already gave up. Giving up can't withdraw a proposal (the SDK's
+ * `abortPairingAttempt()` is a no-op), and its URI can still reach the screen
+ * after a retry has started, so the user may approve that one instead.
+ */
+const unansweredProposals = new Set<Promise<unknown>>();
+
+/** Rejects the pairing `connect()` is waiting on; null when none is. */
+let abandonPairing: ((reason: WalletError) => void) | null = null;
+
+/** True while `connect()` is waiting for the wallet to answer a pairing. */
+export function pairingIsPending(): boolean {
+  return abandonPairing !== null;
+}
+
+/**
+ * Stop waiting for the pairing in progress: `connect()` rejects with
+ * `cancelled` and the prompt closes. A no-op when nothing is pending, so the
+ * dialog can call it without checking first.
+ */
+export function cancelPairing(): void {
+  abandonPairing?.(new WalletError("cancelled", "You cancelled connecting Freighter."));
+}
+
+/**
  * Connect Freighter mobile and return its `G…` address, reusing a live session
  * when there is one so a returning user isn't asked to pair again.
  */
@@ -380,19 +429,53 @@ export async function connect(): Promise<{ address: string; wallet: "freighter" 
   const existing = sessionAccounts(provider);
   if (existing.length > 0) return { address: existing[0], wallet: "freighter" };
 
-  try {
-    await provider.connect({
-      namespaces: {
-        stellar: {
-          chains: [caipChainId()],
-          methods: [...STELLAR_METHODS],
-          events: [...STELLAR_EVENTS],
-        },
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let giveUp: ((reason: WalletError) => void) | undefined;
+  // Registered before the proposal goes out, so the URI it produces is
+  // recognized as this attempt's (see publishPairingFor).
+  const givenUp = new Promise<never>((_, reject) => {
+    giveUp = reject;
+    abandonPairing = reject;
+    timer = setTimeout(
+      () =>
+        reject(
+          new WalletError(
+            "timed_out",
+            "Freighter didn't answer in time. Open Freighter, then try again.",
+          ),
+        ),
+      PAIRING_TIMEOUT_MS,
+    );
+  });
+
+  const approval = provider.connect({
+    namespaces: {
+      stellar: {
+        chains: [caipChainId()],
+        methods: [...STELLAR_METHODS],
+        events: [...STELLAR_EVENTS],
       },
-    });
+    },
+  });
+  unansweredProposals.add(approval);
+  const answered = () => void unansweredProposals.delete(approval);
+  approval.then(answered, answered);
+
+  // Approving *any* outstanding proposal opens a session on the shared
+  // provider, which is all this attempt needs. Only this attempt's own
+  // proposal can fail it: an older one failing says nothing about this one.
+  const approvedAny = new Promise<void>((resolve) => {
+    for (const proposal of unansweredProposals) proposal.then(() => resolve(), () => {});
+  });
+
+  try {
+    await Promise.race([approval, approvedAny, givenUp]);
   } catch (err) {
     throw walletConnectError(err, "Freighter connection failed");
   } finally {
+    clearTimeout(timer);
+    // Only clear our own: a newer attempt may already have taken the slot.
+    if (abandonPairing === giveUp) abandonPairing = null;
     publishPairing(null);
   }
 

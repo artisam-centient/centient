@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  cancelPairing,
   isFreighterInAppBrowser,
   isMobileBrowser,
   onPairing,
@@ -39,6 +40,8 @@ interface FreighterPairingViewProps {
   copied: boolean;
   onCopy: () => void;
   onOpenApp: () => void;
+  /** Stop waiting for this pairing and close the prompt. */
+  onCancel: () => void;
 }
 
 /** One pairing state, stateless so every state can be rendered and tested alone. */
@@ -49,6 +52,7 @@ export function FreighterPairingView({
   copied,
   onCopy,
   onOpenApp,
+  onCancel,
 }: FreighterPairingViewProps) {
   return (
     <div
@@ -130,6 +134,16 @@ export function FreighterPairingView({
         >
           Don&apos;t have Freighter yet?
         </a>
+
+        {/* The only way out short of the timeout: an abandoned pairing must
+            never leave the contributor on a screen that can't be closed. */}
+        <button
+          type="button"
+          onClick={onCancel}
+          className="h-12 w-full rounded-full border border-outline-variant font-label text-base font-semibold text-on-surface transition-transform duration-200 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -200,6 +214,16 @@ export default function FreighterPairing() {
     );
   }, [pairing]);
 
+  // Escape cancels too, as it would any other modal on a desktop.
+  useEffect(() => {
+    if (!pairing) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancelPairing();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pairing]);
+
   if (!pairing) return null;
 
   return (
@@ -210,6 +234,7 @@ export default function FreighterPairing() {
       copied={copied}
       onCopy={copy}
       onOpenApp={openApp}
+      onCancel={cancelPairing}
     />
   );
 }

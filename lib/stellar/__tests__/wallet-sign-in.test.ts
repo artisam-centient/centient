@@ -84,6 +84,8 @@ describe("signInWithWallet — wallet failures", () => {
   const cases: [WalletErrorCode, WalletSignInFailure][] = [
     ["freighter_missing", "freighter_missing"],
     ["rejected", "rejected"],
+    ["cancelled", "cancelled"],
+    ["timed_out", "timed_out"],
     ["wrong_account", "wrong_account"],
     ["unsupported", "unsupported"],
     ["invalid_address", "failed"],
@@ -205,6 +207,8 @@ describe("WALLET_SIGN_IN_MESSAGES", () => {
     const reasons: WalletSignInFailure[] = [
       "freighter_missing",
       "rejected",
+      "cancelled",
+      "timed_out",
       "wrong_account",
       "unsupported",
       "wrong_network",
