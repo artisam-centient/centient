@@ -33,7 +33,13 @@ vi.mock("@/lib/campaign-balance", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/stellar/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/stellar/client")>();
+  return { ...actual, accountHasUsdcTrustline: vi.fn(async () => true) };
+});
+
 import { POST } from "@/app/api/submit/route";
+import { accountHasUsdcTrustline } from "@/lib/stellar/client";
 import { payReward } from "@/lib/payout";
 import { checkWalletRateLimit } from "@/lib/rate-limit";
 import { checkReasonRepetition } from "@/lib/quality";
@@ -61,6 +67,8 @@ beforeEach(async () => {
   vi.mocked(checkAndDebit).mockResolvedValue(undefined);
   vi.mocked(creditBalance).mockReset();
   vi.mocked(creditBalance).mockResolvedValue(0n);
+  vi.mocked(accountHasUsdcTrustline).mockReset();
+  vi.mocked(accountHasUsdcTrustline).mockResolvedValue(true);
   process.env.PLATFORM_FEE_UNITS = "1500000"; // 0.15 USDC in seven-decimal units
 });
 
@@ -832,5 +840,59 @@ describe("POST /api/submit - #37 regression: one payout job per accepted answer,
     const res = await submitAs(user.id, validPayload({ taskId: task.id, choice: "A", reason: "asdf" }));
     expect(res.status).toBe(400);
     expect(await prisma.payoutJob.count()).toBe(0);
+  });
+});
+
+// #133 review (Codex P1): an accepted answer is paid on-chain at once, and a
+// wallet with no USDC trustline fails that payout permanently. The answer must be
+// refused before it consumes (userId, taskId) or debits the campaign.
+describe("POST /api/submit - USDC trustline", () => {
+  async function expectNothingWritten(userId: string) {
+    expect(await prisma.submission.count({ where: { userId } })).toBe(0);
+    expect(await prisma.payoutJob.count()).toBe(0);
+    expect(vi.mocked(checkAndDebit)).not.toHaveBeenCalled();
+  }
+
+  it("refuses 409 payout_setup_required with nothing written when the wallet has no trustline", async () => {
+    vi.mocked(accountHasUsdcTrustline).mockResolvedValue(false);
+    const user = await createUser();
+    const campaign = await createCampaign();
+    const task = await createTask({ campaignId: campaign.id });
+
+    const res = await submitAs(user.id, validPayload({ taskId: task.id }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "payout_setup_required" });
+    expect(vi.mocked(accountHasUsdcTrustline)).toHaveBeenCalledWith(user.walletAddress);
+    await expectNothingWritten(user.id);
+  });
+
+  it("refuses 503 payout_check_unavailable with nothing written when Horizon can't be read", async () => {
+    vi.mocked(accountHasUsdcTrustline).mockRejectedValue(new Error("Horizon timeout"));
+    const user = await createUser();
+    const task = await createTask();
+
+    const res = await submitAs(user.id, validPayload({ taskId: task.id }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "payout_check_unavailable" });
+    await expectNothingWritten(user.id);
+  });
+
+  it("accepts the same task once the trustline exists, paying it once", async () => {
+    vi.mocked(accountHasUsdcTrustline).mockResolvedValueOnce(false);
+    const user = await createUser();
+    const task = await createTask();
+
+    expect((await submitAs(user.id, validPayload({ taskId: task.id }))).status).toBe(409);
+    const res = await submitAs(user.id, validPayload({ taskId: task.id }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe("pending");
+    expect(await prisma.payoutJob.count({ where: { type: "SUBMISSION_PAYOUT" } })).toBe(1);
+  });
+
+  it("does not check the trustline for a gold task, which pays nothing", async () => {
+    const user = await createUser();
+    const gold = await createGoldTask("A");
+    await submitAs(user.id, validPayload({ taskId: gold.id, choice: "A" }));
+    expect(vi.mocked(accountHasUsdcTrustline)).not.toHaveBeenCalled();
   });
 });

@@ -33,6 +33,8 @@ vi.mock("@/lib/stellar/client", async (importOriginal) => {
       return chain.get(hash) ?? "not_found";
     }),
     latestLedgerCloseMs: vi.fn(async () => ledgerCloseMs),
+    // Submit refuses a wallet with no USDC trustline (#133 review); these are generated.
+    accountHasUsdcTrustline: vi.fn(async () => true),
   };
 });
 vi.mock("@/lib/stellar/balance", () => ({ checkAndAlert: vi.fn(async () => {}) }));
