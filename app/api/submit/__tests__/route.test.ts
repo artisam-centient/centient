@@ -374,6 +374,30 @@ describe("POST /api/submit - retest", () => {
     expect(await res.json()).toEqual({ paid: false, reason: "quality_check_failed" });
   });
 
+  it("tells a retest user a correct gold answer passed, not failed (OQ-10)", async () => {
+    const past = new Date(Date.now() - 3600000);
+    const user = await createUser({ isBanned: true, banCount: 1, bannedUntil: past });
+    const gold = await createGoldTask("A");
+
+    const res = await submitAs(user.id, validPayload({ taskId: gold.id, choice: "A" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ paid: false, reason: "quality_check_passed" });
+    const sub = await prisma.submission.findFirstOrThrow({ where: { userId: user.id } });
+    expect(sub).toMatchObject({ goldPassed: true, payoutStatus: "skipped", payoutAmountUnits: 0n });
+    expect(await prisma.payoutJob.count()).toBe(0);
+  });
+
+  it("says passed on the retest answer that lifts the ban", async () => {
+    const past = new Date(Date.now() - 3600000);
+    const user = await createUser({ isBanned: true, banCount: 1, bannedUntil: past });
+    const golds = [await createGoldTask("A"), await createGoldTask("A"), await createGoldTask("A")];
+
+    let last: Response | undefined;
+    for (const g of golds) last = await submitAs(user.id, validPayload({ taskId: g.id, choice: "A" }));
+    expect(await last!.json()).toEqual({ paid: false, reason: "quality_check_passed" });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).isBanned).toBe(false);
+  });
+
   it("rejects retest user submitting non-gold task", async () => {
     const past = new Date(Date.now() - 3600000);
     const user = await createUser({ isBanned: true, banCount: 1, bannedUntil: past });
