@@ -464,7 +464,8 @@ describe("POST /api/submit — every rejected path creates no payout intent", ()
     const gold = await createGoldTask("A");
     const res = await expectNoPayoutIntent(user.id, gold.id, campaign.id);
     expect(res.status).toBe(200);
-    expect(await errorOf(res)).toBe("quality_check_failed");
+    // A correct answer: it says passed (OQ-10) and still earns nothing.
+    expect(await errorOf(res)).toBe("quality_check_passed");
   });
 
   it("left/right bias", async () => {
