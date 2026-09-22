@@ -21,6 +21,8 @@ export type PayoutSetupFailure =
   | "wallet_required"
   | "freighter_missing"
   | "rejected"
+  | "cancelled"
+  | "timed_out"
   | "wrong_account"
   | "wrong_network"
   | "pending"
@@ -83,6 +85,8 @@ function failureFromError(err: unknown): PayoutSetupFailure {
     switch (err.code) {
       case "freighter_missing":
       case "rejected":
+      case "cancelled":
+      case "timed_out":
       case "wrong_account":
       case "wrong_network":
         return err.code;
@@ -200,6 +204,8 @@ export const PAYOUT_SETUP_MESSAGES: Record<PayoutSetupFailure, string> = {
     "We couldn't reach Freighter. Install the Freighter browser extension, or open this " +
     "page on a phone with the Freighter app, then try again.",
   rejected: "You declined in Freighter. Nothing was submitted — try again when you're ready.",
+  cancelled: "You cancelled the request to Freighter. Nothing was submitted — try again when you're ready.",
+  timed_out: "Freighter didn't answer in time. Open the Freighter app, then try again.",
   wrong_account:
     "Freighter signed with a different account. Switch to the wallet you signed in with, then try again.",
   wrong_network:

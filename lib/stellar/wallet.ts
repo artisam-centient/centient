@@ -142,13 +142,24 @@ function noFreighter(): WalletError {
  *
  * On the mobile path the pairing itself is surfaced through {@link onPairing}:
  * the promise stays pending while the user approves in the app, exactly as it
- * does while they approve an extension prompt.
+ * does while they approve an extension prompt. Pass `fresh` to pair anew
+ * instead of reusing a stored mobile session (see wallet-connect.ts).
  */
-export async function connect(): Promise<StellarConnection> {
+export async function connect(options: { fresh?: boolean } = {}): Promise<StellarConnection> {
   const transport = await resolveTransport();
   if (transport === "extension") return extensionConnect();
-  if (transport === "walletconnect") return (await walletConnect()).connect();
+  if (transport === "walletconnect") return (await walletConnect()).connect(options);
   throw noFreighter();
+}
+
+/**
+ * Stop waiting on the Freighter mobile app — for the pairing or a signature —
+ * so the call in flight rejects with `cancelled`. A no-op on the extension
+ * path, whose prompt the contributor closes in the extension itself.
+ */
+export async function cancelWalletRequest(): Promise<void> {
+  if (!isWalletConnectConfigured()) return;
+  (await walletConnect()).cancelWalletRequest();
 }
 
 /**
