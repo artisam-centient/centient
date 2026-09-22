@@ -10,6 +10,7 @@ process.env.STELLAR_USDC_ISSUER = Keypair.random().publicKey();
 
 import {
   PAIRING_TIMEOUT_MS,
+  DROP_SESSION_WAIT_MS,
   REQUEST_TIMEOUT_MS,
   cancelPairing,
   cancelWalletRequest,
@@ -458,6 +459,23 @@ describe("connect — a fresh pairing", () => {
     await expect(connect({ fresh: true })).resolves.toEqual({ address: ADDR, wallet: "freighter" });
   });
 
+  it("does not wait on a relay that never confirms the drop", async () => {
+    vi.useFakeTimers();
+    const provider = fakeProvider({ accounts: [OTHER] });
+    // The SDK only clears its session after the relay answers the disconnect.
+    provider.disconnect = vi.fn(() => new Promise<never>(() => {}));
+    provider.connect = vi.fn().mockImplementation(() => {
+      provider.session = { namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+      return Promise.resolve(undefined);
+    });
+    setWalletConnectProvider(provider);
+
+    const attempt = expect(connect({ fresh: true })).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+    await vi.advanceTimersByTimeAsync(DROP_SESSION_WAIT_MS);
+    await attempt;
+    vi.useRealTimers();
+  });
+
   it("reuses a stored session when not asked for a fresh one", async () => {
     const provider = fakeProvider({ accounts: [ADDR] });
     setWalletConnectProvider(provider);
@@ -515,6 +533,22 @@ describe("signing — a request the wallet never answers", () => {
     cancelWalletRequest();
     await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
     expect(provider.disconnect).toHaveBeenCalled();
+  });
+
+  it("reports a cancel promptly even when the relay never confirms the drop", async () => {
+    vi.useFakeTimers();
+    const provider = unansweredProvider();
+    provider.disconnect = vi.fn(() => new Promise<never>(() => {}));
+    setWalletConnectProvider(provider);
+
+    const attempt = signOwnership(MESSAGE, ADDR);
+    attempt.catch(() => {});
+    await vi.waitFor(() => expect(provider.request).toHaveBeenCalled());
+    cancelWalletRequest();
+    await vi.advanceTimersByTimeAsync(DROP_SESSION_WAIT_MS);
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+    // Forgotten here even so, so the retry pairs afresh.
+    expect(provider.session).toBeUndefined();
   });
 
   it("cancels a pairing too, so one Cancel covers the whole wait", async () => {

@@ -450,18 +450,26 @@ export function cancelWalletRequest(): void {
   abandonRequest?.(new WalletError("cancelled", "You cancelled the request to Freighter."));
 }
 
+/** How long dropping a session waits for the relay before forgetting it anyway. */
+export const DROP_SESSION_WAIT_MS = 2_000;
+
 /**
- * Forget the session without waiting on the relay. `provider.disconnect()`
- * clears it locally before telling the wallet, and the wallet is exactly what
- * may not be listening, so neither its answer nor its failure matters here.
+ * Forget the session, telling the wallet if the relay lets us. The SDK's
+ * `disconnect()` clears its session only *after* the relay answers, and the
+ * relay (or the wallet behind it) is exactly what may not be there, so it gets
+ * {@link DROP_SESSION_WAIT_MS} and then the session is cleared here regardless.
+ * Whatever the relay does later, the next request can't go out over it.
  */
 async function dropSession(provider: WalletConnectProvider): Promise<void> {
   if (!provider.session) return;
-  try {
-    await provider.disconnect();
-  } catch {
-    // The local session is what had to go, and it has.
-  }
+  const told = provider.disconnect().catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    told,
+    new Promise<void>((resolve) => (timer = setTimeout(resolve, DROP_SESSION_WAIT_MS))),
+  ]);
+  clearTimeout(timer);
+  provider.session = undefined;
 }
 
 /**
