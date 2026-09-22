@@ -394,6 +394,14 @@ function focusWallet(provider: WalletConnectProvider): void {
   if (link) window.location.href = link;
 }
 
+/**
+ * Every proposal the wallet hasn't answered yet, including ones whose attempt
+ * already gave up. Giving up can't withdraw a proposal (the SDK's
+ * `abortPairingAttempt()` is a no-op), and its URI can still reach the screen
+ * after a retry has started, so the user may approve that one instead.
+ */
+const unansweredProposals = new Set<Promise<unknown>>();
+
 /** Rejects the pairing `connect()` is waiting on; null when none is. */
 let abandonPairing: ((reason: WalletError) => void) | null = null;
 
@@ -449,12 +457,19 @@ export async function connect(): Promise<{ address: string; wallet: "freighter" 
       },
     },
   });
-  // If we give up first, the wallet's answer has nowhere to go. The next
-  // `provider.connect()` unsubscribes this pairing before starting its own.
-  approval.catch(() => {});
+  unansweredProposals.add(approval);
+  const answered = () => void unansweredProposals.delete(approval);
+  approval.then(answered, answered);
+
+  // Approving *any* outstanding proposal opens a session on the shared
+  // provider, which is all this attempt needs. Only this attempt's own
+  // proposal can fail it: an older one failing says nothing about this one.
+  const approvedAny = new Promise<void>((resolve) => {
+    for (const proposal of unansweredProposals) proposal.then(() => resolve(), () => {});
+  });
 
   try {
-    await Promise.race([approval, givenUp]);
+    await Promise.race([approval, approvedAny, givenUp]);
   } catch (err) {
     throw walletConnectError(err, "Freighter connection failed");
   } finally {
