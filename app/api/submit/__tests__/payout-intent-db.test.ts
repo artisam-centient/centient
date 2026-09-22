@@ -28,6 +28,13 @@ vi.mock("@/lib/quality", async (importOriginal) => {
   };
 });
 
+// The submit route refuses a wallet with no USDC trustline before any write
+// (#133 review). These wallets are generated, not funded, so answer "has one".
+vi.mock("@/lib/stellar/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/stellar/client")>();
+  return { ...actual, accountHasUsdcTrustline: vi.fn(async () => true) };
+});
+
 import * as Sentry from "@sentry/nextjs";
 import { POST } from "@/app/api/submit/route";
 import { checkWalletRateLimit } from "@/lib/rate-limit";

@@ -130,7 +130,14 @@ async function settleConfirmedPayment(
     if (from === "sent") {
       await prisma.submission.updateMany({
         where: unchanged,
-        data: { payoutStatus: "confirmed", lastRetriedAt: new Date() },
+        data: {
+          payoutStatus: "confirmed",
+          // F5: a transient Horizon read on an earlier pass wrote `payoutError`,
+          // and nothing else clears it. Without this the row reads `confirmed`
+          // under a failure message that is no longer true of it.
+          payoutError: null,
+          lastRetriedAt: new Date(),
+        },
       });
     } else {
       await prisma.$transaction(async (tx) => {
@@ -144,6 +151,7 @@ async function settleConfirmedPayment(
           where: { id: sub.userId },
           data: { totalEarnedUnits: { increment: sub.payoutAmountUnits }, submissionCount: { increment: 1 } },
         });
+        await repairPayoutJobTuple(tx, id, txHash, sub.payoutAmountUnits);
       });
     }
     console.log(`[reconciler] confirmed submission ${id}`);
@@ -161,6 +169,71 @@ async function settleConfirmedPayment(
     level: "error",
     extra: { txHash, mismatches: verdict.mismatches },
   });
+}
+
+/**
+ * #40 D5 / F4: give a held payout's job the broadcast tuple its quarantine never
+ * wrote.
+ *
+ * The worker's quarantine fails the job with no `txHash`, `amountUnits` or
+ * `broadcastAt`, because the write that would have carried them is the one that
+ * failed. Confirming the submission here without repairing that job leaves a
+ * payment that provably applied on-chain invisible to everything that reads the
+ * tuple: both rolling daily caps (`getPayoutActivitySince` and the co-signer's)
+ * sum exactly those columns, so real spend is under-counted and the cap lets
+ * more through than it should.
+ *
+ * `broadcastAt` is reconstructed, not invented. The attempt journal records an
+ * envelope immediately before it is submitted, so its `createdAt` is the closest
+ * true broadcast time there is; the job's own `completedAt` (written by the
+ * quarantine) is the fallback, and only when neither exists does this fall back
+ * to now. All three keep the payment inside a 24-hour rolling window that it
+ * belongs in.
+ *
+ * Runs in the caller's transaction, so the tuple and the `confirmed` status land
+ * together or not at all.
+ */
+async function repairPayoutJobTuple(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  submissionId: string,
+  txHash: string,
+  amountUnits: bigint,
+): Promise<void> {
+  const job = await tx.payoutJob.findUnique({
+    where: { submissionId },
+    select: { id: true, txHash: true, amountUnits: true, broadcastAt: true, completedAt: true },
+  });
+  if (job?.txHash === txHash && job.amountUnits !== null && job.broadcastAt !== null) return;
+
+  const attempt = await tx.payoutAttempt.findUnique({
+    where: { envelopeHash: txHash },
+    select: { createdAt: true },
+  });
+  const broadcastAt = attempt?.createdAt ?? job?.completedAt ?? new Date();
+
+  await tx.payoutJob.upsert({
+    where: { submissionId },
+    create: {
+      type: "SUBMISSION_PAYOUT",
+      submissionId,
+      amountUnits,
+      txHash,
+      broadcastAt,
+      status: "done",
+      completedAt: new Date(),
+    },
+    update: {
+      amountUnits,
+      txHash,
+      broadcastAt,
+      status: "done",
+      completedAt: new Date(),
+      lastError: null,
+    },
+  });
+  console.log(
+    `[reconciler] submission ${submissionId}: repaired its payout job tuple for ${txHash} (broadcast ${broadcastAt.toISOString()})`,
+  );
 }
 
 const FAILED_ON_CHAIN = "included and failed";

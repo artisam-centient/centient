@@ -459,20 +459,43 @@ async function processSubmissionPayout(
           },
         }),
       ]);
+    // `persistAcceptedPayment` retries this whole callback on any error, and a
+    // commit whose response was lost is an error it cannot tell from one that
+    // rolled back (F3). The move to `sent` under this hash is the one-time
+    // transition; the credit is gated on winning it, so a replay rewrites the
+    // same tuple and adds nothing to lifetime totals.
     const persisted = await persistAcceptedPayment(
       accepted,
       () =>
-        prisma.$transaction([
-          prisma.payoutJob.update({
+        prisma.$transaction(async (tx) => {
+          await tx.payoutJob.update({
             where: { id: jobId },
             data: { txHash, amountUnits: amount, broadcastAt, workerHeartbeatAt: broadcastAt },
-          }),
-          prisma.submission.update({
-            where: { id: submissionId },
+          });
+          const { count } = await tx.submission.updateMany({
+            where: { id: submissionId, payoutTxHash: null },
             data: { payoutStatus: "sent", payoutTxHash: txHash },
-          }),
+          });
+          if (count === 0) {
+            // A hash is already recorded. If it is this one, an earlier run of
+            // this callback committed and its credit stands. Any other hash
+            // belongs to a payer that is not this job.
+            const row = await tx.submission.findUnique({
+              where: { id: submissionId },
+              select: { payoutTxHash: true },
+            });
+            if (row?.payoutTxHash !== txHash) {
+              throw new Error(
+                `[payout-worker] submission ${submissionId} carries hash ${row?.payoutTxHash ?? "none"}, not the broadcast ${txHash}`,
+              );
+            }
+            console.warn(
+              `[payout-worker] submission ${submissionId} was already recorded as ${txHash} — not crediting it twice`,
+            );
+            return;
+          }
           // Confirmed in the same write as the hash (#38).
-          confirmAttempt(txHash),
+          await confirmAttempt(txHash, tx);
           // Credited in the same write too, so `sent` always means credited:
           // the reconciler undoes this credit when a `sent` payout turns out to
           // have failed on-chain (#40), and must never undo one that never
@@ -480,15 +503,15 @@ async function processSubmissionPayout(
           // reward was paid on-chain, so it is earned, never withdrawable:
           // crediting `pendingBalanceUnits` (and a `CREDIT_REWARD` ledger row)
           // would let the same reward be withdrawn a second time (#37).
-          prisma.user.update({
+          await tx.user.update({
             where: { id: submission.userId },
             data: {
               submissionCount: { increment: 1 },
               totalEarnedUnits: { increment: amount },
               lastSubmissionAt: new Date(),
             },
-          }),
-        ]),
+          });
+        }),
       quarantine,
     );
     if (!persisted) return;

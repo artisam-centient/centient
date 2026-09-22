@@ -7,10 +7,12 @@ const {
   mockGetTxStatus,
   mockJobFindUnique,
   mockJobUpdate,
+  mockJobUpdateMany,
 } = vi.hoisted(() => ({
   mockGetTxStatus: vi.fn(),
   mockJobFindUnique: vi.fn(),
   mockJobUpdate: vi.fn(),
+  mockJobUpdateMany: vi.fn(),
 }));
 
 vi.mock("@/lib/stellar/client", () => ({
@@ -31,7 +33,11 @@ vi.mock("@/lib/user-balance", () => ({ refundReversal: vi.fn(async () => 0n) }))
 vi.mock("@/lib/prisma", () => ({
   __esModule: true,
   default: {
-    payoutJob: { findUnique: mockJobFindUnique, update: mockJobUpdate },
+    payoutJob: {
+      findUnique: mockJobFindUnique,
+      update: mockJobUpdate,
+      updateMany: mockJobUpdateMany,
+    },
     $transaction: vi.fn(async (arr: Promise<unknown>[]) => Promise.all(arr)),
   },
 }));
@@ -44,6 +50,9 @@ const TX = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
 beforeEach(() => {
   vi.clearAllMocks();
   mockJobUpdate.mockResolvedValue({});
+  // F1: the terminal failure is claimed with a conditional update — one row
+  // matched means this pass is the one that finalizes the job and refunds it.
+  mockJobUpdateMany.mockResolvedValue({ count: 1 });
   mockJobFindUnique.mockResolvedValue({ id: "job", retryCount: 0 });
 });
 
@@ -96,9 +105,9 @@ describe("processWithdrawal", () => {
 
     await processWithdrawal("job-3", TX, "user-3", 250n);
 
-    expect(mockJobUpdate).toHaveBeenCalledWith(
+    expect(mockJobUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "job-3" },
+        where: { id: "job-3", status: "processing" },
         data: expect.objectContaining({ status: "failed" }),
       }),
     );
@@ -108,5 +117,19 @@ describe("processWithdrawal", () => {
       "job-3",
       expect.any(String),
     );
+  });
+
+  // F1: two reconcilers can both reach a withdrawal's terminal path. The move
+  // out of `processing` is what decides which one owns it, and the loser must
+  // not reverse the debit — a second reversal is withdrawable balance the
+  // platform never took.
+  it("does not refund when another pass already finalized the job", async () => {
+    mockGetTxStatus.mockResolvedValueOnce("failed");
+    mockJobFindUnique.mockResolvedValueOnce({ id: "job-5", retryCount: 2 });
+    mockJobUpdateMany.mockResolvedValueOnce({ count: 0 });
+
+    await processWithdrawal("job-5", TX, "user-5", 250n);
+
+    expect(refundReversal).not.toHaveBeenCalled();
   });
 });

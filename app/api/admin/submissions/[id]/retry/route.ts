@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getAdminSession, requireRoleForRoute } from "@/lib/admin-auth";
 import { reprocessPayoutWithNonceSafety } from "@/lib/payout-service";
-import { RETRY_CLAIM_LEASE_MS, retryClaimIsLive } from "@/lib/payout-retry-claim";
+import { RETRY_CLAIM_LEASE_MS, retryClaimIsLive, SUBMISSION_RETRY_BUDGET } from "@/lib/payout-retry-claim";
 import { hasRefundedSubmission } from "@/lib/campaign-balance";
 
 export const dynamic = "force-dynamic";
@@ -126,15 +126,37 @@ export async function POST(
   } catch (err: any) {
     console.error(`[admin/retry] manual retry failed for submission ${id}:`, err);
 
-    // Only restore the original status if the txHash was never persisted. If it was
-    // saved, the submission is already "sent"; overwriting it to "failed" would create
-    // contradictory state — the reconciler verifies on-chain and transitions correctly.
-    const current = await prisma.submission.findUnique({
-      where: { id },
-      select: { payoutTxHash: true },
-    });
-    if (!current?.payoutTxHash) {
-      await prisma.submission.update({
+    // Restore the row this request claimed — but only when the failure left
+    // nothing behind that the restore would undo.
+    //
+    // The old guard was "no txHash", which only covers a payout that broadcast.
+    // It misses the case that matters (F2): `reprocessPayoutWithNonceSafety` can
+    // hit a non-retryable rail error (`op_no_trust`, `op_no_destination`), write
+    // `retryCount = SUBMISSION_RETRY_BUDGET` to take the row out of the retry
+    // path, refund the campaign debit, and only then throw. There is no hash, so
+    // the old guard restored the pre-request `failed`/low `retryCount` over
+    // exactly those two markers — and the cron, which does not exclude refunded
+    // rows, would then pay a submission whose funding had already gone back.
+    //
+    // Under the row lock, refuse the restore whenever the payout is now
+    // terminal, refunded, or out of budget. Leaving the row as the failure left
+    // it is always safe: it is the state the same failure reached by any other
+    // path.
+    await prisma.$transaction(async (tx) => {
+      const [row] = await tx.$queryRaw<
+        { payoutStatus: string; payoutTxHash: string | null; retryCount: number }[]
+      >`
+        SELECT "payoutStatus", "payoutTxHash", "retryCount" FROM "submissions"
+        WHERE "id" = ${id} FOR UPDATE
+      `;
+      if (!row) return;
+
+      if (row.payoutTxHash) return;
+      if (row.payoutStatus !== "pending") return;
+      if (row.retryCount >= SUBMISSION_RETRY_BUDGET) return;
+      if (await hasRefundedSubmission(tx, id)) return;
+
+      await tx.submission.update({
         where: { id },
         data: {
           retryCount: claim.originals.retryCount,
@@ -142,7 +164,7 @@ export async function POST(
           payoutStatus: claim.originals.status,
         },
       });
-    }
+    });
 
     return NextResponse.json(
       { error: "payout_failed", detail: err instanceof Error ? err.message : String(err) },

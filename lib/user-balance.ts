@@ -76,6 +76,26 @@ export async function debitForWithdrawal(
   return result;
 }
 
+/**
+ * Restore a withdrawal's debit to the user's withdrawable balance.
+ *
+ * At most once per payout job (F1). The reversal is the one write in the
+ * withdrawal rail that *creates* withdrawable balance, so a second one for the
+ * same job is money the platform never debited, and a later withdrawal pays it
+ * out for real. Two things could produce that second one: two reconcilers
+ * reaching the same job's terminal path, and a caller replaying after a commit
+ * whose response was lost.
+ *
+ * Both are closed the same way. The user row is locked `FOR UPDATE` first, which
+ * serializes every reversal for this user, and under that lock a `REVERSAL`
+ * ledger row already carrying this `payoutJobId` means the restoration has
+ * happened — so this returns the balance unchanged instead of adding to it. The
+ * lock is what makes the check sound: without it both callers would read "no
+ * row" before either wrote one.
+ *
+ * A reversal with no `payoutJobId` cannot be keyed and is applied as asked; no
+ * caller in the withdrawal rail omits it.
+ */
 export async function refundReversal(
   userId: string,
   amountUnits: bigint,
@@ -83,6 +103,25 @@ export async function refundReversal(
   note?: string,
 ): Promise<bigint> {
   const result = await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ pendingBalanceUnits: bigint }[]>`
+      SELECT "pendingBalanceUnits" FROM "users"
+      WHERE "id" = ${userId}
+      FOR UPDATE
+    `;
+
+    if (payoutJobId) {
+      const already = await tx.userBalanceLedger.findFirst({
+        where: { userId, type: "REVERSAL", submissionId: payoutJobId },
+        select: { id: true },
+      });
+      if (already) {
+        console.warn(
+          `[user-balance] withdrawal ${payoutJobId} was already reversed — not restoring it a second time`,
+        );
+        return locked[0]?.pendingBalanceUnits ?? 0n;
+      }
+    }
+
     await tx.user.update({
       where: { id: userId },
       data: { pendingBalanceUnits: { increment: amountUnits } },

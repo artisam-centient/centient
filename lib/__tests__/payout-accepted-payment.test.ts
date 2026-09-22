@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
   payoutJob: { findUnique: vi.fn(), update: vi.fn(), upsert: vi.fn() },
-  submission: { findUnique: vi.fn(), update: vi.fn(), count: vi.fn() },
+  submission: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
   user: { findUnique: vi.fn(), update: vi.fn() },
   userBalanceLedger: { create: vi.fn() },
   $executeRaw: vi.fn(),
@@ -28,7 +28,12 @@ vi.mock("../prisma", () => ({ default: { ...db, $transaction: async (fn: any) =>
 vi.mock("../payout", () => ({ payReward: effects.pay, PayoutCapError: class extends Error {} }));
 vi.mock("../health-alert", () => ({ sendDedupedDiscordAlert: effects.page }));
 vi.mock("../user-balance", () => ({ refundReversal: effects.refund }));
-vi.mock("../campaign-balance", () => ({ creditBalance: effects.credit, totalDebitUnits: (n: bigint) => n }));
+vi.mock("../campaign-balance", () => ({
+  creditBalance: effects.credit,
+  totalDebitUnits: (n: bigint) => n,
+  // F2: every retry claimant refuses a refunded row; never refunded here.
+  hasRefundedSubmission: vi.fn(async () => false),
+}));
 vi.mock("../stellar/balance", () => ({ checkAndAlert: vi.fn() }));
 vi.mock("@sentry/nextjs", () => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
 import { processJob } from "../payout-worker";
@@ -51,6 +56,9 @@ beforeEach(() => {
   effects.refund.mockResolvedValue(0n);
   db.payoutJob.findUnique.mockResolvedValue({ destinationAddress: submission.walletAddress, retryCount: 2 });
   db.submission.findUnique.mockResolvedValue(submission);
+  // F3: the `sent` transition is conditional, and one matched row means this
+  // caller won it and so credits. Tests that model row state override this.
+  db.submission.updateMany.mockResolvedValue({ count: 1 });
   db.user.findUnique.mockResolvedValue(null);
 });
 afterEach(() => vi.restoreAllMocks());
@@ -138,6 +146,13 @@ describe("accepted payment persistence boundary", () => {
     txn.rollback = () => { Object.assign(row, snapshot); };
     db.submission.findUnique.mockImplementation(async () => ({ ...row }));
     db.submission.update.mockImplementation(async ({ data }: any) => { Object.assign(row, data); return { ...row }; });
+    // The conditional `sent` write, with the condition applied: it matches only
+    // while the row still carries no hash, which is what makes a replay a no-op.
+    db.submission.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (where?.payoutTxHash === null && row.payoutTxHash != null) return { count: 0 };
+      Object.assign(row, data);
+      return { count: 1 };
+    });
     db.user.update.mockRejectedValue(new Error(secret));
 
     await processJob("job", "sub", "user", 123n, "SUBMISSION_PAYOUT");
