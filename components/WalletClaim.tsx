@@ -81,7 +81,7 @@ export function WalletClaimView({
           {failure && (
             <p
               data-failure={failure}
-              className={`font-body text-sm ${failure === "rejected" ? "text-on-surface-variant" : "text-error"}`}
+              className={`font-body text-sm ${failure === "rejected" || failure === "cancelled" ? "text-on-surface-variant" : "text-error"}`}
             >
               {WALLET_CLAIM_MESSAGES[failure]}
             </p>

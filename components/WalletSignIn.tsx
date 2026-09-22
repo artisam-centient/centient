@@ -75,7 +75,7 @@ export function WalletSignInView({
           <p
             data-failure={failure}
             className={`font-body text-sm ${
-              failure === "rejected" ? "text-on-surface-variant" : "text-error"
+              failure === "rejected" || failure === "cancelled" ? "text-on-surface-variant" : "text-error"
             }`}
           >
             {WALLET_SIGN_IN_MESSAGES[failure]}
