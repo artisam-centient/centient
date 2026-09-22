@@ -64,6 +64,16 @@ const STELLAR_EVENTS = ["accountsChanged"] as const;
 /** WalletConnect's JSON-RPC error code for "the user said no". */
 const WC_USER_REJECTED = 5000;
 
+/**
+ * How long `connect()` waits for the wallet to answer a pairing before giving
+ * up. Long enough to switch apps, unlock Freighter and approve, short enough
+ * that a contributor who walked away isn't left on a dialog that can never
+ * close. `provider.connect()` has no deadline of its own that we can lean on
+ * (sign-client's proposal expiry is thirty days), which is the hang #138
+ * exists to remove.
+ */
+export const PAIRING_TIMEOUT_MS = 3 * 60_000;
+
 /** WalletConnect's registry, which publishes each wallet's mobile deep link. */
 const WC_EXPLORER_API = "https://explorer-api.walletconnect.com/v3/wallets";
 
@@ -370,6 +380,23 @@ function focusWallet(provider: WalletConnectProvider): void {
   if (link) window.location.href = link;
 }
 
+/** Rejects the pairing `connect()` is waiting on; null when none is. */
+let abandonPairing: ((reason: WalletError) => void) | null = null;
+
+/** True while `connect()` is waiting for the wallet to answer a pairing. */
+export function pairingIsPending(): boolean {
+  return abandonPairing !== null;
+}
+
+/**
+ * Stop waiting for the pairing in progress: `connect()` rejects with
+ * `cancelled` and the prompt closes. A no-op when nothing is pending, so the
+ * dialog can call it without checking first.
+ */
+export function cancelPairing(): void {
+  abandonPairing?.(new WalletError("cancelled", "You cancelled connecting Freighter."));
+}
+
 /**
  * Connect Freighter mobile and return its `G…` address, reusing a live session
  * when there is one so a returning user isn't asked to pair again.
@@ -380,19 +407,44 @@ export async function connect(): Promise<{ address: string; wallet: "freighter" 
   const existing = sessionAccounts(provider);
   if (existing.length > 0) return { address: existing[0], wallet: "freighter" };
 
-  try {
-    await provider.connect({
-      namespaces: {
-        stellar: {
-          chains: [caipChainId()],
-          methods: [...STELLAR_METHODS],
-          events: [...STELLAR_EVENTS],
-        },
+  const approval = provider.connect({
+    namespaces: {
+      stellar: {
+        chains: [caipChainId()],
+        methods: [...STELLAR_METHODS],
+        events: [...STELLAR_EVENTS],
       },
-    });
+    },
+  });
+  // If we give up first, the wallet's answer has nowhere to go. The next
+  // `provider.connect()` unsubscribes this pairing before starting its own.
+  approval.catch(() => {});
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let giveUp: ((reason: WalletError) => void) | undefined;
+  const givenUp = new Promise<never>((_, reject) => {
+    giveUp = reject;
+    abandonPairing = reject;
+    timer = setTimeout(
+      () =>
+        reject(
+          new WalletError(
+            "timed_out",
+            "Freighter didn't answer in time. Open Freighter, then try again.",
+          ),
+        ),
+      PAIRING_TIMEOUT_MS,
+    );
+  });
+
+  try {
+    await Promise.race([approval, givenUp]);
   } catch (err) {
     throw walletConnectError(err, "Freighter connection failed");
   } finally {
+    clearTimeout(timer);
+    // Only clear our own: a newer attempt may already have taken the slot.
+    if (abandonPairing === giveUp) abandonPairing = null;
     publishPairing(null);
   }
 

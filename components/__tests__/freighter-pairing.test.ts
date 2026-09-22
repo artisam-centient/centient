@@ -11,7 +11,14 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import FreighterPairing, { FreighterPairingView } from "@/components/FreighterPairing";
-import { emitPairingForTest, type WalletConnectPairing } from "@/lib/stellar/wallet-connect";
+import {
+  connect,
+  emitPairingForTest,
+  pairingIsPending,
+  setWalletConnectProvider,
+  type WalletConnectPairing,
+  type WalletConnectProvider,
+} from "@/lib/stellar/wallet-connect";
 
 const URI = "wc:abc123@2?relay-protocol=irn&symKey=deadbeef";
 const DEEP_LINK = `freighterwallet://wc?uri=${encodeURIComponent(URI)}`;
@@ -56,8 +63,31 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  setWalletConnectProvider(null);
   vi.restoreAllMocks();
 });
+
+/**
+ * Start a real `connect()` against a wallet that never answers, and show its
+ * pairing — the state #138 is about: the contributor walked away from Freighter.
+ */
+async function abandonedPairing(): Promise<{ attempt: Promise<unknown> }> {
+  const provider: WalletConnectProvider = {
+    connect: () => new Promise<never>(() => {}),
+    request: vi.fn(),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn(),
+  } as unknown as WalletConnectProvider;
+  setWalletConnectProvider(provider);
+  const attempt = connect();
+  attempt.catch(() => {});
+  await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+  await act(async () => {
+    emitPairingForTest(pairing());
+  });
+  // Wrapped: returning the bare promise would make this helper wait on it.
+  return { attempt };
+}
 
 describe("FreighterPairingView", () => {
   it("offers the app on the device that holds the wallet", () => {
@@ -69,6 +99,7 @@ describe("FreighterPairingView", () => {
         copied: false,
         onCopy: noop,
         onOpenApp: noop,
+        onCancel: noop,
       }),
     );
 
@@ -86,6 +117,7 @@ describe("FreighterPairingView", () => {
         copied: false,
         onCopy: noop,
         onOpenApp: noop,
+        onCancel: noop,
       }),
     );
 
@@ -106,6 +138,7 @@ describe("FreighterPairingView", () => {
         copied: false,
         onCopy: noop,
         onOpenApp: noop,
+        onCancel: noop,
       }),
     );
 
@@ -123,6 +156,7 @@ describe("FreighterPairingView", () => {
         copied: false,
         onCopy: noop,
         onOpenApp: noop,
+        onCancel: noop,
       }),
     );
 
@@ -197,5 +231,32 @@ describe("FreighterPairing", () => {
     });
 
     expect(writeText).toHaveBeenCalledWith(URI);
+  });
+
+  it("cancels an abandoned pairing and closes, on a phone", async () => {
+    setUserAgent(PHONE_UA);
+    captureNavigation();
+    render(createElement(FreighterPairing));
+    const { attempt } = await abandonedPairing();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    });
+
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("cancels on Escape, on a desktop", async () => {
+    setUserAgent(DESKTOP_UA);
+    render(createElement(FreighterPairing));
+    const { attempt } = await abandonedPairing();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

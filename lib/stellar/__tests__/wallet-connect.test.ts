@@ -9,6 +9,8 @@ import { Keypair, hash } from "@stellar/stellar-sdk";
 process.env.STELLAR_USDC_ISSUER = Keypair.random().publicKey();
 
 import {
+  PAIRING_TIMEOUT_MS,
+  cancelPairing,
   connect,
   formatNativeUrl,
   isFreighterInAppBrowser,
@@ -17,6 +19,7 @@ import {
   setWalletConnectProvider,
   signOwnership,
   signTransaction,
+  pairingIsPending,
   type WalletConnectProvider,
 } from "@/lib/stellar/wallet-connect";
 import { WalletError } from "@/lib/stellar/wallet-errors";
@@ -167,6 +170,87 @@ describe("connect", () => {
     await expect(connect()).rejects.toBeInstanceOf(WalletError);
     expect(seen.at(-1)).toBeNull();
     unsubscribe();
+  });
+});
+
+describe("connect — an abandoned pairing", () => {
+  /** A provider whose pairing the wallet never answers. */
+  function silentProvider(): WalletConnectProvider {
+    const provider = fakeProvider();
+    provider.connect = vi.fn(() => new Promise<never>(() => {}));
+    return provider;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("gives up with timed_out once the wallet has been silent too long", async () => {
+    vi.useFakeTimers();
+    setWalletConnectProvider(silentProvider());
+
+    const attempt = expect(connect()).rejects.toMatchObject({ code: "timed_out" });
+    await vi.advanceTimersByTimeAsync(PAIRING_TIMEOUT_MS);
+    await attempt;
+  });
+
+  it("is still waiting just before the timeout", async () => {
+    vi.useFakeTimers();
+    setWalletConnectProvider(silentProvider());
+
+    let settled = false;
+    const attempt = connect().finally(() => {
+      settled = true;
+    });
+    attempt.catch(() => {});
+    await vi.advanceTimersByTimeAsync(PAIRING_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+
+    cancelPairing();
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  it("stops at once with cancelled when the contributor cancels", async () => {
+    setWalletConnectProvider(silentProvider());
+
+    const attempt = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    cancelPairing();
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  it("closes the pairing prompt when it gives up", async () => {
+    const seen: (unknown | null)[] = [];
+    const unsubscribe = onPairing((p) => seen.push(p));
+    setWalletConnectProvider(silentProvider());
+
+    const attempt = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    cancelPairing();
+    await expect(attempt).rejects.toBeInstanceOf(WalletError);
+    expect(seen.at(-1)).toBeNull();
+    unsubscribe();
+  });
+
+  it("pairs afresh on the next attempt", async () => {
+    const provider = silentProvider();
+    setWalletConnectProvider(provider);
+
+    const first = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    cancelPairing();
+    await expect(first).rejects.toMatchObject({ code: "cancelled" });
+
+    provider.connect = vi.fn().mockImplementation(() => {
+      provider.session = { namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+      return Promise.resolve(undefined);
+    });
+    await expect(connect()).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+  });
+
+  it("does nothing when no pairing is pending", () => {
+    expect(() => cancelPairing()).not.toThrow();
+    expect(pairingIsPending()).toBe(false);
   });
 });
 
