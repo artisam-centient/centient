@@ -88,6 +88,8 @@ function submitErrorMessage(status: number, code?: string): string {
       return "This task is no longer available.";
     case "response_target_reached":
       return "This task has enough submissions. Try the next one.";
+    case "payout_check_unavailable":
+      return "We couldn't check your wallet can receive USDC. Please try again in a moment.";
     case "payout_failed":
       return "Payment failed. Please try again.";
     case "server_error":
@@ -270,10 +272,10 @@ export default function Home() {
     [enterApp],
   );
 
-  // PR #105 review: tasks and submissions need only a bound wallet; payout setup
-  // is needed to withdraw. A failure there — Horizon down, the sponsor short of
-  // XLM, a legacy account at the sponsorship cap — must not keep a contributor
-  // out of the app. A withdrawal refused `payout_setup_required` brings them back.
+  // PR #105 review: a failure in payout setup — Horizon down, the sponsor short
+  // of XLM, a legacy account at the sponsorship cap — must not keep a contributor
+  // out of the app. An answer or a withdrawal refused `payout_setup_required`
+  // brings them back, since an answer is paid on-chain at once (#37).
   const handlePayoutSkipped = useCallback(
     async (reason: string) => {
       track("payout_setup_skipped", { reason });
@@ -380,6 +382,14 @@ export default function Home() {
 
       if (res.status === 409 && data.error === "wallet_required") {
         setScreen("claim_wallet");
+        return;
+      }
+
+      // The wallet can't hold USDC yet, so the answer was not recorded. Payout
+      // setup adds the trustline; the task stays unanswered for afterwards.
+      if (res.status === 409 && data.error === "payout_setup_required") {
+        track("submission_blocked", { task_id: task.id, reason: "payout_setup_required" });
+        handlePayoutSetupRequired();
         return;
       }
 

@@ -361,16 +361,16 @@ export async function POST(req: NextRequest) {
     // So the check goes before the write, and its answer is the same
     // `payout_setup_required` the withdraw route already returns, sending the
     // contributor to the sponsored-trustline flow with the task still unanswered.
-    // Only a definite "no" refuses: a Horizon that cannot be read says nothing
-    // about the trustline, and refusing on it would stop every contributor
-    // earning during an outage. That is the behaviour this path already had, and
-    // the payout rail is what holds the line behind it.
+    // A Horizon that cannot be read refuses too, as a retryable 503 with nothing
+    // written. Letting the answer through on an unknown would re-open the same
+    // trap for exactly the wallet that has no trustline, and during a Horizon
+    // outage the payout could not be broadcast anyway.
     let hasTrustline: boolean;
     try {
       hasTrustline = await accountHasUsdcTrustline(walletAddress);
     } catch (err) {
       Sentry.captureException(err, { extra: { context: "submit-trustline", userId, taskId } });
-      hasTrustline = true;
+      return errorResponse("payout_check_unavailable", 503, { userId, taskId });
     }
     if (!hasTrustline) {
       return errorResponse("payout_setup_required", 409, { userId, taskId });
