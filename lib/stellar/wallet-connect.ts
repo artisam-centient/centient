@@ -187,7 +187,17 @@ let providerPromise: Promise<WalletConnectProvider> | null = null;
 
 /** Replace the cached provider. Tests inject a stand-in; `null` clears it. */
 export function setWalletConnectProvider(provider: WalletConnectProvider | null): void {
+  // Wired exactly as a real provider is, so the pairing hand-off is testable.
+  provider?.on("display_uri", onDisplayUri as (...args: never[]) => void);
   providerPromise = provider ? Promise.resolve(provider) : null;
+}
+
+/**
+ * The relay hands us the pairing URI asynchronously, after `connect()` has
+ * already been called, so the UI learns about it through the subscription.
+ */
+function onDisplayUri(uri: string): void {
+  void publishPairingFor(uri);
 }
 
 /**
@@ -217,11 +227,7 @@ async function getProvider(): Promise<WalletConnectProvider> {
       },
     })) as unknown as WalletConnectProvider;
 
-    // The relay hands us the pairing URI asynchronously, after `connect()` has
-    // already been called, so the UI learns about it through the subscription.
-    provider.on("display_uri", ((uri: string) => {
-      void publishPairingFor(uri);
-    }) as (...args: never[]) => void);
+    provider.on("display_uri", onDisplayUri as (...args: never[]) => void);
 
     return provider;
   })();
@@ -249,10 +255,18 @@ function appUrl(): string {
  * its QR code without waiting on a network round trip, and again once the
  * registry answers. On a phone `warmUp` has usually already cached that answer,
  * so the second publish lands in the same tick as the first.
+ *
+ * Both publishes belong to the attempt that was live when the URI arrived, and
+ * are dropped once it has settled. The relay can deliver a URI after a cancel
+ * or timeout, and the registry can answer after one: reopening the prompt then
+ * would leave a dialog whose Cancel has nothing left to cancel.
  */
 async function publishPairingFor(uri: string): Promise<void> {
+  const attempt = abandonPairing;
+  if (!attempt) return;
   publishPairing({ uri, deepLink: null, linkIsExact: false });
   const link = await freighterMobileLink();
+  if (abandonPairing !== attempt) return;
   publishPairing({
     uri,
     deepLink: formatNativeUrl(link ?? FREIGHTER_NATIVE_FALLBACK, uri),
@@ -407,21 +421,10 @@ export async function connect(): Promise<{ address: string; wallet: "freighter" 
   const existing = sessionAccounts(provider);
   if (existing.length > 0) return { address: existing[0], wallet: "freighter" };
 
-  const approval = provider.connect({
-    namespaces: {
-      stellar: {
-        chains: [caipChainId()],
-        methods: [...STELLAR_METHODS],
-        events: [...STELLAR_EVENTS],
-      },
-    },
-  });
-  // If we give up first, the wallet's answer has nowhere to go. The next
-  // `provider.connect()` unsubscribes this pairing before starting its own.
-  approval.catch(() => {});
-
   let timer: ReturnType<typeof setTimeout> | undefined;
   let giveUp: ((reason: WalletError) => void) | undefined;
+  // Registered before the proposal goes out, so the URI it produces is
+  // recognized as this attempt's (see publishPairingFor).
   const givenUp = new Promise<never>((_, reject) => {
     giveUp = reject;
     abandonPairing = reject;
@@ -436,6 +439,19 @@ export async function connect(): Promise<{ address: string; wallet: "freighter" 
       PAIRING_TIMEOUT_MS,
     );
   });
+
+  const approval = provider.connect({
+    namespaces: {
+      stellar: {
+        chains: [caipChainId()],
+        methods: [...STELLAR_METHODS],
+        events: [...STELLAR_EVENTS],
+      },
+    },
+  });
+  // If we give up first, the wallet's answer has nowhere to go. The next
+  // `provider.connect()` unsubscribes this pairing before starting its own.
+  approval.catch(() => {});
 
   try {
     await Promise.race([approval, givenUp]);

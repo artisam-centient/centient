@@ -20,6 +20,7 @@ import {
   signOwnership,
   signTransaction,
   pairingIsPending,
+  resetMobileLinkCache,
   type WalletConnectProvider,
 } from "@/lib/stellar/wallet-connect";
 import { WalletError } from "@/lib/stellar/wallet-errors";
@@ -251,6 +252,83 @@ describe("connect — an abandoned pairing", () => {
   it("does nothing when no pairing is pending", () => {
     expect(() => cancelPairing()).not.toThrow();
     expect(pairingIsPending()).toBe(false);
+  });
+});
+
+describe("connect — relay news that lands after the attempt ended", () => {
+  /** A wallet that never answers, whose pairing URI we deliver by hand. */
+  function silentProvider(): WalletConnectProvider {
+    const provider = fakeProvider();
+    provider.connect = vi.fn(() => new Promise<never>(() => {}));
+    return provider;
+  }
+
+  /** The `display_uri` listener the transport registered on `provider`. */
+  function displayUri(provider: WalletConnectProvider): (uri: string) => void {
+    const call = vi.mocked(provider.on).mock.calls.find(([event]) => event === "display_uri");
+    if (!call) throw new Error("no display_uri listener registered");
+    return call[1] as unknown as (uri: string) => void;
+  }
+
+  /** Let pending promise callbacks and a macrotask run. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetMobileLinkCache();
+  });
+
+  it("ignores a pairing URI the relay delivers after a cancel", async () => {
+    const seen: (unknown | null)[] = [];
+    const unsubscribe = onPairing((p) => seen.push(p));
+    const provider = silentProvider();
+    setWalletConnectProvider(provider);
+
+    const attempt = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    cancelPairing();
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+
+    seen.length = 0;
+    displayUri(provider)("wc:late@2?relay-protocol=irn&symKey=00");
+    await settle();
+
+    // Reopening the prompt here would strand the contributor: nothing is
+    // pending, so Cancel could no longer close it.
+    expect(seen).toEqual([]);
+    unsubscribe();
+  });
+
+  it("drops the deep link when the attempt ended while it was being looked up", async () => {
+    let answer: (res: Response) => void = () => {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise<Response>((resolve) => (answer = resolve)),
+    );
+    const seen: (unknown | null)[] = [];
+    const unsubscribe = onPairing((p) => seen.push(p));
+    const provider = silentProvider();
+    setWalletConnectProvider(provider);
+
+    const attempt = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    displayUri(provider)("wc:abc@2?relay-protocol=irn&symKey=00");
+    // The QR can draw straight away; the deep link waits on the registry.
+    expect(seen.at(-1)).toMatchObject({ deepLink: null });
+
+    cancelPairing();
+    await expect(attempt).rejects.toMatchObject({ code: "cancelled" });
+
+    seen.length = 0;
+    answer(
+      new Response(
+        JSON.stringify({ listings: { f: { name: "Freighter", mobile: { native: "freighterwallet://" } } } }),
+        { status: 200 },
+      ),
+    );
+    await settle();
+
+    expect(seen).toEqual([]);
+    unsubscribe();
   });
 });
 
