@@ -285,6 +285,41 @@ describe("connect — a retry after an abandoned pairing", () => {
     await expect(retry).resolves.toEqual({ address: ADDR, wallet: "freighter" });
   });
 
+  it("ignores a proposal left on a provider that was since replaced", async () => {
+    const answers: (() => void)[] = [];
+    const old = fakeProvider();
+    old.connect = vi.fn(
+      () =>
+        new Promise<unknown>((resolve) => {
+          answers.push(() => {
+            old.session = { namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+            resolve(undefined);
+          });
+        }),
+    );
+    setWalletConnectProvider(old);
+
+    const first = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    cancelPairing();
+    await expect(first).rejects.toMatchObject({ code: "cancelled" });
+
+    // e.g. after disconnect(): the next attempt runs on a fresh provider.
+    const fresh = fakeProvider();
+    fresh.connect = vi.fn(() => new Promise<never>(() => {}));
+    setWalletConnectProvider(fresh);
+
+    const retry = connect();
+    retry.catch(() => {});
+    await vi.waitFor(() => expect(fresh.connect).toHaveBeenCalled());
+    answers[0](); // the session lands on the discarded provider, not this one
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(pairingIsPending()).toBe(true);
+    cancelPairing();
+    await expect(retry).rejects.toMatchObject({ code: "cancelled" });
+  });
+
   it("is not failed by the earlier pairing failing", async () => {
     const fails: ((err: Error) => void)[] = [];
     const provider = fakeProvider();
