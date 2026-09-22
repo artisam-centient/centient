@@ -61,6 +61,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cancelPairing(); // a test that left an attempt waiting mustn't hand it to the next
   setWalletConnectProvider(null);
   delete process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
   delete process.env.NEXT_PUBLIC_STELLAR_NETWORK;
@@ -252,6 +253,60 @@ describe("connect — an abandoned pairing", () => {
   it("does nothing when no pairing is pending", () => {
     expect(() => cancelPairing()).not.toThrow();
     expect(pairingIsPending()).toBe(false);
+  });
+});
+
+describe("connect — a retry after an abandoned pairing", () => {
+  it("completes when the wallet approves the earlier pairing instead", async () => {
+    // Each proposal is answered by hand: the first attempt's QR can reach the
+    // screen late, after the retry started, and be the one the user scans.
+    const answers: (() => void)[] = [];
+    const provider = fakeProvider();
+    provider.connect = vi.fn(
+      () =>
+        new Promise<unknown>((resolve) => {
+          answers.push(() => {
+            provider.session = { namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+            resolve(undefined);
+          });
+        }),
+    );
+    setWalletConnectProvider(provider);
+
+    const first = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    cancelPairing();
+    await expect(first).rejects.toMatchObject({ code: "cancelled" });
+
+    const retry = connect();
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    answers[0](); // the wallet approves the first proposal, not the retry's
+
+    await expect(retry).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+  });
+
+  it("is not failed by the earlier pairing failing", async () => {
+    const fails: ((err: Error) => void)[] = [];
+    const provider = fakeProvider();
+    provider.connect = vi.fn(
+      () => new Promise<unknown>((_, reject) => fails.push(reject)),
+    );
+    setWalletConnectProvider(provider);
+
+    const first = connect();
+    await vi.waitFor(() => expect(pairingIsPending()).toBe(true));
+    cancelPairing();
+    await expect(first).rejects.toMatchObject({ code: "cancelled" });
+
+    const retry = connect();
+    retry.catch(() => {});
+    await vi.waitFor(() => expect(fails).toHaveLength(2));
+    fails[0](new Error("Proposal expired"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(pairingIsPending()).toBe(true);
+    cancelPairing();
+    await expect(retry).rejects.toMatchObject({ code: "cancelled" });
   });
 });
 
