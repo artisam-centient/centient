@@ -34,3 +34,14 @@ describe("CSP frame-src", () => {
     );
   });
 });
+
+describe("CSP frame-src for the promo video", () => {
+  it("lets the landing page frame YouTube's privacy-enhanced embed", async () => {
+    const rules = await config.headers!();
+    const csp = rules
+      .flatMap((rule) => rule.headers)
+      .find((header) => header.key === "Content-Security-Policy")!.value;
+    const directive = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("frame-src "));
+    expect(directive?.split(/\s+/).slice(1)).toContain("https://www.youtube-nocookie.com");
+  });
+});
