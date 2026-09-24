@@ -4,8 +4,10 @@
 
 **Deliverable:** [D2 — Wallet-native onboarding](../deliverables/d2.md) · **Evidence:** [D2 transactions and evidence files](../reference/evidence.md#deliverable-2-evidence)
 
-{% hint style="info" %}
-Written on Friday 18 September, the second day of the QA window. All implementation is merged, and QA gate #31 is running against [`8f660cc`](https://github.com/cemmacabales/centient/commit/8f660cc632f1c868a41618434a1c169dc0edabcc). This page is updated when QA records its verdict.
+{% hint style="success" %}
+**Verdict, 21 September:** QA gate #31 recorded `QA PASSED` at [`8f660cc`](https://github.com/cemmacabales/centient/commit/8f660cc632f1c868a41618434a1c169dc0edabcc). 38 of 40 cases were executed; the other 2 were never run in a browser and are accepted as a residual. It was promoted to `main` the same day by PR #121. → [D2 QA verdict](../deliverables/d2.md#qa-verdict)
+
+The rest of this page was written on Friday 18 September, during the QA window.
 {% endhint %}
 
 ## Summary
@@ -88,15 +90,15 @@ All of it is on the [D2 page](../deliverables/d2.md).
 
 ## Still to do this week
 
-* [ ] Run QA gate #31 against `8f660cc632f1c868a41618434a1c169dc0edabcc`, and record `QA PASSED <sha>` or the failures
+* [x] Run QA gate #31 against `8f660cc632f1c868a41618434a1c169dc0edabcc`, and record `QA PASSED <sha>` or the failures. Passed 21 September, three days late: the tester never received the settled test plan, which PR #125 later landed
 * [ ] Restate `docs/qa/deliverable-1-qa-readiness.md`, which still names `6bc1180`
-* [ ] Screen recording: connect → signed challenge → session issued (the §6.1 evidence item)
+* [ ] Screen recording: connect → signed challenge → session issued (the §6.1 evidence item). Still not on record
 * [ ] Resolve the open CodeRabbit threads on #112 (fixed by #114) and #119 (test isolation, a one-line fix)
-* [ ] Promote the QA-passed SHA, then hold the SDF review on Saturday
+* [x] Promote the QA-passed SHA (PR #121, 21 September)
 
 ## Carried into Week 3
 
-* **Mobile gap.** Freighter Mobile is reachable only over WalletConnect v2, which no Epic 2 issue builds. D-4 decides it before #35. The 25-wallet target in Week 4 may depend on it.
+* **Mobile gap.** Freighter Mobile is reachable only over WalletConnect v2, which no Epic 2 issue builds. D-4 decides it before #35. The 25-wallet target in Week 4 may depend on it. *Decided 22 September: built in Week 3 and QA'd on iOS. → [D3](../deliverables/d3.md)*
 * **Session revocation.** Logging out does not revoke the 7-day JWT.
 * **Fee-bump `tx_bad_seq`.** A read from #28 is still unfiled.
 

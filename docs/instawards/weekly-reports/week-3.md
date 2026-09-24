@@ -4,8 +4,10 @@
 
 **Deliverable:** [D3 — End-to-end contributor loop](../deliverables/d3.md)
 
-{% hint style="info" %}
-**Not started.** This page holds the plan and is replaced by the week's report as work lands. Week 3 starts when Epic 2 closes, meaning QA gate #31 has recorded `QA PASSED <sha>`.
+{% hint style="success" %}
+**Verdict, 24 September:** QA gate #41 recorded `QA PASSED` at [`1fde77d`](https://github.com/cemmacabales/centient/commit/1fde77d539ca040bb12c07df0c82dad5c8cf3a58). #35–#40 merged on Monday 21 September, and the contributor loop is joined: a validated answer now pays the connected wallet directly, with no off-chain balance in between. → [D3](../deliverables/d3.md)
+
+The sections below are the plan, written before the week started. They become the week's report when it closes on Sunday 27 September.
 {% endhint %}
 
 ## What this week changes
@@ -16,7 +18,7 @@ Weeks 1 and 2 built the two halves: a payout rail no single key can drain, and a
 connect → rank → validate → co-sign → pay → reconcile
 ```
 
-Today, a validated submission still credits an off-chain balance that the contributor withdraws later. At the end of this week, that step is gone from the active contributor path.
+Before this week, a validated submission credited an off-chain balance that the contributor withdrew later. That step is now gone from the active contributor path.
 
 ## Plan
 
