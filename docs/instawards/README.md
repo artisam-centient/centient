@@ -20,8 +20,8 @@ Where each deliverable's §6.1 evidence stands today. Each row links to its deli
 | Deliverable | Evidence | Status | Comments |
 | --- | --- | --- | --- |
 | [D1](deliverables/d1.md) | GitHub repo + testnet tx hash | ✅ **Present** | A two-signature, fee-bumped USDC payout on stellar.expert; payout account at threshold 2/2/2; payments lane green in CI. QA passed 28/28 |
-| [D2](deliverables/d2.md) | GitHub repo + screen recording | 🟡 **Partial** | Code, testnet sponsorship and identity tests are all present. The connect → signed challenge → session recording is still to come from QA gate #31 |
-| [D3](deliverables/d3.md) | Public URL + demo video + tx hashes | ⬜ Week 3 | The public URL is already live. Instant per-task payouts, the end-to-end CI lane and the demo come in Weeks 3–4 |
+| [D2](deliverables/d2.md) | GitHub repo + screen recording | 🟡 **Partial** | Code, testnet sponsorship and identity tests are all present, and QA passed at `8f660cc`. The connect → signed challenge → session recording is still missing |
+| [D3](deliverables/d3.md) | Public URL + demo video + tx hashes | 🟡 **Partial** | The public URL is live, and instant per-answer payouts are on stellar.expert. QA passed at `1fde77d`. The demo video comes in Week 4 |
 | [D4](deliverables/d4.md) | Reconciler output + mainnet tx hash | ⬜ Week 4 | Mainnet requires the co-signer to move to a separate account first. See [Open risks](reference/risks.md) |
 
 ## What Centient is
@@ -54,8 +54,8 @@ The labeling product already ran before the sprint. The sprint changes **how mon
 | | Deliverable | Week | Status |
 | --- | --- | --- | --- |
 | [D1](deliverables/d1.md) | **Instant USDC reward rail.** Multisig payout account, independent co-signer, daily cap at both signers, hot/cold reserve | 1 | ✅ Complete. QA passed 28/28 at [`263be4c`](https://github.com/cemmacabales/centient/commit/263be4cd5ab06103d965044c6a8bd3c40678f308) |
-| [D2](deliverables/d2.md) | **Wallet-native onboarding.** Freighter sign-in by signed challenge, plus sponsored account and trustline for zero-XLM wallets | 2 | 🧪 7/8. All implementation merged; the QA gate is running |
-| [D3](deliverables/d3.md) | **End-to-end contributor loop.** Connect, rank, validate, co-sign, pay, reconcile, with no custodial balance | 3 | Not started |
+| [D2](deliverables/d2.md) | **Wallet-native onboarding.** Freighter sign-in by signed challenge, plus sponsored account and trustline for zero-XLM wallets | 2 | ✅ Complete. QA passed at [`8f660cc`](https://github.com/cemmacabales/centient/commit/8f660cc632f1c868a41618434a1c169dc0edabcc), 38 of 40 executed, 2 accepted as residual |
+| [D3](deliverables/d3.md) | **End-to-end contributor loop.** Connect, rank, validate, co-sign, pay, reconcile, with no custodial balance | 3 | ✅ Complete. QA passed at [`1fde77d`](https://github.com/cemmacabales/centient/commit/1fde77d539ca040bb12c07df0c82dad5c8cf3a58) |
 | [D4](deliverables/d4.md) | **Reconciliation and public release.** Failure tests, 100 payouts across 25 wallets, demo, mainnet smoke payout | 4 | Not started |
 
 ## How to read this book
