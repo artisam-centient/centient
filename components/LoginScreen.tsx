@@ -15,7 +15,7 @@ interface LoginScreenProps {
 }
 
 /** The Centient promo video on the Artisam Labs YouTube channel. */
-const PROMO_VIDEO_ID = "FF6inTJvXf8";
+const PROMO_VIDEO_ID = "uxjxu33TOuM";
 
 const FOCUS_RING =
   "rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
