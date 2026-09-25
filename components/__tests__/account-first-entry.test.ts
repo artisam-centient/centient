@@ -66,7 +66,7 @@ describe("LoginScreen — wallet-first entry (#26)", () => {
   it("links the public docs from the header, on every screen size, in a new tab", () => {
     const html = render(createElement(LoginScreen, props));
     const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
-    const link = header.match(/<a[^>]*href="https:\/\/centient\.gitbook\.io\/centient-instawards\/"[^>]*>.*?<\/a>/)?.[0];
+    const link = header.match(/<a[^>]*href="https:\/\/centient\.gitbook\.io\/centient-docs\/"[^>]*>.*?<\/a>/)?.[0];
     expect(link).toBeDefined();
     expect(link).toContain('target="_blank"');
     expect(link).toContain('rel="noopener noreferrer"');

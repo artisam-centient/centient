@@ -17,8 +17,8 @@ interface LoginScreenProps {
 /** The Centient promo video on the Artisam Labs YouTube channel. */
 const PROMO_VIDEO_ID = "uxjxu33TOuM";
 
-/** The public Instawards book on GitBook, synced from `docs/instawards`. */
-const DOCS_URL = "https://centient.gitbook.io/centient-instawards/";
+/** The public Centient docs on GitBook, synced from `docs/instawards`. */
+const DOCS_URL = "https://centient.gitbook.io/centient-docs/";
 
 const FOCUS_RING =
   "rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
