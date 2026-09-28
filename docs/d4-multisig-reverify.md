@@ -107,11 +107,13 @@ holds, is not a signer on either account.
 
 ## Observations, not failures
 
-- **The cold runbook records an earlier cold account.** Its public evidence
-  record names `GDPGRS4P…` (the 2026-09-08 proof). The deployment uses
-  `GC5UOKLU…`, the first hot payout account re-provisioned as cold. The fix
-  exists on the unmerged `fix/f01-payout-key-custody` branch, so this record
-  leaves the runbook alone to avoid a conflict.
+- **The cold runbook's evidence record names an earlier cold account.** That
+  record is the 2026-09-08 proof on `GDPGRS4P…`. The deployment uses
+  `GC5UOKLU…`, the first hot payout account re-provisioned as cold, and the
+  runbook already says so in its deployed-policy note (merged 2026-09-11 in
+  #95). *Corrected 2026-09-28:* this record first said the fix was only on the
+  unmerged `fix/f01-payout-key-custody` branch. That branch's runbook is
+  identical to `develop`'s.
 - **`web` has no `STELLAR_OPS_SIGNER_PUBLIC`.** The runbook says the ops public
   key lives in the env. The payout path signs with the ops seed directly and
   reads no public variable, so the command above supplies the key from this
@@ -121,7 +123,9 @@ holds, is not a signer on either account.
   multisig runbook's historical section, written when this was the hot account,
   names them the other way round. Every weight is 1, so the labels do not change
   the boundary.
-- **The in-code guard is not on `develop` yet.** `be86d20`, which refuses a
-  deployment that holds the payout threshold alone, is on the unmerged F-01
-  branch. The live custody above is correct, but on `develop` it rests on
-  configuration rather than that check.
+- **The in-code guard is on `develop`.** The check that refuses a deployment
+  holding the payout threshold alone merged on 2026-09-11 in #93 as `6d5d0b4`
+  (`lib/stellar/key-custody.ts`), and the payout submitter calls it through
+  `assertCustodyBelowThreshold`. *Corrected 2026-09-28:* this record first said
+  the guard was only on the unmerged F-01 branch. It looked for `be86d20`, the
+  branch's pre-merge SHA, which never reached `develop` under that SHA.
