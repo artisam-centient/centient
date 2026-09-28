@@ -1,6 +1,6 @@
 # ADR-0002: Accept the seeded credentials on the testnet QA environment
 
-- **Status:** Accepted — 2026-09-09, **amended 2026-09-28** (see *Amendment: exit criteria met in code for the public testnet release*)
+- **Status:** Accepted — 2026-09-09, **amended 2026-09-28** (see *Amendment: exit criteria met in code for the public testnet release* and *Amendment: live rotation out of scope*)
 - **Scope:** Testnet / internal QA only. Mainnet and any external user are out of scope; see *Exit criteria*.
 - **Relates to:** [#87](https://github.com/webnxt-2030/Centient/issues/87) (closed by this record), [#85](https://github.com/webnxt-2030/Centient/issues/85) (QA environment provisioning), [#13](https://github.com/webnxt-2030/Centient/issues/13) (Epic 1 evidence package), [ADR-0001](./0001-simulated-cosigner-isolation.md).
 
@@ -141,8 +141,8 @@ The two literals remain in `prisma/seed.ts` as `LOCAL_ADMIN_PASSWORD` and
 already public and treated as burned, and the only place that can use them is a
 loopback database.
 
-**Owner actions on the live environment.** The code cannot do these, and the criterion
-is not met until they are done:
+**Owner actions on the live environment.** The code cannot do these. They are **out of
+scope** for the sprint; see *Amendment: live rotation out of scope* below:
 
 1. **Rotate `admin@centient.work`** on `web` to a generated value held only in the
    environment. The seeder never rewrites an existing row, so rotation means updating
@@ -159,3 +159,26 @@ is not met until they are done:
 **Still accepted, and why.** The repository history and the Railway deploy-log history
 keep both old values permanently. The rotation above makes them useless. It does not
 remove them.
+
+## Amendment: live rotation out of scope (2026-09-28)
+
+The owner put the four live actions above out of scope for the sprint. The Statement of
+Work does not ask for them. Its security commitments cover the payout keys, which are
+injected at runtime and never committed, and the multisig and daily-cap controls on the
+payout rail, not the operator login.
+
+- **Done:** everything in the code amendment above. A fresh or rebuilt database cannot be
+  seeded with a published password, the demo account is not seeded outside local
+  development, and no password is printed.
+- **Not done:** `admin@centient.work` and `demo@centient.work` keep the passwords they were
+  created with, and `SEED_ON_DEPLOY` stays on. With the code above, a seed on an existing
+  database leaves both accounts untouched.
+- **What this accepts:** `beta.centient.work` is now reachable by outside reviewers, and
+  the `SUPER_ADMIN` login's password is in this repository's history. That login can
+  write, not just read. It can ban and unban wallets, edit tasks, retry payouts, and
+  create, fund and edit campaigns. Money is not at risk, because the network is testnet
+  (D-7) and every payout still needs the co-signer and passes the daily cap. The risk is
+  integrity: anyone holding the password can change the data that the #49 volume proof and
+  the #53 gate measure. The demo account holds no balance.
+- **Revisit** before any mainnet work, or at once if #49 or #53 shows admin activity that
+  the team did not make.
