@@ -2,7 +2,7 @@
 
 What is not finished and what is accepted as a known limit. Each item is a way the program could miss a target or the rail could fail. **They are listed here so they can be managed, not as caveats.**
 
-*Last reviewed 18 September 2026. R-3, R-4, R-6 and the mobile limit were updated on 24 September, after the D3 gate. The seeded-credential and cap-alert limits and the small follow-ups were updated on 28 September (D4, #46–#48).*
+*Last reviewed 18 September 2026. R-3, R-4, R-6 and the mobile limit were updated on 24 September, after the D3 gate. The seeded-credential and cap-alert limits and the small follow-ups were updated on 28 September (D4, #46–#48). The refund limit and the privacy notice were settled the same day, in the owner's rulings on the D4 requirements analysis.*
 
 ## Blocking a future deliverable
 
@@ -34,6 +34,7 @@ What is not finished and what is accepted as a known limit. Each item is a way t
 | **No wallet rotation** (D-3) | Out of D2 | After the sprint |
 | **Logout does not revoke the 7-day session token** | Pre-existing; not in D2 scope | When instant payouts make a session more valuable (Week 3) |
 | **Most sponsored reserves cannot be reclaimed** while the owner holds no XLM | This is how the chain behaves, and reclaiming would break payouts | Ongoing. The liability is tracked and capped per contributor |
+| **A failed campaign refund is not retried** (`refundCampaignBalance` swallows a failed credit) | Testnet only (D-7). The refund is keyed per submission, so a missed one can be re-credited by hand without double-crediting. On 28 September no real payout had ever failed; the only failed campaign payout is a D1 QA fixture that is never refunded by design | After the release, in [#163](https://github.com/webnxt-2030/Centient/issues/163), which makes the refund durable |
 | **Cap alerts are fire-and-forget** | Ledger-based health monitoring raises the same alert, and the `wallet-health` cron reports each alert's delivery outcome. #47 kept this deliberately: a slow Discord or Redis must never delay a payer. Its new co-signer alerts are sent the same way | If an alert is missed that the health cron did not also raise |
 
 ## Small follow-ups
@@ -43,6 +44,6 @@ What is not finished and what is accepted as a known limit. Each item is a way t
 * [x] #28's fee-bump `tx_bad_seq` read: fixed in #46. The submitter reads the fee-bump form (`tx_fee_bump_inner_failed` with an inner `tx_bad_seq`) and rebuilds in the same call.
 * [ ] A server-side analytics event for a payout the worker fails *after* the API accepted it; #110 does not cover it.
 * [ ] Cap and co-signer-config failures emit no analytics event, and a retried payout emits one `failed` event per attempt.
-* [ ] PostHog payout events send wallet addresses (deliberately, since they are public on the ledger). Confirm the privacy notice covers this before the public release. **As of 28 September the app has no privacy notice at all.** This is the owner's decision, and it is open.
+* [x] PostHog payout events send wallet addresses (deliberately, since they are public on the ledger). Covered by the [privacy and analytics notice](privacy.md), published with the D4 release (owner's ruling, 28 September).
 * [ ] Legacy cleanup: remote `codex/*` branches, the `agent-ready` / `agent-in-progress` labels, and the dead `.github/codex-dispatch` check in `single-contributor.yml`.
 * [ ] The code still says `labeler` in about 67 files, where the canonical term is **contributor**. Rename gradually, as files are touched.
