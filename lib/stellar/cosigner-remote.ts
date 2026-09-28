@@ -70,6 +70,15 @@ function refusalCode(payload: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+/** The body as JSON, or null when a complete body is not JSON. */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Why a request never got an answer. The error's class and a fixed phrase only:
  * a fetch failure's message and cause can carry the co-signer's URL.
@@ -107,6 +116,7 @@ export function remotePolicyCoSigner(options: RemoteCoSignerOptions): PayoutCoSi
       // payout account's sequence number, which blocks every other payout behind it.
       const abort = AbortSignal.timeout(timeoutMs);
       let response: Response;
+      let text: string;
       try {
         response = await doFetch(options.url, {
           method: "POST",
@@ -114,13 +124,16 @@ export function remotePolicyCoSigner(options: RemoteCoSignerOptions): PayoutCoSi
           body,
           signal: abort,
         });
+        // Inside the transport boundary: fetch resolves on the headers, so a body
+        // that stalls or drops is still a failure to reach, not a bad answer.
+        text = await response.text();
       } catch (err) {
         throw new CoSignerUnavailableError(
           `payout co-signer unreachable: ${transportFailure(err, timeoutMs)}`,
         );
       }
 
-      const payload = await response.json().catch(() => null);
+      const payload = parseJson(text);
       if (response.status >= 500) {
         throw new CoSignerUnavailableError(
           `payout co-signer unavailable: ${refusalReason(payload, response.status)}`,
