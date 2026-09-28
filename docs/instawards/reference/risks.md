@@ -29,7 +29,7 @@ What is not finished and what is accepted as a known limit. Each item is a way t
 | Item | Accepted because | Revisit when |
 | --- | --- | --- |
 | **Simulated co-signer isolation** (server, not account) | Testnet only (D-7), zero value at risk | — |
-| **Seeded QA credentials** (ADR-0002) | Internal testnet QA only | **Exiting in #48.** The seed now refuses the published defaults outside local development, the demo account is seeded locally only, and no password is printed. Rotating both live accounts and turning `SEED_ON_DEPLOY` off on staging are owner actions, and the limit stays open until they are done |
+| **Seeded QA credentials** (ADR-0002) | Testnet only (D-7). Not in the SOW, so live rotation is out of scope (28 Sep) | Before any mainnet work. The code side is done in #48: the seed refuses the published defaults outside local development, the demo account is seeded locally only, and no password is printed. The two live accounts keep their original passwords |
 | **Freighter only; phone sign-in tested on iOS only** (ADR-0003 and its amendment, D-4) | One wallet meets every acceptance item; the phone gate was ruled iOS-only | If an Android contributor reports a problem |
 | **No wallet rotation** (D-3) | Out of D2 | After the sprint |
 | **Logout does not revoke the 7-day session token** | Pre-existing; not in D2 scope | When instant payouts make a session more valuable (Week 3) |
