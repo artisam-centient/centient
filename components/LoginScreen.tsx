@@ -5,7 +5,7 @@ import Faq from "./Faq";
 import Mascot from "./LandingMascot";
 import WalletSignIn from "./WalletSignIn";
 import { deployedBuild } from "@/lib/build-info";
-import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
+import { REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 
 interface LoginScreenProps {
   /** Called once Freighter sign-in has set the session cookie (#26). */
@@ -39,7 +39,7 @@ const STEPS: { icon: string; title: string; body: string }[] = [
   {
     icon: "payments",
     title: "Get paid",
-    body: `Each approved answer adds ${REWARD_AMOUNT} ${REWARD_TOKEN_SYMBOL} to your balance, paid to the wallet you signed in with.`,
+    body: `Each approved answer pays the reward shown on its task, in ${REWARD_TOKEN_SYMBOL}, straight to the wallet you signed in with.`,
   },
 ];
 
@@ -124,7 +124,7 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
 
             <p className="mt-6 max-w-[34rem] font-body text-lg leading-relaxed text-on-surface-variant">
               Read a prompt, pick the better of two AI responses, and say why. Each approved
-              answer pays {REWARD_AMOUNT} {REWARD_TOKEN_SYMBOL}. Connect your Stellar wallet to
+              answer is paid in {REWARD_TOKEN_SYMBOL}, straight to your wallet. Connect your Stellar wallet to
               start — no email or password needed.
             </p>
 
@@ -155,7 +155,7 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
             <div className="mt-8 flex max-w-[34rem] items-start gap-3 border-l-2 border-primary-container pl-4">
               <p className="font-body text-sm leading-relaxed text-on-surface-variant">
                 Your <span className="font-semibold text-on-surface">wallet address</span>{" "}
-                is your account and where your {REWARD_TOKEN_SYMBOL} is paid. Freighter asks you to sign a
+                is your account and where your {`${REWARD_TOKEN_SYMBOL} is paid`}. Freighter asks you to sign a
                 one-time message to prove it&apos;s yours — it never moves funds.
               </p>
             </div>
