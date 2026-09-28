@@ -4,6 +4,7 @@ import Image from "next/image";
 import Faq from "./Faq";
 import Mascot from "./LandingMascot";
 import WalletSignIn from "./WalletSignIn";
+import { deployedBuild } from "@/lib/build-info";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 
 interface LoginScreenProps {
@@ -53,6 +54,7 @@ const STEPS: { icon: string; title: string; body: string }[] = [
  * can earn or withdraw.
  */
 export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: LoginScreenProps) {
+  const build = deployedBuild();
   return (
     <div className="min-h-screen overflow-x-clip bg-surface text-on-surface">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
@@ -258,9 +260,23 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
         <span className="font-headline text-base font-extrabold tracking-tighter text-primary">
           Centient
         </span>
-        <span className="font-label text-xs font-bold uppercase tracking-[0.2em] text-outline">
-          centient.work
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className="font-label text-xs font-bold uppercase tracking-[0.2em] text-outline">
+            centient.work
+          </span>
+          {build && (
+            <a
+              href={build.commitUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={build.sha}
+              className={`font-mono text-xs text-outline underline-offset-2 hover:underline ${FOCUS_RING}`}
+            >
+              Build {build.shortSha}
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          )}
+        </div>
       </footer>
     </div>
   );
