@@ -493,7 +493,7 @@ function fakeClient(provider: WalletConnectProvider, topic = "topic-1") {
   provider.session = { ...provider.session, topic };
   const client = {
     disconnect: vi.fn(async () => {}),
-    session: { delete: vi.fn() },
+    session: { delete: vi.fn(async () => {}) },
     core: {
       relayer: { transportClose: vi.fn(async () => {}) },
       heartbeat: { stop: vi.fn() },
@@ -536,6 +536,47 @@ describe("connect — dropping a session through the sign client", () => {
     await expect(attempt).resolves.toEqual({ address: ADDR, wallet: "freighter" });
     // Or the next provider (the next page load) restores it.
     expect(client.session.delete).toHaveBeenCalledWith("stale", expect.anything());
+    vi.useRealTimers();
+  });
+
+  it("waits for the stored session's deletion to persist before pairing again", async () => {
+    // The store's delete() is async: it resolves once the removal is persisted.
+    // Pairing before then leaves the stale session for the next provider to restore.
+    vi.useFakeTimers();
+    const provider = fakeProvider({ accounts: [OTHER] });
+    const client = fakeClient(provider, "stale");
+    client.disconnect = vi.fn(() => new Promise<never>(() => {}));
+    let persisted!: () => void;
+    client.session.delete = vi.fn(() => new Promise<void>((resolve) => (persisted = resolve)));
+    provider.connect = vi.fn().mockImplementation(() => {
+      provider.session = { topic: "new", namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+      return Promise.resolve(undefined);
+    });
+    setWalletConnectProvider(provider);
+
+    const attempt = connect({ fresh: true });
+    await vi.advanceTimersByTimeAsync(DROP_SESSION_WAIT_MS);
+    expect(provider.connect).not.toHaveBeenCalled();
+    persisted();
+    await expect(attempt).resolves.toEqual({ address: ADDR, wallet: "freighter" });
+    vi.useRealTimers();
+  });
+
+  it("still pairs when deleting the stored session fails", async () => {
+    vi.useFakeTimers();
+    const provider = fakeProvider({ accounts: [OTHER] });
+    const client = fakeClient(provider, "stale");
+    client.disconnect = vi.fn(() => new Promise<never>(() => {}));
+    client.session.delete = vi.fn(() => Promise.reject(new Error("No matching key")));
+    provider.connect = vi.fn().mockImplementation(() => {
+      provider.session = { topic: "new", namespaces: { stellar: { accounts: [`${CHAIN}:${ADDR}`] } } };
+      return Promise.resolve(undefined);
+    });
+    setWalletConnectProvider(provider);
+
+    const attempt = connect({ fresh: true });
+    await vi.advanceTimersByTimeAsync(DROP_SESSION_WAIT_MS);
+    await expect(attempt).resolves.toEqual({ address: ADDR, wallet: "freighter" });
     vi.useRealTimers();
   });
 });

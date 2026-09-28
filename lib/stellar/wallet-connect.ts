@@ -194,7 +194,7 @@ export interface WalletConnectProvider {
   /** The sign client underneath; see {@link dropSession} and {@link retireProvider}. */
   client?: {
     disconnect(params: { topic: string; reason: { code: number; message: string } }): Promise<void>;
-    session: { delete(topic: string, reason: { code: number; message: string }): void };
+    session: { delete(topic: string, reason: { code: number; message: string }): Promise<void> };
     core: {
       relayer: { transportClose(): Promise<void> };
       heartbeat: { stop(): void };
@@ -497,7 +497,9 @@ async function dropSession(provider: WalletConnectProvider): Promise<void> {
   provider.session = undefined;
   if (client && topic) {
     try {
-      client.session.delete(topic, USER_DISCONNECTED);
+      // Awaited: the store persists the removal asynchronously, and pairing
+      // before it lands leaves the stale session for the next provider to restore.
+      await client.session.delete(topic, USER_DISCONNECTED);
     } catch {
       // Already gone, because the relay answered in time.
     }
