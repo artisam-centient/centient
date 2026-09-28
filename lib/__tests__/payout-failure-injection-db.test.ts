@@ -294,6 +294,17 @@ const attempts = (submissionId: string) =>
 const refunds = (submissionId: string) =>
   prisma.balanceLedger.count({ where: { type: "REFUND", submissionId } });
 
+/** A held job is not due before the co-signer retry delay (#47). */
+function expectHeldUntilLater(notBefore: Date | null) {
+  expect(notBefore).not.toBeNull();
+  expect(notBefore!.getTime()).toBeGreaterThan(Date.now() + 20_000);
+}
+
+/** Let a held job's delay pass: `claimNextJob` compares `notBefore` with the database clock. */
+async function makeDue(submissionId: string) {
+  await prisma.payoutJob.update({ where: { submissionId }, data: { notBefore: new Date(0) } });
+}
+
 /** Both required signers, and only they, signed `tx`. */
 function signedByBothSigners(tx: Transaction | FeeBumpTransaction): boolean {
   const hash = tx.hash();
@@ -395,7 +406,7 @@ describe("sequence collision (#46)", () => {
   });
 });
 
-describe("co-signer outage (#46)", () => {
+describe("co-signer outage (#46, #47)", () => {
   const outages: [string, () => Promise<Response>][] = [
     ["unreachable", async () => Promise.reject(new TypeError("fetch failed"))],
     [
@@ -406,7 +417,7 @@ describe("co-signer outage (#46)", () => {
   ];
 
   for (const [label, fault] of outages) {
-    it(`broadcasts nothing while the co-signer is ${label}, then pays once when it returns`, async () => {
+    it(`holds the payout while the co-signer is ${label}, alerts, then pays once when it returns`, async () => {
       const submission = await enqueuePayout();
       cosigner.fault = fault;
 
@@ -416,48 +427,108 @@ describe("co-signer outage (#46)", () => {
       expect(horizon.presented).toHaveLength(0);
       expect(await attempts(submission.id)).toHaveLength(0);
       const row = await expectUnpaid(submission.id);
-      expect(row.payoutStatus).toBe("pending");
+      expect(row).toMatchObject({ payoutStatus: "pending", retryCount: 0 });
       expect(row.lastRetriedAt).toBeNull(); // the claim was handed back
-      expect(await jobRow(submission.id)).toMatchObject({ status: "queued", txHash: null });
+      const job = await jobRow(submission.id);
+      expect(job).toMatchObject({ status: "queued", txHash: null, retryCount: 0 });
+      expect(job.lastError).toMatch(/co-signer (unreachable|unavailable)/);
+      expectHeldUntilLater(job.notBefore);
+      expect(vi.mocked(sendDedupedDiscordAlert)).toHaveBeenCalledWith(
+        expect.objectContaining({ key: "cosigner-unavailable", severity: "PAGE" }),
+      );
 
       cosigner.fault = null;
+      await makeDue(submission.id);
       await workerTick();
 
       await expectPaidOnce(submission.id);
     });
   }
 
-  it("today: an outage outlasting three worker passes fails the payout and refunds it (#47 gap)", async () => {
-    // The matrix wants the payout held pending until the co-signer returns. The
-    // worker instead requeues a co-signer error with no delay and counts it
-    // against MAX_RETRIES, so three passes — seconds apart — end it for good.
+  it("holds the payout through an outage of any length, spending no retry and refunding nothing", async () => {
+    // Before #47, three immediate passes failed and refunded it (#46).
     const submission = await enqueuePayout();
     cosigner.fault = async () => Promise.reject(new TypeError("fetch failed"));
 
-    const started = Date.now();
-    for (let pass = 0; pass < 3; pass++) await workerTick();
-    const elapsedMs = Date.now() - started;
+    // A deferred job is not claimable until its delay has passed.
+    await workerTick();
+    expect(await claimNextJob()).toBeNull();
+
+    for (let pass = 0; pass < 5; pass++) {
+      await makeDue(submission.id);
+      await workerTick();
+    }
 
     expect(horizon.presented).toHaveLength(0);
     const row = await expectUnpaid(submission.id);
-    expect(row).toMatchObject({ payoutStatus: "failed", retryCount: SUBMISSION_RETRY_BUDGET });
-    expect(row.payoutError).toContain("retries exhausted");
-    expect(await jobRow(submission.id)).toMatchObject({ status: "failed", retryCount: 3 });
-    expect(await refunds(submission.id)).toBe(1);
-    expect(elapsedMs).toBeLessThan(10_000);
-    // The only alert is the permanent-failure page, after the fact.
-    expect(vi.mocked(Sentry.captureMessage)).toHaveBeenCalledWith(
+    expect(row).toMatchObject({ payoutStatus: "pending", retryCount: 0 });
+    expect(await jobRow(submission.id)).toMatchObject({ status: "queued", retryCount: 0 });
+    expect(await refunds(submission.id)).toBe(0);
+    expect(vi.mocked(Sentry.captureMessage)).not.toHaveBeenCalledWith(
       expect.stringContaining("failed permanently"),
-      { level: "error" },
+      expect.anything(),
     );
 
-    // The co-signer coming back changes nothing: the row is out of the retry path.
     cosigner.fault = null;
-    expect(await claimNextJob()).toBeNull();
+    await makeDue(submission.id);
+    await workerTick();
+
+    await expectPaidOnce(submission.id);
+  });
+
+  it("the retry path spends no retry on an outage either", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const submission = await enqueuePayout();
+    await prisma.payoutJob.deleteMany({ where: { submissionId: submission.id } }); // the cron owns it
+    cosigner.fault = async () => Promise.reject(new TypeError("fetch failed"));
+
+    await reprocessPayoutWithNonceSafety(submission.id);
+
+    expect(horizon.presented).toHaveLength(0);
+    expect(await expectUnpaid(submission.id)).toMatchObject({ payoutStatus: "pending", retryCount: 0 });
+    expect(vi.mocked(sendDedupedDiscordAlert)).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "cosigner-unavailable" }),
+    );
+
+    cosigner.fault = null;
+    vi.setSystemTime(Date.now() + 61_000); // the refused pass's retry lease lapses
+    await reprocessPayoutWithNonceSafety(submission.id);
+
+    await expectPaidOnce(submission.id);
+  });
+
+  it("holds a legacy withdrawal too, rather than refunding it", async () => {
+    const user = await createUser({ pendingBalanceUnits: 0n });
+    const destination = Keypair.random().publicKey();
+    const withdrawal = await prisma.payoutJob.create({
+      data: { type: "WITHDRAWAL", userId: user.id, amountUnits: REWARD, destinationAddress: destination },
+    });
+    cosigner.fault = async () => Promise.reject(new TypeError("fetch failed"));
+
+    await workerTick();
+
+    expect(horizon.paymentsTo(destination)).toHaveLength(0);
+    const held = await prisma.payoutJob.findUniqueOrThrow({ where: { id: withdrawal.id } });
+    expect(held).toMatchObject({ status: "queued", retryCount: 0, txHash: null });
+    expectHeldUntilLater(held.notBefore);
+    expect(
+      await prisma.userBalanceLedger.count({ where: { userId: user.id, type: "REVERSAL" } }),
+    ).toBe(0);
+
+    cosigner.fault = null;
+    await prisma.payoutJob.update({ where: { id: withdrawal.id }, data: { notBefore: new Date(0) } });
+    await workerTick();
+
+    const payments = horizon.paymentsTo(destination);
+    expect(payments).toHaveLength(1);
+    expect(signedByBothSigners(payments[0].envelope)).toBe(true);
+    expect(await prisma.payoutJob.findUniqueOrThrow({ where: { id: withdrawal.id } })).toMatchObject({
+      txHash: payments[0].hash,
+    });
   });
 });
 
-describe("daily cap exceeded (#46)", () => {
+describe("daily cap exceeded (#46, #47)", () => {
   it("the payout service refuses before asking the co-signer, alerts, and resumes once there is room", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     process.env.DAILY_PAYOUT_CAP_UNITS = String(REWARD);
@@ -494,7 +565,7 @@ describe("daily cap exceeded (#46)", () => {
     await expectPaidOnce(submission.id);
   });
 
-  it("the co-signer refuses on its own cap even with the service's cap lifted", async () => {
+  it("the co-signer refuses on its own cap even with the service's cap lifted, and alerts", async () => {
     process.env.DAILY_PAYOUT_CAP_UNITS = "0"; // the payout service's cap is off entirely
     cosigner.deps.capUnits = REWARD;
     await priorSpend(REWARD);
@@ -507,24 +578,41 @@ describe("daily cap exceeded (#46)", () => {
     // No second signature, so nothing was built past the payment stage or presented.
     expect(horizon.presented).toHaveLength(0);
     expect(await attempts(submission.id)).toHaveLength(0);
+    // Deferred to the retry path exactly as the service's own cap defers it.
     const row = await expectUnpaid(submission.id);
-    expect(row.payoutStatus).toBe("pending");
+    expect(row).toMatchObject({ payoutStatus: "pending", retryCount: 0 });
     const job = await jobRow(submission.id);
-    expect(job).toMatchObject({ status: "queued", retryCount: 1 });
+    expect(job.status).toBe("failed");
+    expect(job.lastError).toContain("payout cap exceeded");
     expect(job.lastError).toContain("daily cap reached");
+    expect(await refunds(submission.id)).toBe(0);
+    expect(vi.mocked(sendDedupedDiscordAlert)).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "cosigner-cap", severity: "PAGE" }),
+    );
   });
 
-  it("today: a co-signer cap refusal raises no cap alert and spends worker retries (#47 gap)", async () => {
+  it("a co-signer cap refusal spends no retry on the retry path, and pays once its window has room", async () => {
+    // Before #47, three worker passes failed and refunded it, with no alert (#46).
+    vi.useFakeTimers({ toFake: ["Date"] });
     cosigner.deps.capUnits = REWARD;
     await priorSpend(REWARD);
     const submission = await enqueuePayout();
+    await workerTick();
 
-    for (let pass = 0; pass < 3; pass++) await workerTick();
+    for (let pass = 0; pass < 3; pass++) {
+      vi.setSystemTime(Date.now() + 61_000);
+      await reprocessPayoutWithNonceSafety(submission.id);
+    }
 
-    await expectUnpaid(submission.id);
-    expect(vi.mocked(sendDedupedDiscordAlert)).not.toHaveBeenCalled();
-    expect(await submissionRow(submission.id)).toMatchObject({ payoutStatus: "failed" });
-    expect(await refunds(submission.id)).toBe(1);
+    expect(horizon.presented).toHaveLength(0);
+    expect(await expectUnpaid(submission.id)).toMatchObject({ payoutStatus: "pending", retryCount: 0 });
+    expect(await refunds(submission.id)).toBe(0);
+
+    cosigner.deps.capUnits = REWARD * 2n; // the co-signer's next UTC day, or a raised cap
+    vi.setSystemTime(Date.now() + 61_000);
+    await reprocessPayoutWithNonceSafety(submission.id);
+
+    await expectPaidOnce(submission.id);
   });
 });
 

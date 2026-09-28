@@ -7,6 +7,11 @@
 // or buggy one cannot substitute a different payout — the worst it can do is
 // refuse. `applyCoSignature` is where that guarantee is enforced.
 import {
+  COSIGNER_CAP_REFUSAL_CODE,
+  CoSignerCapError,
+  CoSignerUnavailableError,
+} from "./cosigner-errors";
+import {
   COSIGNER_SIGNATURE_HEADER,
   signCoSignRequest,
 } from "./cosigner-transport";
@@ -56,7 +61,36 @@ function refusalReason(payload: unknown, status: number): string {
     : `co-signer responded ${status}`;
 }
 
-/** The independent co-signer, reached over authenticated HTTP. */
+/** The refusal's machine-readable `code`, when the service sent one. */
+function refusalCode(payload: unknown): string | undefined {
+  const code =
+    payload && typeof payload === "object" && "code" in payload
+      ? (payload as { code?: unknown }).code
+      : undefined;
+  return typeof code === "string" ? code : undefined;
+}
+
+/**
+ * Why a request never got an answer. The error's class and a fixed phrase only:
+ * a fetch failure's message and cause can carry the co-signer's URL.
+ */
+function transportFailure(err: unknown, timeoutMs: number): string {
+  if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+    return `timed out after ${timeoutMs}ms`;
+  }
+  return `request failed (${err instanceof Error ? err.name : typeof err})`;
+}
+
+/**
+ * The independent co-signer, reached over authenticated HTTP.
+ *
+ * Its answers fall into three kinds (#47). A signature. A refusal on the merits,
+ * thrown as a plain error, which ends the attempt. And "not now": the service
+ * unreachable, timing out or answering 5xx (`CoSignerUnavailableError`), or its
+ * own daily cap spent (`CoSignerCapError`). Payers defer on "not now" rather
+ * than spending a retry. A signature is still the only thing that lets a payout
+ * proceed, whatever the kind.
+ */
 export function remotePolicyCoSigner(options: RemoteCoSignerOptions): PayoutCoSigner {
   const doFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -72,16 +106,30 @@ export function remotePolicyCoSigner(options: RemoteCoSignerOptions): PayoutCoSi
       // Bounded explicitly: an unbounded wait would strand the payout holding the
       // payout account's sequence number, which blocks every other payout behind it.
       const abort = AbortSignal.timeout(timeoutMs);
-      const response = await doFetch(options.url, {
-        method: "POST",
-        headers,
-        body,
-        signal: abort,
-      });
+      let response: Response;
+      try {
+        response = await doFetch(options.url, {
+          method: "POST",
+          headers,
+          body,
+          signal: abort,
+        });
+      } catch (err) {
+        throw new CoSignerUnavailableError(
+          `payout co-signer unreachable: ${transportFailure(err, timeoutMs)}`,
+        );
+      }
 
       const payload = await response.json().catch(() => null);
+      if (response.status >= 500) {
+        throw new CoSignerUnavailableError(
+          `payout co-signer unavailable: ${refusalReason(payload, response.status)}`,
+        );
+      }
       if (!response.ok) {
-        throw new Error(`payout co-signer refused: ${refusalReason(payload, response.status)}`);
+        const reason = `payout co-signer refused: ${refusalReason(payload, response.status)}`;
+        if (refusalCode(payload) === COSIGNER_CAP_REFUSAL_CODE) throw new CoSignerCapError(reason);
+        throw new Error(reason);
       }
 
       const publicKey =
