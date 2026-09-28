@@ -174,3 +174,28 @@ in exactly one of:
 
 **Zero** means the unreconciled list is empty. The same database and chain give
 the same findings.
+
+### The volume proof (#49)
+
+```bash
+npm run reconcile:report -- --since=<run start> --min-settlements=100 --min-wallets=25
+```
+
+The same report is read as the D4 evidence run. Every report has a **Volume**
+section, and each count is of submissions: a submission with several findings
+counts once.
+
+| Count | Meaning |
+| --- | --- |
+| Successful | reconciled on Horizon |
+| Unique wallets | distinct wallets among the successful payouts |
+| Rejected | `skipped`: refused by a quality guard, so nothing was owed |
+| Failed | `failed` or `abandoned` |
+| Duplicate | carrying `shared_hash` or `multiple_landed_attempts` |
+| Unreconciled | carrying any finding |
+
+With `--min-settlements` and `--min-wallets`, which must be given together, the
+report judges the window. The target is met only with enough successful payouts,
+enough unique wallets, and zero duplicate and zero unreconciled payouts. The exit
+code is then 1 when the target is not met. Wallets appear shortened (`GABC…WXYZ`)
+with their payout counts. Each full address is on its linked transaction.
