@@ -1,4 +1,4 @@
-# Payout failure matrix (D4, #46)
+# Payout failure matrix (D4, #46, #47)
 
 The four failures the Statement of Work names, injected into the payout rail,
 with what must happen, what must never happen, and what the rail actually does.
@@ -38,11 +38,11 @@ envelope's hash, and exactly one payout attempt is `confirmed`.
 | Failure | Must happen | Must never happen | Observed | Status |
 | --- | --- | --- | --- | --- |
 | **Sequence collision.** Another submitter spends the payout account's sequence between load and submit | One payout lands; the other retries on a fresh sequence | A second transfer for the same submission | The stale envelope is voided with its reason (`tx_fee_bump_inner_failed, tx_bad_seq`). It is rebuilt and co-signed again in the same call, and lands once. The job ends `done` with no retry spent. Under sustained contention both envelopes are voided, the job requeues retryably, and the next pass pays once. Two payouts in one process serialize onto consecutive sequences | ✅ Pass, after the fix below |
-| **Co-signer outage.** Unreachable, timing out, or answering 503 | The payout stays pending, an alert fires, and it resumes when the co-signer returns | A payout with one signature, or a status that says paid | Nothing is presented to Horizon and no attempt is opened. The submission stays `pending` with no hash, and the claim is handed back. If the co-signer returns within the worker's retries, the next pass pays once. **But** each failure is requeued immediately and counted against the worker's 3 retries. An outage longer than three passes (seconds) fails the payout, exhausts its retry budget and refunds the campaign, and the returning co-signer never pays it. The only alert is the permanent-failure page afterwards | 🟡 **Never unsafe; does not resume.** Gap for #47 |
-| **Daily cap exceeded** | Both signers refuse independently, and an alert fires | Either signer alone lifting the cap | *Service cap:* refuses before the co-signer is asked, leaves the submission `pending` with no retry spent, and raises the `payout-cap` page. The retry path refuses the same way, and the row pays once when room returns. *Co-signer cap,* with the service's cap switched off: the co-signer refuses (409, `daily cap reached`), so there is no second signature and nothing reaches Horizon. **But** that refusal raises no cap alert and spends worker retries like any error, so after three passes the payout is failed and refunded | 🟡 **Both refuse; the co-signer's refusal is unalerted and final.** Gap for #47 |
+| **Co-signer outage.** Unreachable, timing out, or answering 5xx | The payout stays pending, an alert fires, and it resumes when the co-signer returns | A payout with one signature, or a status that says paid | Nothing is presented to Horizon and no attempt is opened. The submission stays `pending` with no hash, and the claim is handed back. The job is held (`notBefore` +30s) with no retry spent and nothing refunded, for as long as the outage lasts. A `cosigner-unavailable` page fires, deduplicated. When the co-signer returns, the next pass pays once. The retry path and legacy withdrawals hold the same way | ✅ Pass (#47) |
+| **Daily cap exceeded** | Both signers refuse independently, and an alert fires | Either signer alone lifting the cap | *Service cap:* refuses before the co-signer is asked, leaves the submission `pending` with no retry spent, and raises the `payout-cap` page. The retry path refuses the same way, and the row pays once when room returns. *Co-signer cap,* with the service's cap switched off: the co-signer refuses (409, `code: daily_cap_reached`), so there is no second signature and nothing reaches Horizon. The payout is deferred exactly as the service's own cap defers it, and a `cosigner-cap` page fires. It pays once when the co-signer's window has room | ✅ Pass (#47) |
 | **Horizon timeout.** The outcome is unknown | The payout stays reconcilable and is resolved only from on-chain proof | A blind resubmit | *Response lost, transaction landed:* resolved by the envelope's hash, recorded once, nothing rebuilt. *Never landed:* rebuilt only after Horizon reports it absent in a lookup after a ledger closed past its `maxTime`. *Horizon unreachable past the deadline:* the job fails as `needs manual reconciliation (ambiguous_submit)`. There is no refund, the attempt stays `open`, Sentry pages at `error`, and even a direct retry sends nothing (`attempt_unsettled`). Once Horizon answers, `reviveStrandedAttempts` and the retry path record the envelope that landed. Horizon saw one submit in total | ✅ Pass |
 
-## Defects found and fixed here
+## Defects found and fixed in #46
 
 1. **A stale-sequence fee bump was never rebuilt.** The submitter recognized a
    stale sequence only as `transaction: "tx_bad_seq"`. Every payout is a fee
@@ -56,18 +56,25 @@ envelope's hash, and exactly one payout attempt is `confirmed`.
    `rejected: tx_fee_bump_inner_failed` and dropped the inner code that explains
    it. `describeResultCodes` now includes `inner_transaction`.
 
-## Gaps left for #47
+## Fixed in #47: co-signer "not now"
 
-Neither gap can double-pay or pay on one signature. Both end a payable
-submission early.
+Both gaps the first run found came from the worker treating every co-signer
+error alike: requeued immediately and counted against its three retries, so an
+outage or a co-signer cap refusal of a few seconds failed and refunded a payout
+that was owed.
 
-* **Co-signer outage.** Treat a transport failure, a timeout or a 5xx from the
-  co-signer as a deferral, not a failure: requeue with a delay (`notBefore`),
-  spend no retry, and raise a deduplicated `cosigner-unavailable` alert. A 4xx
-  refusal stays a failure.
-* **Co-signer cap.** Give the co-signer's cap refusal a machine-readable code,
-  defer it the way the service's own cap is deferred, and alert on it. This
-  changes the co-signer service, so it needs a co-signer redeploy.
+The remote client now tells three kinds of answer apart
+(`lib/stellar/cosigner-errors.ts`):
 
-The two `today:` cases in the suite pin the current behaviour, so the #47 change
-shows up as a change to those tests.
+| Co-signer answer | Error | Worker | Retry path |
+| --- | --- | --- | --- |
+| Signature | — | Proceeds | Proceeds |
+| Request failed, timed out, or 5xx | `CoSignerUnavailableError` | Job held 30s (`notBefore`), no retry spent, `cosigner-unavailable` page | Row left as it was, no retry spent, same page |
+| 409 with `code: daily_cap_reached` | `CoSignerCapError` | Deferred like the service's own cap: submission `pending`, `cosigner-cap` page | Left `pending`, no retry spent, same page |
+| Any other refusal | `Error` | Unchanged: a failed attempt | Unchanged |
+
+**Deploy order.** The cap code is new in the co-signer's response
+(`lib/stellar/cosigner-service.ts`), so it needs a **co-signer redeploy**. Until
+then, a co-signer cap refusal still arrives without the code and is treated as an
+ordinary refusal, which was the old behaviour. The outage handling needs only the
+`web` deploy.
