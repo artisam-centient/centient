@@ -133,6 +133,33 @@ describe("remotePolicyCoSigner", () => {
       expect(err.message).toBe("payout co-signer unreachable: timed out after 1234ms");
     });
 
+    it("reports a body that stalls after the headers as unavailable, not as a bad signature", async () => {
+      // The headers arrived, so fetch resolved; the timeout then fires while the
+      // body is still being read.
+      const stalled = new ReadableStream({
+        start(controller) {
+          controller.error(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+        },
+      });
+      const fetchImpl = (async () => new Response(stalled, { status: 200 })) as unknown as typeof fetch;
+
+      const err = await remotePolicyCoSigner({ url, secret, timeoutMs: 1234, fetchImpl })
+        .signPayout(request)
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(CoSignerUnavailableError);
+      expect(err.message).toBe("payout co-signer unreachable: timed out after 1234ms");
+    });
+
+    it("keeps a complete body that is not JSON a plain failure", async () => {
+      const fetchImpl = (async () => new Response("<html>ok</html>", { status: 200 })) as unknown as typeof fetch;
+
+      const err = await remotePolicyCoSigner({ url, secret, fetchImpl }).signPayout(request).catch((e) => e);
+
+      expect(err).not.toBeInstanceOf(CoSignerUnavailableError);
+      expect(err.message).toMatch(/signature/i);
+    });
+
     it("reports a 5xx as unavailable", async () => {
       const { fetchImpl } = recordingFetch({ status: 502, body: { error: "Bad Gateway" } });
 
