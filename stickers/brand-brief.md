@@ -1,4 +1,4 @@
-# Centient Sticker Pack: Brand Brief (DRAFT, awaiting approval)
+# Centient Sticker Pack: Brand Brief (approved 2026-09-29)
 
 Sources: `README.md`, `brand.md`, `app/globals.css`, `app/layout.tsx`, `public/`, `docs/features.md`.
 
@@ -33,27 +33,18 @@ I'm skipping `primary-fixed #6BFDA7` because it's neon and won't hold in CMYK. I
 ## 6. Visual style
 **Soft, rounded, flat.** Pill and rounded-rect badges, solid fills with no gradients except one green→fresh-green accent, and a fixed 3 mm white die-cut border. This matches the app's rounded Material 3 UI and the friendly owl, and it prints cleanly.
 
-Fixed system for every sticker: 3 in × 3 in artboard (circles and badges) or 3 in × 1.5 in (horizontal wordmark/URL), a 3 mm white contour around each shape, 0.75 pt `#191C1E` hairline keyline inside the white border, a 6 mm corner radius on rectangles, and the owl always at the same height ratio (62% of the shape height) and left or top-centered.
+Fixed system for every sticker: a 3 mm white die-cut border and 3 mm white bleed; a 0.75 pt `#191C1E` keyline on the edge of the coloured body; a 6 mm body corner radius (9 mm at the cut); and a coloured 1.5 mm halo on contour-cut owls. Wherever the owl sits inside a badge, it is top-centred at 55% of the body height with a 7% top margin. Artboards are 3 × 3 in, 3 × 1.25 in (wordmark), or 4 × 1.5 in (URL, sized to read from about 1 m).
 
 ## 7. Tone
 **Friendly-confident**, with light wit only in hero or meme moments. This follows the brand voice: "clear, not clever" in the product, and wordplay allowed in marketing.
 
 ---
 
-## Things to confirm before I design
+## Decisions (confirmed with the project owner)
 
-1. **Website URL.** The repo has several candidates:
-   - `https://centient.work`: `brand.md`, `app/layout.tsx` metadataBase, `spec.md`, OG image. **This is my assumption.**
-   - `https://beta.centient.work`: `docs/payout-api.md` ("public build")
-   - `https://centient.xyz`: fallback in `lib/stellar/wallet-connect.ts:270`
-   - `https://centient.gitbook.io/centient-docs/`: docs link in `components/LoginScreen.tsx`
-2. **Off-limits list.** Are there words, colors, jokes, or partner names to avoid? (`brand.md` already bans coins, chains, circuit-board imagery, and emoji in UI.)
-3. **Stale copy in `brand.md`.** It still says cUSD and MiniPay from the older Celo build. The stickers will say **USDC on Stellar**, per the README.
-4. **No Soroban contract.** The README says Centient deliberately ships no Soroban contract and uses classic payments. I will **not** make a "Built with Soroban" badge. For the bonus stickers I'd do (a) an owl mascot pose sticker and (b) a code sticker built from the repo's real `payment` op / `op_no_trust` handling.
-
-## Tagline options (pick one, max ~6 words, problem-focused)
-- **A.** "Good judgment shouldn't wait for payday."
-- **B.** "No bank account. Still gets paid."
-- **C.** "Your judgment, paid in seconds."
-
-(The existing tagline "Train AI, cent by cent." stays on the lockup/OG, and I can use it instead if you prefer.)
+- **Website URL:** `centient.work` (matches `app/layout.tsx` metadataBase). Not used: `beta.centient.work` (public beta build), `centient.xyz` (WalletConnect fallback in `lib/stellar/wallet-connect.ts:270`, which looks stale).
+- **Tagline:** "Train AI, cent by cent." (the existing brand line)
+- **Off-limits:** nothing beyond `brand.md` (no coins, chains, circuit-board clichés, or hype)
+- **Settlement copy:** USDC on Stellar. `brand.md`'s cUSD / MiniPay wording is from the older Celo build.
+- **Soroban:** Centient ships no Soroban contract (README), so there is no "Built with Soroban" badge.
+- **Bonus sticker:** owl mascot pose (`owl-idea`)
