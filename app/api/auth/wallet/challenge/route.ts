@@ -9,9 +9,19 @@ import {
 } from "@/lib/stellar/client";
 import { livePendingSponsorship } from "@/lib/sponsored-trustline";
 import { checkWalletRateLimit, WALLET_BURST_LIMIT, type RateLimit } from "@/lib/rate-limit";
+import { withDeadline } from "@/lib/deadline";
 
 /** Per IP: wider than per address, since contributors behind one NAT share it. */
 export const CHALLENGE_IP_LIMIT: RateLimit = { max: 20, windowMs: 60_000 };
+
+/**
+ * The longest sign-in waits on payout setup's envelope (#170). `@stellar/
+ * stellar-sdk` waits on Horizon forever by default, and the challenge is already
+ * issued, and ticking, by then. Normally the handful of Horizon reads take well
+ * under this. Past it, the challenge goes out alone and payout setup builds its
+ * own envelope after sign-in: one more trip to Freighter, never a stuck sign-in.
+ */
+export const PAYOUT_SETUP_OFFER_DEADLINE_MS = 4_000;
 
 /** Read the client address supplied by the trusted deployment proxy, if any. */
 function clientIp(req: NextRequest): string | null {
@@ -84,14 +94,23 @@ export async function POST(req: NextRequest) {
  * (buildSponsorshipOffer). The checks here only avoid asking for a signature
  * that would go unused.
  *
- * Best effort. Sign-in must never wait on or fail for payout setup, which runs
- * again after sign-in and builds its own envelope when this one is missing.
+ * Best effort, and bounded by {@link PAYOUT_SETUP_OFFER_DEADLINE_MS}. Sign-in
+ * must never wait long on or fail for payout setup, which runs again after
+ * sign-in and builds its own envelope when this one is missing. Work that
+ * outlives the deadline is abandoned: it only reads, and builds an envelope
+ * nobody can broadcast.
  */
 async function payoutSetupOffer(address: string): Promise<SponsorshipOffer | null> {
   try {
-    if (await accountHasUsdcTrustline(address)) return null;
-    if (await livePendingSponsorship(address)) return null;
-    return await buildSponsorshipOffer(address);
+    return await withDeadline(
+      "sign-in sponsorship offer",
+      (async () => {
+        if (await accountHasUsdcTrustline(address)) return null;
+        if (await livePendingSponsorship(address)) return null;
+        return buildSponsorshipOffer(address);
+      })(),
+      PAYOUT_SETUP_OFFER_DEADLINE_MS,
+    );
   } catch (err) {
     Sentry.captureException(err, { extra: { context: "sign-in-sponsorship-offer", address } });
     return null;

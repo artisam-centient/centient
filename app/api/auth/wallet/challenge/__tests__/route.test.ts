@@ -25,7 +25,7 @@ vi.mock("@/lib/sponsored-trustline", async (importOriginal) => {
 });
 vi.mock("@sentry/nextjs", () => ({ captureException: mockCapture }));
 
-import { CHALLENGE_IP_LIMIT, POST } from "@/app/api/auth/wallet/challenge/route";
+import { CHALLENGE_IP_LIMIT, PAYOUT_SETUP_OFFER_DEADLINE_MS, POST } from "@/app/api/auth/wallet/challenge/route";
 import { WALLET_BURST_LIMIT, checkWalletRateLimit } from "@/lib/rate-limit";
 import { PROOF_ACTION, buildChallengeMessage } from "@/lib/stellar/challenge-message";
 import { prisma, truncateAll } from "@/tests/helpers/db";
@@ -197,6 +197,27 @@ describe("POST /api/auth/wallet/challenge — payout setup's envelope (#170)", (
     expect(body.nonce).toMatch(/^[0-9a-f]{32}$/);
     expect(body).not.toHaveProperty("sponsorship");
     expect(mockCapture).toHaveBeenCalled();
+  });
+
+  it("issues the challenge alone once the offer outlasts its deadline, rather than hanging on Horizon", async () => {
+    // Real time still passes for the database; only the deadline is jumped.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockHasTrustline.mockReturnValue(new Promise<never>(() => {}));
+
+      const pending = POST(makeReq({ address: Keypair.random().publicKey(), payoutSetup: true }));
+      await vi.waitFor(() => expect(mockHasTrustline).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(PAYOUT_SETUP_OFFER_DEADLINE_MS);
+      const res = await pending;
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.nonce).toMatch(/^[0-9a-f]{32}$/);
+      expect(body).not.toHaveProperty("sponsorship");
+      expect(mockCapture).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("builds nothing for a throttled caller", async () => {

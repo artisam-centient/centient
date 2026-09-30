@@ -76,6 +76,9 @@ so there is no trip to save.
 - The challenge route reads Horizon on `payoutSetup: true` (the trustline check,
   plus the build's sponsor and ledger reads). It is still behind the per-IP and
   per-address throttles, and nothing it builds can be broadcast by the caller.
+  The SDK waits on Horizon forever by default, so the offer is bounded at
+  `PAYOUT_SETUP_OFFER_DEADLINE_MS` (4 s). Past that, the challenge goes out
+  alone, and the wallet takes today's three trips.
   On testnet, directly submitting a co-signed offer was refused with
   `tx_bad_auth`.
 - The offer lives 180 seconds, like any sponsorship envelope. If the sponsor's
