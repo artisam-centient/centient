@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
 import { issueSignInChallenge } from "@/lib/stellar/auth-challenge";
+import {
+  accountHasUsdcTrustline,
+  buildSponsorshipOffer,
+  type SponsorshipOffer,
+} from "@/lib/stellar/client";
+import { livePendingSponsorship } from "@/lib/sponsored-trustline";
 import { checkWalletRateLimit, WALLET_BURST_LIMIT, type RateLimit } from "@/lib/rate-limit";
 
 /** Per IP: wider than per address, since contributors behind one NAT share it. */
@@ -26,13 +33,16 @@ function clientIp(req: NextRequest): string | null {
  * prompt and trying again straight away works. Without a proxy-supplied IP the
  * per-IP throttle is skipped rather than pooling every such request under one
  * key; the per-address throttle still applies.
+ *
+ * #170: with `payoutSetup: true`, the response also carries `sponsorship`, the
+ * USDC-trustline envelope payout setup will need, when the address needs one.
+ * The Freighter mobile app then signs both in one visit instead of two. See
+ * {@link payoutSetupOffer} for why that is safe to hand out before sign-in.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const address =
-    body && typeof body === "object" && typeof (body as { address?: unknown }).address === "string"
-      ? (body as { address: string }).address
-      : "";
+  const fields = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const address = typeof fields.address === "string" ? fields.address : "";
 
   // No normalization: StrKey is case-sensitive, so a lowercased key is refused.
   if (!isValidStellarAddress(address)) {
@@ -48,9 +58,42 @@ export async function POST(req: NextRequest) {
   }
 
   const challenge = await issueSignInChallenge(address);
+  const offer = fields.payoutSetup === true ? await payoutSetupOffer(address) : null;
   return NextResponse.json({
     nonce: challenge.nonce,
     message: challenge.message,
     expiresAt: challenge.expiresAt.toISOString(),
+    ...(offer && {
+      sponsorship: {
+        xdr: offer.xdr,
+        kind: offer.kind,
+        offer: offer.offer,
+        expiresAt: offer.expiresAt.toISOString(),
+      },
+    }),
   });
+}
+
+/**
+ * The sponsored-trustline envelope `address` will need once signed in, or null
+ * when it needs none or none can be offered.
+ *
+ * Safe before sign-in because the envelope carries no sponsor signature, so
+ * nothing handed out here can be broadcast: the sponsor signs only in
+ * `POST /api/me/wallet/sponsor`, behind the session and #330's gate
+ * (buildSponsorshipOffer). The checks here only avoid asking for a signature
+ * that would go unused.
+ *
+ * Best effort. Sign-in must never wait on or fail for payout setup, which runs
+ * again after sign-in and builds its own envelope when this one is missing.
+ */
+async function payoutSetupOffer(address: string): Promise<SponsorshipOffer | null> {
+  try {
+    if (await accountHasUsdcTrustline(address)) return null;
+    if (await livePendingSponsorship(address)) return null;
+    return await buildSponsorshipOffer(address);
+  } catch (err) {
+    Sentry.captureException(err, { extra: { context: "sign-in-sponsorship-offer", address } });
+    return null;
+  }
 }
