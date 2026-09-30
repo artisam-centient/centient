@@ -86,33 +86,198 @@
   }
 }
 
-/* Landing hero: the mascot drifts, and its callouts settle in after load. */
-@keyframes centient-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-14px);
-  }
-}
-
-@keyframes centient-rise {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 details > summary::-webkit-details-marker {
   display: none;
 }
 details > summary {
   list-style: none;
+}
+
+/* Selected text carries the brand green, not the browser's blue. */
+::selection {
+  background-color: color-mix(in srgb, var(--color-primary-container) 38%, transparent);
+  color: var(--color-on-surface);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ─── Landing (components/LoginScreen.tsx) ─── */
+
+/* The receipt's torn bottom edge: a row of teeth cut with a mask. The paper's
+   shadow is a filter on its wrapper, so it follows the teeth. */
+.receipt-paper {
+  --tooth: 14px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth) / 2 + 1px) no-repeat,
+    conic-gradient(from -45deg at bottom, #000 90deg, #0000 0) bottom / var(--tooth)
+      calc(var(--tooth) / 2) repeat-x;
+  mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth) / 2 + 1px) no-repeat,
+    conic-gradient(from -45deg at bottom, #000 90deg, #0000 0) bottom / var(--tooth)
+      calc(var(--tooth) / 2) repeat-x;
+}
+
+/* A stub torn off at both ends: payout stubs and the closing stub. */
+.receipt-stub {
+  --tooth: 14px;
+  -webkit-mask:
+    conic-gradient(from 135deg at top, #000 90deg, #0000 0) top / var(--tooth) calc(var(--tooth) / 2) repeat-x,
+    linear-gradient(#000 0 0) center / 100% calc(100% - var(--tooth) + 2px) no-repeat,
+    conic-gradient(from -45deg at bottom, #000 90deg, #0000 0) bottom / var(--tooth) calc(var(--tooth) / 2)
+      repeat-x;
+  mask:
+    conic-gradient(from 135deg at top, #000 90deg, #0000 0) top / var(--tooth) calc(var(--tooth) / 2) repeat-x,
+    linear-gradient(#000 0 0) center / 100% calc(100% - var(--tooth) + 2px) no-repeat,
+    conic-gradient(from -45deg at bottom, #000 90deg, #0000 0) bottom / var(--tooth) calc(var(--tooth) / 2)
+      repeat-x;
+}
+
+/* The paper feeds up out of the printer one line at a time. */
+.receipt-feed {
+  transition:
+    transform 650ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 350ms ease-out;
+}
+.receipt-feed[data-instant] {
+  transition: none;
+}
+
+/* A freshly printed line: the ink settles from a slight blur. */
+@keyframes receipt-ink {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes receipt-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* A status that just changed (Chosen, Passed, a signature) lands with a small press. */
+@keyframes receipt-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* The paid line glows gold once as the amount lands. */
+@keyframes receipt-paid {
+  from {
+    background-color: color-mix(in srgb, var(--color-secondary-container) 55%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+/* Hero headline: each line rises into its own clip once, on load. */
+@keyframes landing-line-up {
+  from {
+    transform: translateY(108%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* A payout the feed has not shown before slides in from the left. */
+@keyframes landing-stub-in {
+  from {
+    opacity: 0;
+    transform: translateX(-24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A journey line's status stamps in left to right, like a printed field. */
+@keyframes landing-print {
+  from {
+    clip-path: inset(-1rem 100% -1rem -1rem);
+  }
+  to {
+    clip-path: inset(-1rem -1rem -1rem -1rem);
+  }
+}
+
+/* A new payout stub's gold wash fades once it has been seen. */
+@keyframes landing-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The sticky header earns a hairline once the page has scrolled. */
+@supports (animation-timeline: scroll()) {
+  @keyframes landing-header-rule {
+    from {
+      box-shadow: 0 1px 0 transparent;
+    }
+    to {
+      box-shadow: 0 1px 0 color-mix(in srgb, var(--color-outline-variant) 55%, transparent);
+    }
+  }
+  .landing-header {
+    animation: landing-header-rule linear both;
+    animation-timeline: scroll();
+    animation-range: 0 96px;
+  }
+}
+
+/* The video frame opens up as it scrolls into view. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes landing-frame-open {
+      from {
+        transform: scale(0.92);
+        border-radius: 3rem;
+      }
+      to {
+        transform: scale(1);
+        border-radius: 2rem;
+      }
+    }
+    .landing-frame {
+      animation: landing-frame-open linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 45%;
+    }
+  }
+}
+
+/* FAQ answers open and close smoothly where the browser can size to auto. */
+@media (prefers-reduced-motion: no-preference) {
+  .faq-smooth {
+    interpolate-size: allow-keywords;
+  }
+  .faq-smooth details::details-content {
+    block-size: 0;
+    overflow: clip;
+    transition:
+      block-size 320ms cubic-bezier(0.16, 1, 0.3, 1),
+      content-visibility 320ms allow-discrete;
+  }
+  .faq-smooth details[open]::details-content {
+    block-size: auto;
+  }
 }
 
 .material-symbols-outlined {
