@@ -39,8 +39,7 @@ export default function InAppLanding({ totalEarned, submissionCount, onStart }: 
             width={96}
             height={96}
             priority
-            onLoad={logo.onLoad}
-            onError={logo.onError}
+            {...logo.imageProps}
             className="select-none drop-shadow-[0_8px_24px_rgba(0,109,61,0.15)]"
           />
           <span className="text-3xl font-headline font-extrabold tracking-tighter text-primary">
