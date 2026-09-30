@@ -1,8 +1,19 @@
 "use client";
 
 import Image from "next/image";
+import { useLogoReady } from "@/lib/use-logo-ready";
 
+/**
+ * The startup screen. Only the loading dots show until the logo has loaded;
+ * the logo then fades in with the wordmark and tagline just behind it, so the
+ * text never paints before the logo above it.
+ */
 export default function LoadingScreen() {
+  const { ready, onLoad, onError } = useLogoReady();
+  const reveal = `transition duration-500 ease-out motion-reduce:transition-none ${
+    ready ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+  }`;
+
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-surface px-6 text-center">
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
@@ -15,15 +26,19 @@ export default function LoadingScreen() {
           alt=""
           width={120}
           height={120}
-          priority
-          className="select-none drop-shadow-[0_8px_24px_rgba(0,109,61,0.15)]"
+          preload
+          onLoad={onLoad}
+          onError={onError}
+          className={`select-none drop-shadow-[0_8px_24px_rgba(0,109,61,0.15)] ${reveal}`}
         />
-        <span className="text-4xl font-headline font-extrabold tracking-tighter text-primary">
-          Centient
-        </span>
-        <p className="font-body text-sm text-on-surface-variant">
-          Train AI, cent by cent.
-        </p>
+        <div className={`flex flex-col items-center gap-6 delay-150 ${reveal}`}>
+          <span className="text-4xl font-headline font-extrabold tracking-tighter text-primary">
+            Centient
+          </span>
+          <p className="font-body text-sm text-on-surface-variant">
+            Train AI, cent by cent.
+          </p>
+        </div>
         <span className="flex gap-1" aria-label="Loading">
           {[0, 1, 2].map((i) => (
             <span

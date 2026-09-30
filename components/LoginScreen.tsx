@@ -6,6 +6,7 @@ import Mascot from "./LandingMascot";
 import WalletSignIn from "./WalletSignIn";
 import { deployedBuild } from "@/lib/build-info";
 import { REWARD_TOKEN_SYMBOL } from "@/lib/constants";
+import { useLogoReady } from "@/lib/use-logo-ready";
 
 interface LoginScreenProps {
   /** Called once Freighter sign-in has set the session cookie (#26). */
@@ -55,11 +56,26 @@ const STEPS: { icon: string; title: string; body: string }[] = [
  */
 export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: LoginScreenProps) {
   const build = deployedBuild();
+  const logo = useLogoReady();
   return (
     <div className="min-h-screen overflow-x-clip bg-surface text-on-surface">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
-        <div className="flex items-center gap-2">
-          <Image src="/logo.png" alt="" width={36} height={36} className="select-none" />
+        {/* The wordmark waits for the logo so the two appear together. */}
+        <div
+          className={`flex items-center gap-2 transition-opacity duration-300 motion-reduce:transition-none ${
+            logo.ready ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <Image
+            src="/logo.png"
+            alt=""
+            width={36}
+            height={36}
+            loading="eager"
+            onLoad={logo.onLoad}
+            onError={logo.onError}
+            className="select-none"
+          />
           <span className="font-headline text-xl font-extrabold tracking-tighter text-primary">
             Centient
           </span>
