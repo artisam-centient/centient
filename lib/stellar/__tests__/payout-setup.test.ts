@@ -321,6 +321,46 @@ describe("setUpPayouts — the envelope signed at sign-in (#170)", () => {
     expect(postedBodies(fetchMock)).toEqual([{ signedXdr: "SIGNED" }]);
   });
 
+  it("builds afresh when a throttle on the submit outlasts the early envelope, instead of resending it", async () => {
+    let clock = NOW;
+    const { deps, fetchMock } = withEarly(early({ expiresAt: NOW + 60_000 }), {
+      posts: [throttled("40"), json(200, { established: true })],
+      overrides: {
+        now: () => clock,
+        sleep: vi.fn(async (ms: number) => {
+          clock += ms;
+        }),
+      },
+    });
+
+    await expect(setUpPayouts(deps)).resolves.toEqual({ ok: true, address: ADDR, sponsored: true });
+
+    expect(postedBodies(fetchMock)).toEqual([
+      { address: ADDR, signedXdr: "EARLY-SIGNED", offer: "TAG" },
+      { signedXdr: "SIGNED" },
+    ]);
+    expect(deps.signTransaction).toHaveBeenCalledWith("XDR", ADDR);
+  });
+
+  it("resends the early envelope after a throttle it outlives", async () => {
+    let clock = NOW;
+    const { deps, fetchMock } = withEarly(early({ expiresAt: NOW + 180_000 }), {
+      posts: [throttled("40"), json(200, { established: true })],
+      overrides: {
+        now: () => clock,
+        sleep: vi.fn(async (ms: number) => {
+          clock += ms;
+        }),
+      },
+    });
+
+    await expect(setUpPayouts(deps)).resolves.toEqual({ ok: true, address: ADDR, sponsored: true });
+
+    const early_ = { address: ADDR, signedXdr: "EARLY-SIGNED", offer: "TAG" };
+    expect(postedBodies(fetchMock)).toEqual([early_, early_]);
+    expect(deps.signTransaction).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["its sequence was taken", json(409, { error: "retry" })],
     ["the route won't take it", json(400, { error: "invalid_sponsor_tx" })],

@@ -171,8 +171,16 @@ async function rateLimitWait(res: Response): Promise<number | null> {
  * One sponsor request. A rate limit is a wait, not a failure: the request is
  * sent again, once, after the `Retry-After` the route gave. Resending a submit
  * is safe, because a throttled POST is refused before any intent is written.
+ *
+ * `stillWorthSending` is asked after the wait: when it says no, the throttled
+ * answer is returned instead of resending. An envelope from sign-in (#170) can
+ * expire during a wait of up to {@link MAX_RATE_LIMIT_WAIT_SECONDS}.
  */
-async function send(deps: PayoutSetupDeps, init?: RequestInit): Promise<Response> {
+async function send(
+  deps: PayoutSetupDeps,
+  init?: RequestInit,
+  stillWorthSending: () => boolean = () => true,
+): Promise<Response> {
   const request = () => (init ? deps.fetch(SPONSOR_URL, init) : deps.fetch(SPONSOR_URL));
   const res = await request();
   const wait = await rateLimitWait(res);
@@ -183,6 +191,7 @@ async function send(deps: PayoutSetupDeps, init?: RequestInit): Promise<Response
   } finally {
     deps.onWaiting?.(null);
   }
+  if (!stillWorthSending()) return res;
   return request();
 }
 
@@ -268,11 +277,17 @@ async function submitEarlySignature(
   // It may have sat unanswered in Freighter for a while.
   if (!usable()) return null;
 
-  const submit = await send(deps, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ address: early.address, signedXdr, offer: early.offer }),
-  });
+  const submit = await send(
+    deps,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: early.address, signedXdr, offer: early.offer }),
+    },
+    usable,
+  );
+  // Throttled until the envelope was too close to expiry to resend.
+  if (submit.status === 429 && !usable()) return null;
   if (submit.status === 202) return { ok: false, reason: "pending" };
   if (submit.ok) return { ok: true, address: early.address, sponsored: true };
   const refusal = await readJson(submit);
