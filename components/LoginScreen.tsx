@@ -4,7 +4,8 @@ import Image from "next/image";
 import Faq from "./Faq";
 import Mascot from "./LandingMascot";
 import WalletSignIn from "./WalletSignIn";
-import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
+import { deployedBuild } from "@/lib/build-info";
+import { REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 
 interface LoginScreenProps {
   /** Called once Freighter sign-in has set the session cookie (#26). */
@@ -13,6 +14,12 @@ interface LoginScreenProps {
   onEmailSignIn: () => void;
   error: string | null;
 }
+
+/** The Centient promo video on the Artisam Labs YouTube channel. */
+const PROMO_VIDEO_ID = "uxjxu33TOuM";
+
+/** The public Centient docs on GitBook, synced from `docs/instawards`. */
+const DOCS_URL = "https://centient.gitbook.io/centient-docs/";
 
 const FOCUS_RING =
   "rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
@@ -32,7 +39,7 @@ const STEPS: { icon: string; title: string; body: string }[] = [
   {
     icon: "payments",
     title: "Get paid",
-    body: `Each approved answer adds ${REWARD_AMOUNT} ${REWARD_TOKEN_SYMBOL} to your balance, paid to the wallet you signed in with.`,
+    body: `Each approved answer pays the reward shown on its task, in ${REWARD_TOKEN_SYMBOL}, straight to the wallet you signed in with.`,
   },
 ];
 
@@ -47,6 +54,7 @@ const STEPS: { icon: string; title: string; body: string }[] = [
  * can earn or withdraw.
  */
 export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: LoginScreenProps) {
+  const build = deployedBuild();
   return (
     <div className="min-h-screen overflow-x-clip bg-surface text-on-surface">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
@@ -56,20 +64,40 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
             Centient
           </span>
         </div>
-        <nav aria-label="Page sections" className="hidden items-center gap-6 sm:flex">
+        <div className="flex items-center gap-6">
+          <nav aria-label="Page sections" className="hidden items-center gap-6 sm:flex">
+            <a
+              href="#watch"
+              className={`font-label text-sm font-semibold text-on-surface-variant transition-colors hover:text-primary ${FOCUS_RING}`}
+            >
+              Watch
+            </a>
+            <a
+              href="#how-it-works"
+              className={`font-label text-sm font-semibold text-on-surface-variant transition-colors hover:text-primary ${FOCUS_RING}`}
+            >
+              How it works
+            </a>
+            <a
+              href="#faq"
+              className={`font-label text-sm font-semibold text-on-surface-variant transition-colors hover:text-primary ${FOCUS_RING}`}
+            >
+              FAQ
+            </a>
+          </nav>
           <a
-            href="#how-it-works"
-            className={`font-label text-sm font-semibold text-on-surface-variant transition-colors hover:text-primary ${FOCUS_RING}`}
+            href={DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 font-label text-sm font-bold text-on-primary shadow-[0_4px_12px_rgba(0,109,61,0.15)] transition-transform duration-200 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
-            How it works
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
+              menu_book
+            </span>
+            Docs
+            <span className="sr-only"> (opens in a new tab)</span>
           </a>
-          <a
-            href="#faq"
-            className={`font-label text-sm font-semibold text-on-surface-variant transition-colors hover:text-primary ${FOCUS_RING}`}
-          >
-            FAQ
-          </a>
-        </nav>
+        </div>
       </header>
 
       <main>
@@ -96,7 +124,7 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
 
             <p className="mt-6 max-w-[34rem] font-body text-lg leading-relaxed text-on-surface-variant">
               Read a prompt, pick the better of two AI responses, and say why. Each approved
-              answer pays {REWARD_AMOUNT} {REWARD_TOKEN_SYMBOL}. Connect your Stellar wallet to
+              answer is paid in {REWARD_TOKEN_SYMBOL}, straight to your wallet. Connect your Stellar wallet to
               start — no email or password needed.
             </p>
 
@@ -127,13 +155,38 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
             <div className="mt-8 flex max-w-[34rem] items-start gap-3 border-l-2 border-primary-container pl-4">
               <p className="font-body text-sm leading-relaxed text-on-surface-variant">
                 Your <span className="font-semibold text-on-surface">wallet address</span>{" "}
-                is your account and where your {REWARD_TOKEN_SYMBOL} is paid. Freighter asks you to sign a
+                is your account and where your {`${REWARD_TOKEN_SYMBOL} is paid`}. Freighter asks you to sign a
                 one-time message to prove it&apos;s yours — it never moves funds.
               </p>
             </div>
           </div>
 
           <Mascot />
+        </section>
+
+        {/* youtube-nocookie sets no cookies until the visitor presses play. */}
+        <section
+          id="watch"
+          aria-labelledby="watch-heading"
+          className="mx-auto max-w-5xl scroll-mt-6 px-5 pb-20 sm:px-8"
+        >
+          <h2
+            id="watch-heading"
+            className="text-center font-headline text-3xl font-extrabold tracking-tight sm:text-4xl"
+          >
+            Meet Centient
+          </h2>
+          <div className="mt-8 aspect-video w-full overflow-hidden rounded-3xl bg-surface-container-highest shadow-[0_16px_48px_rgba(0,109,61,0.12)]">
+            <iframe
+              src={`https://www.youtube-nocookie.com/embed/${PROMO_VIDEO_ID}?rel=0`}
+              title="Centient promo video"
+              loading="lazy"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allowFullScreen
+              className="h-full w-full border-0"
+            />
+          </div>
         </section>
 
         <section
@@ -207,9 +260,23 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
         <span className="font-headline text-base font-extrabold tracking-tighter text-primary">
           Centient
         </span>
-        <span className="font-label text-xs font-bold uppercase tracking-[0.2em] text-outline">
-          centient.work
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className="font-label text-xs font-bold uppercase tracking-[0.2em] text-outline">
+            centient.work
+          </span>
+          {build && (
+            <a
+              href={build.commitUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={build.sha}
+              className={`font-mono text-xs text-outline underline-offset-2 hover:underline ${FOCUS_RING}`}
+            >
+              Build {build.shortSha}
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          )}
+        </div>
       </footer>
     </div>
   );
