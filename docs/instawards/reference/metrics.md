@@ -22,7 +22,7 @@ The ten success metrics from [SOW §6.3](../statement-of-work.md), in the SOW's 
 | Automated test suites green in CI (payments, identity, end-to-end) | Yes | Payments ✓ · identity ✓ · end-to-end ✓, all inside `build` and `payments-lane`. There is no separate end-to-end job | ✓ |
 | Unreconciled payouts | 0 | **0**. The Week 4 volume proof repeated the check over 122 payouts — 0 unreconciled, 0 duplicate ([#49 report](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-28-d4-volume-proof.md)), matching the earlier D3 window ([report](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-24-d3-reconcile-report.md)) | ✓ |
 | Public testnet URL live & accessible | Yes | [beta.centient.work](https://beta.centient.work) | ✓ |
-| Demo video published | Yes | Recorded 30 September (3:58); the instant payout it shows is on-chain in [`d362d6ff…`](https://stellar.expert/explorer/testnet/tx/d362d6ff1521eee34c063778193d6af613335d717eb94034097cda04d27ba4e5). Publication to a public URL is pending | 🟡 Recorded |
+| Demo video published | Yes | Not yet recorded | Pending |
 | Public GitHub repository released | Yes — already public | [github.com/artisam-centient/centient](https://github.com/artisam-centient/centient) | ✓ |
 
 *Running-total figures below come from Horizon: every USDC `payment` sent by the payout account from its first payout (8 September) to 24 September 07:50 UTC. The three formerly Week-4-deferred metrics (settlements, wallets, unreconciled) are now settled by the volume proof ([#49](https://github.com/webnxt-2030/Centient/issues/49), run 28 September). Last updated 30 September 2026.*

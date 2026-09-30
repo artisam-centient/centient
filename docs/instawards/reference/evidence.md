@@ -87,13 +87,9 @@ The instant path made 80 payments from 21 to 24 September. The [metrics page](me
 
 ## Deliverable 4 evidence
 
-The Week 4 volume proof and the demo both run on the deployed payout account, so they belong to the same running total as Deliverable 3.
-
-| Date | What it proves | Transaction |
-| --- | --- | --- |
-| 30 Sep | **Demo settlement.** The instant 0.25 USDC payout recorded live in the 3–5 minute demo, two signatures inside a fee bump | [`d362d6ff…`](https://stellar.expert/explorer/testnet/tx/d362d6ff1521eee34c063778193d6af613335d717eb94034097cda04d27ba4e5) |
-
 The **volume proof** (#49) reconciles **122 payouts across 25 unique wallets, 0 duplicate, 0 unreconciled**, over 22–28 September — every payout listed by hash in the [D4 volume proof](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-28-d4-volume-proof.md). Both multisig accounts were re-verified on-chain at 2 / 2 / 2 with no drift ([D4 multisig re-verification](https://github.com/artisam-centient/centient/blob/develop/docs/d4-multisig-reverify.md)), and the four named failures were each injected and passed ([payout failure matrix](https://github.com/artisam-centient/centient/blob/develop/docs/payout-failure-matrix.md)).
+
+The 3–5 minute demo (connect → rank → validate → instant USDC → stellar.expert → reconciler) is **not yet recorded**; its transaction will be listed here once it runs.
 
 ## Evidence files
 
@@ -125,4 +121,4 @@ The **volume proof** (#49) reconciles **122 payouts across 25 unique wallets, 0 
 | Recording: wallet connect → signed challenge → session issued | D2 | [D2 evidence folder](https://drive.google.com/drive/folders/1JS5hYQ-G4g-n92Hzf9RTNRBKWsUuvbFd?usp=drive_link) |
 | Phone recordings for the #137 cases (iOS) | D3 | Held outside the repository; not yet reviewed on record |
 | Recording: connect → rank → instant USDC → reconciled | D3 | Covered by the Week 4 demo |
-| 3–5 minute demo (connect → rank → validate → instant USDC → stellar.expert → reconciler) | D4 | Recorded 30 September, 3:58. The instant payout it shows is on-chain in [`d362d6ff…`](https://stellar.expert/explorer/testnet/tx/d362d6ff1521eee34c063778193d6af613335d717eb94034097cda04d27ba4e5). Publication to a public URL is pending |
+| 3–5 minute demo (connect → rank → validate → instant USDC → stellar.expert → reconciler) | D4 | Not yet recorded |
