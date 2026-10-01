@@ -3,7 +3,7 @@
 import Image from "next/image";
 import AnswerJourney from "./AnswerJourney";
 import Faq from "./Faq";
-import LandingReceipt from "./LandingReceipt";
+import LandingPhone from "./LandingPhone";
 import PayoutFeed from "./PayoutFeed";
 import WalletSignIn from "./WalletSignIn";
 import { deployedBuild } from "@/lib/build-info";
@@ -50,9 +50,9 @@ const LINE_UP = "block motion-safe:animate-[landing-line-up_900ms_cubic-bezier(0
  * account created before wallet sign-in, which must connect its wallet before it
  * can earn or withdraw.
  *
- * The page reads as one receipt for one answer: the hero prints a sample task
- * end to end, the feed below it lists real payouts from the ledger, and the
- * sections after that itemize what happens to an answer.
+ * The page follows one answer: the hero's phone plays a sample task end to
+ * end, the feed below it lists real payouts from the ledger, and the sections
+ * after that itemize what happens to an answer.
  */
 export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: LoginScreenProps) {
   const build = deployedBuild();
@@ -143,7 +143,7 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
             </div>
           </div>
 
-          <LandingReceipt />
+          <LandingPhone />
         </section>
 
         <PayoutFeed />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FEATURED_SAMPLE as SAMPLE } from "./LandingReceipt";
+import { FEATURED_SAMPLE as SAMPLE } from "./LandingPhone";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 
 type Tone = "ink" | "money" | "confirmed";

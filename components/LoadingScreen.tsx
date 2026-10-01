@@ -53,13 +53,19 @@ export default function LoadingScreen() {
             <div className={`mt-9 h-14 w-full max-w-xs rounded-full ${BLOCK}`} />
             <div className={`mt-4 h-4 w-72 max-w-full rounded-full ${BLOCK}`} />
           </div>
-          {/* The receipt printer: the owl's perch, the slip, and the slot. */}
+          {/* The hero phone, with the owl at its lower left. */}
           <div className="mx-auto w-full max-w-[34rem]">
-            <div className="flex items-end">
-              <div className={`mb-1 hidden h-40 w-40 shrink-0 rounded-full sm:block ${BLOCK}`} />
-              <div className={`h-[18rem] min-w-0 flex-1 rounded-t-xl sm:h-[20rem] lg:mt-6 lg:h-[38rem] ${BLOCK}`} />
+            <div className="flex justify-center">
+              <div className="relative translate-x-8 sm:translate-x-12 lg:translate-x-14">
+                <div
+                  className={`aspect-[360/760] w-[16.5rem] rounded-[2.6rem] sm:w-[18rem] lg:w-[18.5rem] lg:rounded-[2.9rem] xl:w-[19.5rem] ${BLOCK}`}
+                />
+                <div
+                  className={`absolute -bottom-3 right-full -mr-7 h-[5.5rem] w-[5.5rem] rounded-full sm:-mr-11 sm:h-36 sm:w-36 lg:-mr-12 lg:h-40 lg:w-40 ${BLOCK}`}
+                />
+              </div>
             </div>
-            <div className={`-mt-1.5 h-7 rounded-xl ${BLOCK}`} />
+            <div className={`mx-auto mt-6 h-4 w-72 max-w-full rounded-full ${BLOCK}`} />
           </div>
         </div>
       </div>

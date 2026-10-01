@@ -91,16 +91,6 @@ typography:
     fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1.33
-  receipt-body:
-    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "13px"
-    fontWeight: 400
-    lineHeight: 1.625
-  receipt-prompt:
-    fontFamily: "Manrope, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "15px"
-    fontWeight: 700
-    lineHeight: 1.375
   icon:
     fontFamily: "Material Symbols Outlined"
     fontSize: "16px"
@@ -131,7 +121,6 @@ spacing:
   gutter-sm: "2rem"
   section: "6rem"
   section-sm: "7rem"
-  paper-x: "1.25rem"
   stub-x: "1.25rem"
 components:
   button-primary:
@@ -150,10 +139,6 @@ components:
   link-inline:
     textColor: "{colors.primary}"
     typography: "{typography.label}"
-  receipt-paper:
-    backgroundColor: "{colors.surface-container-lowest}"
-    textColor: "{colors.on-surface}"
-    padding: "16px 20px 32px"
   receipt-stub:
     backgroundColor: "{colors.surface-container-lowest}"
     textColor: "{colors.on-surface}"
@@ -162,11 +147,6 @@ components:
   receipt-amount:
     textColor: "{colors.secondary}"
     typography: "{typography.amount}"
-  reward-chip:
-    backgroundColor: "{colors.secondary-fixed}"
-    textColor: "{colors.secondary}"
-    rounded: "{rounded.full}"
-    padding: "4px 10px"
   line-item-fields:
     backgroundColor: "{colors.surface-container-lowest}"
     textColor: "{colors.on-surface}"
@@ -178,15 +158,16 @@ components:
     textColor: "{colors.surface}"
     rounded: "{rounded.full}"
     size: "40px"
-  response-option:
-    backgroundColor: "{colors.surface-container-low}"
-    textColor: "{colors.on-surface-variant}"
-    rounded: "{rounded.lg}"
-    padding: "10px 12px"
-  printer:
+  phone-frame:
     backgroundColor: "{colors.inverse-surface}"
-    rounded: "{rounded.lg}"
-    height: "28px"
+    rounded: "2.6rem"
+    padding: "0.55rem"
+    width: "16.5rem"
+  phone-screen:
+    backgroundColor: "{colors.surface}"
+    rounded: "2.05rem"
+    width: "360px"
+    height: "760px"
   content-card:
     backgroundColor: "{colors.surface-container-lowest}"
     textColor: "{colors.on-surface}"
@@ -200,17 +181,17 @@ components:
 
 **Creative North Star: "The Payslip"**
 
-Centient is recorded as two layers. The **incumbent brand system** (brand.md, installed as the Tailwind 4 `@theme` block in `app/globals.css`) supplies every color, both typefaces, the radius scale, the soft shadow scale, Material Symbols Outlined icons, the owl mascot and the green action gradient. This build kept all of it. The **receipt language** is what the landing / sign-in revamp (`components/LoginScreen.tsx` and its children) added: white paper with a torn edge, a printer slot the paper feeds out of, stubs torn at both ends, dotted leaders between a field name and its value, dashed rules between groups, uppercase micro-labels naming fields, and system mono only for hashes and addresses.
+Centient is recorded as two layers. The **incumbent brand system** (brand.md, installed as the Tailwind 4 `@theme` block in `app/globals.css`) supplies every color, both typefaces, the radius scale, the soft shadow scale, Material Symbols Outlined icons, the owl mascot and the green action gradient. This build kept all of it. The **receipt language** is what the landing / sign-in revamp (`components/LoginScreen.tsx` and its children) added: stubs torn at both ends, dotted leaders between a field name and its value, dashed rules between groups, uppercase micro-labels naming fields, and system mono only for hashes and addresses.
 
-The payment is the hero. The page reads as one receipt for one answer: a sample task prints itself line by line, real testnet payouts sit below it as stubs, the journey itemizes the same answer, and the close is the last stub handed over with the sign-in on it. Density is calm: off-white ground, one white paper at a time, generous section padding, a single max-width column. Motion is short, eased hard out, and every piece of it has a still, finished state for reduced motion.
+The payment is the hero. The page follows one answer: a phone in the hero plays a sample task end to end on the real task screen, real testnet payouts sit below it as stubs, the journey itemizes the same answer, and the close is the last stub handed over with the sign-in on it. Density is calm: off-white ground, one white paper at a time, generous section padding, a single max-width column. Motion is short, eased hard out, and every piece of it has a still, finished state for reduced motion.
 
-Scope: the receipt language lives on the landing, its loading skeleton and the FAQ. The task screen, success screen and admin console were not redesigned and still follow brand.md's card patterns only; do not claim they use receipts.
+Scope: the receipt language lives on the landing's stubs, journey and close, and the FAQ. The task screen, success screen and admin console were not redesigned and still follow brand.md's card patterns only; do not claim they use receipts. The hero phone shows the task and success screens as they are, in miniature.
 
 **Key Characteristics:**
 - Off-white ground, white paper, no tinted card surfaces.
 - Green only on actions and confirmations; gold on every amount.
 - Manrope 800 for display and all numerals; Inter for body and labels; mono only for hashes, addresses and the build SHA.
-- Paper edges are cut with masks (torn teeth), not drawn with borders.
+- Stub edges are cut with masks (torn teeth), not drawn with borders.
 - Receipt rows: field name, dotted leader, value.
 - Every animation resolves to a finished, legible still frame under reduced motion.
 
@@ -219,27 +200,27 @@ Scope: the receipt language lives on the landing, its loading skeleton and the F
 A cool off-white and white paper palette, carried by deep green for action and warm gold for money, with ink (near-black) doing the structural work.
 
 ### Primary
-- **Ledger Green** (primary): the wordmark, primary buttons (as the gradient start), inline links, focus rings, the Chosen stamp, Passed, signed keys, and Confirmed. Nothing decorative.
+- **Ledger Green** (primary): the wordmark, primary buttons (as the gradient start), inline links, focus rings, Confirmed, and, inside the hero phone, the Selected chip and the chosen response's ring. Nothing decorative.
 - **Signal Green** (primary-container): only as the end of the action gradient on the primary button, and in the text-selection tint.
 
 ### Secondary
-- **Payout Gold** (secondary): every amount and its unit (receipt total, stub amounts, reward chip, the Paid row, the money line's icon). In the hero it also colors the tagline line "cent by cent.", which is the one wordplay accent per screen brand.md allows (it replaces brand.md's gradient text accent here).
-- **Gold Wash** (secondary-container, secondary-fixed): transient only. The paid row flashes secondary-container at 55% and fades; a new payout stub carries secondary-fixed at 50% and fades; the reward chip sits on secondary-fixed at 45%.
+- **Payout Gold** (secondary): every amount and its unit (stub amounts, the money line's icon). In the hero it also colors the tagline line "cent by cent.", which is the one wordplay accent per screen brand.md allows (it replaces brand.md's gradient text accent here).
+- **Gold Wash** (secondary-fixed): transient only. A new payout stub carries secondary-fixed at 50% and fades.
 
 ### Neutral
-- **Canvas** (surface): page ground, header background, and the fade that hides older receipt lines on small screens.
-- **Paper** (surface-container-lowest): receipt paper, stubs, line-item field panels, the FAQ card.
+- **Canvas** (surface): page ground, header background, and the hero phone's screen.
+- **Paper** (surface-container-lowest): stubs, line-item field panels, the FAQ card.
 - **Band** (surface-container-low): alternate full-bleed section bands (payouts, video) and unselected response options.
 - **Skeleton** (surface-container-high): loading placeholders, pulsing.
 - **Ink** (on-surface): body text, the journey rail fill and its reached discs.
 - **Ink Muted** (on-surface-variant): secondary text, field names, helper copy.
 - **Pencil** (outline): micro-labels, timestamps, tx hashes.
 - **Rule Line** (outline-variant): dashed rules, dotted leaders, unreached rail and disc rings, empty-state dashed frames.
-- **Printer Body** (inverse-surface): the printer slot housing; the slot itself is on-surface.
+- **Handset** (inverse-surface): the hero phone's frame and side keys; its camera island and home indicator are on-surface.
 - **Error** (error, error-container, on-error-container): sign-in errors and failure states only.
 
 ### Named Rules
-**The Green Means Go Rule.** Green appears only on things you can press or on a state that has been confirmed (Chosen, Passed, signed keys, Confirmed). Progress indicators, rails and numbered discs are ink, not green.
+**The Green Means Go Rule.** Green appears only on things you can press or on a state that has been confirmed (Selected, Confirmed). Progress indicators, rails and numbered discs are ink, not green.
 
 **The Gold Is Money Rule.** Any amount of USDC is Payout Gold in Manrope. Gold washes are one-shot highlights that fade to paper; gold is never a resting surface.
 
@@ -257,19 +238,17 @@ A cool off-white and white paper palette, carried by deep green for action and w
 ### Hierarchy
 - **Display** (800, line-height 0.95, -0.04em; tokens `display`, `display-sm`, `display-lg`, `display-xl` are its breakpoint steps, not separate roles): the two-line hero only. Each line rises into its own clip on load. Responsive steps: 3.25rem base, 5rem at sm (640px), 4.5rem at lg (1024px, where the hero splits into two columns), 5.25rem at xl (1280px).
 - **Headline** (800, line-height 1.05, -0.03em): section headings. Responsive steps: 1.875rem base, 2.75rem at sm. The closing stub's heading is the narrower step of the same role: 1.875rem base, 2.5rem at sm. (token `headline-stub`).
-- **Title** (700, 1.25rem, 1.5rem from sm): journey line titles; receipt prompt text uses 700 at 15px/16px.
-- **Amount** (800, 2.25rem on the receipt, 1.875rem on stubs, tracking-tighter, tabular numerals): every total, with its unit beside it at 700 and a smaller size.
-- **Body** (400, 1rem to 1.25rem, line-height 1.625): sublines and section intros held to about 30rem / 34 to 46ch; receipt responses and reasons at 13px/14px.
-- **Label** (600 or 700, 0.875rem): buttons, nav, receipt row names and values.
-- **Micro-label** (700, 11px, 0.2em tracking, uppercase, outline color): field names on the receipt and stubs (Prompt, Reason, Paid) and the footer domain. Never above a section heading.
+- **Title** (700, 1.25rem, 1.5rem from sm): journey line titles.
+- **Amount** (800, 1.875rem on stubs, tracking-tighter, tabular numerals): every total, with its unit beside it at 700 and a smaller size.
+- **Body** (400, 1rem to 1.25rem, line-height 1.625): sublines and section intros held to about 30rem / 34 to 46ch.
+- **Label** (600 or 700, 0.875rem): buttons, nav, receipt row names and values on stubs and the journey.
+- **Micro-label** (700, 11px, 0.2em tracking, uppercase, outline color): field names on stubs and journey panels (Paid, Prompt, Reason) and the footer domain. Never above a section heading.
 - **Mono** (400, 11px to 12px): wallet addresses, tx hashes, the footer build SHA.
-- **Receipt Body** (Inter 400, line-height 1.625): response and reason text on the printing receipt. Responsive steps: 13px base, 14px at sm. It is the body role scaled to the slip, not a separate voice.
-- **Receipt Prompt** (Manrope 700, line-height 1.375): the prompt line on the receipt. Responsive steps: 15px base, 16px at sm. It is the title role scaled to the slip.
-- **Icon** (Material Symbols Outlined, weight 400, line-height 1, one em square, ligature names): every icon. Filled (`FILL 1`) for emphasized states (verified, check_circle, signed keys, the coin); outlined otherwise. Icons take their text color and never carry meaning alone. Size scale, by context:
-  - 13px: the check inside the Chosen stamp.
-  - 14px: the reward chip coin and the receipt's Confirmed mark.
+- **Phone screen** (exempt): the hero phone's screen is the app's own task and success screens, set in the app's own sizes at 360 by 760 CSS pixels and scaled to the frame (about 0.68 on phones, 0.77 at 1024px, 0.82 at 1280px). Its text is not part of this page's scale and follows TaskCard and app/page.tsx, not this file.
+- **Icon** (Material Symbols Outlined, weight 400, line-height 1, one em square, ligature names): every icon. Filled (`FILL 1`) for emphasized states (verified, the coin, the success check); outlined otherwise. Icons take their text color and never carry meaning alone. Size scale, by context:
+  - 14px: reserved (the journey's money line uses 15px).
   - 15px: Confirmed on stubs and journey rows.
-  - 16px: receipt rows (Passed, keys), caption replay, stub View arrow, link-out marks.
+  - 16px: caption replay, stub View arrow, link-out marks.
   - 18px: the header Docs pill.
   - 22px: the primary button and the FAQ chevron (token `icon-button`).
   - 26px: journey line titles (token `icon-title`; the base `icon` token is the 16px default).
@@ -285,8 +264,8 @@ A cool off-white and white paper palette, carried by deep green for action and w
 
 A single centered column, max-width 72rem (`max-w-6xl`), with 1.25rem side gutters on phones and 2rem from 640px. Sections breathe at 6rem vertical padding (7rem from 640px; the journey uses 8rem). Full-bleed bands in Band tone alternate with Canvas to separate the feed and the video from the rest.
 
-- **Hero:** stacked on phones; from 1024px a two-column grid of fluid copy and a 30rem receipt column (34rem from 1280px), filling the viewport height under the 4.5rem sticky header.
-- **Receipt window:** below 1024px the paper shows through a fixed window (18rem phones, 20rem from 640px), newest line at the slot and older lines under a Canvas fade that sits outside the clipped window; from 1024px the window is the paper's full height. On phones the owl perches on the slip's top-right corner; from 640px it stands on the printer to the left of the paper at 10rem.
+- **Hero:** stacked on phones; from 1024px a two-column grid of fluid copy and a 30rem phone column (34rem from 1280px), filling the viewport height under the 4.5rem sticky header.
+- **Hero phone:** a 360:760 screen in a frame 16.5rem wide on phones, 18rem from 640px, 18.5rem from 1024px and 19.5rem from 1280px. The owl stands at its lower left, in front of the frame (5.5rem on phones, 9rem from 640px, 10rem from 1024px), and the pair is nudged right so the two sit centered together. The sample caption is centered beneath.
 - **Payout feed:** a horizontal snap-scroll strip of 15.5rem stubs on phones and tablets, a four-column grid from 1024px.
 - **Journey:** stacked on phones; from 1024px a 24rem sticky intro beside the numbered list, which runs on a 2.5rem disc column plus content.
 - **Close:** a single stub, max 36rem, centered.
@@ -295,16 +274,15 @@ Breakpoints are Tailwind's defaults (640, 768, 1024, 1280). Nothing essential is
 
 ## Elevation & Depth
 
-Depth is soft and ambient, from brand.md's cool-ink shadow scale (rgba(25,28,30) at 3 to 10%), plus green-tinted shadows on the primary action. The receipt language adds one technical rule: masked paper cannot carry a box-shadow (the mask clips it), so torn paper and stubs take a `drop-shadow` filter on a wrapper, which follows the teeth. The printer is the one dense, dark object, with a hard inset slot to read as a machine.
+Depth is soft and ambient, from brand.md's cool-ink shadow scale (rgba(25,28,30) at 3 to 10%), plus green-tinted shadows on the primary action. The receipt language adds one technical rule: a masked stub cannot carry a box-shadow (the mask clips it), so stubs take a `drop-shadow` filter on a wrapper, which follows the teeth. The hero phone is the one dense, dark object, with a faint inner highlight on its frame edge.
 
 ### Shadow Vocabulary
 - **Soft** (`box-shadow: 0 8px 24px rgba(25,28,30,0.06)`): standard content cards such as the FAQ (incumbent).
 - **Whisper** (`box-shadow: 0 4px 12px rgba(25,28,30,0.04)`): journey field panels.
-- **Paper** (`filter: drop-shadow(0 18px 30px rgba(25,28,30,0.10))`): the printing receipt.
+- **Device** (`box-shadow: 0 32px 64px -20px rgba(25,28,30,0.38), 0 14px 28px rgba(25,28,30,0.10), inset 0 0 0 1.5px rgba(255,255,255,0.10)`): the hero phone's frame only. It is deeper than the cool-ink scale because the frame is the page's one dark object.
 - **Stub** (`filter: drop-shadow(0 8px 18px rgba(25,28,30,0.08))`, hover `drop-shadow(0 16px 28px rgba(25,28,30,0.12))` with a 4px lift): payout stubs.
 - **Handed Stub** (`filter: drop-shadow(0 24px 40px rgba(25,28,30,0.09))`): the closing stub.
 - **Action** (`box-shadow: 0 8px 24px rgba(0,109,61,0.2)`, hover `0 12px 32px rgba(0,109,61,0.3)`): the primary button (incumbent signature shadow).
-- **Stamp** (`box-shadow: 0 4px 10px rgba(0,109,61,0.25)`): the Chosen stamp.
 - **Video Frame** (`box-shadow: 0 24px 60px rgba(0,109,61,0.14)`): the promo video frame only.
 - **Header Hairline** (`box-shadow: 0 1px 0` outline-variant at 55%): appears on the sticky header over the first 96px of scroll, where scroll-driven animation is supported.
 
@@ -315,7 +293,7 @@ Depth is soft and ambient, from brand.md's cool-ink shadow scale (rgba(25,28,30)
 
 ## Shapes
 
-Two families. The incumbent family is rounded: pills (`full`) for buttons and chips, 0.75rem for response options and the printer, 1rem to 1.5rem for cards, 2rem for the video frame. The video frame's 3rem corner is not a resting radius: it is the start frame of its scroll-in animation, which opens from 3rem (and 0.92 scale) to its resting 2rem as the frame enters view, and only where reduced motion is not requested. The receipt family is cut, not rounded: paper has a straight top and a row of 14px triangular teeth along the bottom; stubs have teeth on both ends; both are made by CSS masks so the paper stays one flat white shape. The masks paint nothing: their `#000` is the alpha channel meaning keep, and `#0000` (transparent) means cut. Neither is a color in the palette, and neither may appear as a painted fill, text or border. Inside paper, structure is drawn with lines, not boxes: dashed rules (outline-variant) between groups and dotted leaders between a field name and its value. Empty and error states in the feed use a dashed 1.5rem-radius frame, the same line as the receipt rules.
+Two families. The incumbent family is rounded: pills (`full`) for buttons and chips, 1rem to 1.5rem for cards, 2rem for the video frame, and the hero phone's frame at 2.6rem (2.9rem from 1024px) with its screen inset 0.55rem at the matching inner radius (2.05rem, 2.35rem from 1024px). The video frame's 3rem corner is not a resting radius: it is the start frame of its scroll-in animation, which opens from 3rem (and 0.92 scale) to its resting 2rem as the frame enters view, and only where reduced motion is not requested. The receipt family is cut, not rounded: stubs have a row of 14px triangular teeth on both ends, made by a CSS mask so the paper stays one flat white shape. The masks paint nothing: their `#000` is the alpha channel meaning keep, and `#0000` (transparent) means cut. Neither is a color in the palette, and neither may appear as a painted fill, text or border. Inside paper, structure is drawn with lines, not boxes: dashed rules (outline-variant) between groups and dotted leaders between a field name and its value. Empty and error states in the feed use a dashed 1.5rem-radius frame, the same line as the receipt rules.
 
 ## Components
 
@@ -327,20 +305,15 @@ Tactile and confident, the incumbent signature button kept as is.
 - **Pill (Docs, header):** flat primary fill, 0.875rem / 700 label with icon, a lighter green shadow (0 4px 12px at 15%), lifts 1px on hover.
 - **Inline link:** primary, 600, underline on hover; used for email sign-in, the payout account and contact.
 
-### Chips
-- **Reward chip:** gold text on secondary-fixed at 45%, pill, 0.75rem Manrope 700 with a filled coin icon. Sits in the receipt header.
-- **Chosen stamp:** a primary pill with a check, 11px label, Stamp shadow, pops in (0.6 to 1 scale, 320ms).
-
 ### Cards / Containers
 - **Content card (incumbent):** Paper on 1.5rem radius, Soft shadow, used by the FAQ list with 30%-opacity outline-variant dividers.
 - **Line-item field panel:** Paper, 0.5rem radius, Whisper shadow, 0.875rem label text, one receipt row per field.
-- **Response option:** Band tone, 0.75rem radius, a 24px letter tile (A/B); chosen gets a 2px primary ring and a 6% primary tint, weighed gets a 2px outline-variant ring.
 
 ### Navigation
 Sticky 4.5rem header on Canvas: wordmark (Manrope 800, tracking-tighter, primary) with the logo on the left, section links (0.875rem / 600, on-surface-variant) from 768px with a primary underline that grows from the left on hover, the Docs pill on the right. The hairline under it appears only once the page scrolls. Phones show wordmark and Docs only.
 
-### Receipt (signature)
-The hero. White paper in the Paper shadow, torn along its bottom edge, feeding upward out of a dark printer slot at the bottom of the figure; the newest line always sits at the slot. Lines print in groups: header with wordmark and reward chip, Prompt, two responses, Reason (typed at 34ms per character with a primary caret), Quality check with a dotted leader to Passed, Signatures with a leader to three keys and a "2 of 3" tally, then the Paid block with the gold amount counting up over 800ms, the recipient address and tx in mono, and Confirmed. Each group settles from a 3px blur (520ms); the paid block flashes gold once. The slip then tears off (lifts 28px and fades) and the next sample prints. The owl changes pose per stage (wave, laptop, think, idea, chart) with a 500ms scale settle. Playback runs only while on screen in a visible tab; a light pointer tilt applies on fine pointers. A caption with a replay icon names it a sample on testnet. Reduced motion shows the finished receipt, still.
+### Phone (signature)
+The hero. A handset in the Device shadow (dark frame, side keys, camera island, status bar at 9:41, home indicator) whose screen runs a miniature of the real task screen: the app header with wallet chip and earnings badge, then TaskCard's Label Task row, prompt card and both response cards. It plays one sample task with no visitor input. The task opens at the top; a fingertip (a translucent dot that lands, presses to 0.82 and lifts, 520ms) taps the better response, which takes a primary ring and a Selected chip that pops in; the reason card mounts and the sticky Submit & Get Paid bar slides up (500ms); the screen scrolls down to the reason (a 1000ms flick on the brand ease-out, with a scroll indicator that shows only while it moves); the reason types itself at 32ms per character with a primary caret, Submit enables at 10 characters, is tapped, and shows pulsing dots. The app's success screen then fades in ("+0.05 USDC on its way", the check popping in), Next Task is tapped, and the next seeded sample opens at the top while the success screen fades out over it; the earnings badge has gone up by one reward and pops. The owl changes pose per stage (wave, think, idea, laptop, chart) with a 500ms scale settle. Playback runs only while on screen in a visible tab; a light pointer tilt applies on fine pointers. A caption with a replay icon names it a sample on testnet. Reduced motion shows the answered task, scrolled to the reason with Submit enabled, still.
 
 ### Payout Stub
 A payout as a stub torn at both ends: a Paid micro-label with a relative time, the amount in gold Manrope 800, To and Tx rows with dotted leaders to mono values, then a dashed rule over Confirmed (green, filled verified icon) and a View affordance whose arrow nudges up-right on hover. The whole stub is a link to the ledger. A stub the feed has not shown before slides in from the left (700ms) with a gold wash that fades over 1.8s; reduced motion shows it in place with no wash.
@@ -358,7 +331,7 @@ The last stub, torn at both ends: wordmark over a dashed rule, headline, body, a
 - **Do** set every amount in Payout Gold, Manrope 800, tabular numerals, with the unit beside it.
 - **Do** keep green to presses and confirmations; draw progress, rails and step discs in ink.
 - **Do** build receipt rows as field name, dotted leader (outline-variant), value; separate groups with dashed rules.
-- **Do** cut torn edges with the paper and stub masks (14px teeth) and shadow them with a drop-shadow filter on the parent.
+- **Do** cut torn edges with the stub mask (14px teeth) and shadow them with a drop-shadow filter on the parent.
 - **Do** ease motion with cubic-bezier(0.16, 1, 0.3, 1) and give every animation a finished still frame under reduced motion.
 - **Do** put any fade that hides clipped content outside the clipped element, so no row leaks at fractional edges.
 - **Do** name sample data as a sample, and say testnet plainly wherever payouts appear.
@@ -366,8 +339,8 @@ The last stub, torn at both ends: wordmark over a dashed rule, headline, body, a
 ### Don't:
 - **Don't** use monospace for anything but addresses, hashes and the build SHA.
 - **Don't** put a micro-label above a section heading; micro-labels name fields inside paper.
-- **Don't** give masked paper a box-shadow; it is clipped by the mask.
+- **Don't** give a masked stub a box-shadow; it is clipped by the mask.
 - **Don't** use Tailwind's default shadows, pure black, or colors outside the palette.
 - **Don't** draw solid outline borders around content cards; the only lines are the receipt's dashed rules and dotted leaders, and hairline dividers.
 - **Don't** make gold a resting surface; gold washes flash once and fade.
-- **Don't** apply the receipt language to the task screen or admin console by assumption; they have not been redesigned.
+- **Don't** apply the receipt language to the task screen or admin console by assumption; they have not been redesigned. The hero phone mirrors the task and success screens as shipped; when they change, update its miniature to match rather than restyling it.

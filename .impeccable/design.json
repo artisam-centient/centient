@@ -136,7 +136,7 @@
       },
       "inverse-surface": {
         "role": "neutral",
-        "displayName": "Printer Body",
+        "displayName": "Handset",
         "canonical": "#2e3132"
       },
       "outline": {
@@ -194,7 +194,7 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Journey line titles (1.25rem to 1.5rem) and the receipt prompt."
+        "purpose": "Journey line titles (1.25rem to 1.5rem)."
       },
       "amount": {
         "displayName": "Amount",
@@ -202,11 +202,11 @@
       },
       "body": {
         "displayName": "Body",
-        "purpose": "Sublines, section intros, receipt responses and reasons."
+        "purpose": "Sublines and section intros."
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Buttons, nav, receipt row names and values."
+        "purpose": "Buttons, nav, receipt row names and values on stubs and the journey."
       },
       "micro-label": {
         "displayName": "Micro-label",
@@ -216,45 +216,13 @@
         "displayName": "Mono",
         "purpose": "Addresses, tx hashes and the build SHA only."
       },
-      "receipt-body": {
-        "displayName": "Receipt Body",
-        "purpose": "Response and reason text on the printing receipt; the body role scaled to the slip.",
-        "responsiveSteps": [
-          {
-            "at": "base",
-            "fontSize": "13px"
-          },
-          {
-            "at": "sm",
-            "fontSize": "14px"
-          }
-        ]
-      },
-      "receipt-prompt": {
-        "displayName": "Receipt Prompt",
-        "purpose": "The prompt line on the receipt; the title role scaled to the slip.",
-        "responsiveSteps": [
-          {
-            "at": "base",
-            "fontSize": "15px"
-          },
-          {
-            "at": "sm",
-            "fontSize": "16px"
-          }
-        ]
-      },
       "icon": {
         "displayName": "Icon",
         "purpose": "Material Symbols Outlined (incumbent, brand.md 6), set by ligature name, one em square; FILL 1 for emphasized states.",
         "sizeScale": [
           {
-            "size": "13px",
-            "use": "Check inside the Chosen stamp"
-          },
-          {
             "size": "14px",
-            "use": "Reward chip coin; receipt Confirmed mark"
+            "use": "Reserved (the journey money line uses 15px)"
           },
           {
             "size": "15px",
@@ -262,7 +230,7 @@
           },
           {
             "size": "16px",
-            "use": "Receipt rows (Passed, keys), caption replay, stub View arrow, link-out marks"
+            "use": "Caption replay, stub View arrow, link-out marks"
           },
           {
             "size": "18px",
@@ -321,9 +289,9 @@
         "purpose": "Journey field panels."
       },
       {
-        "name": "paper",
-        "value": "drop-shadow(0 18px 30px rgba(25,28,30,0.10))",
-        "purpose": "Filter on the printing receipt's wrapper; follows the torn edge."
+        "name": "device",
+        "value": "0 32px 64px -20px rgba(25,28,30,0.38), 0 14px 28px rgba(25,28,30,0.10), inset 0 0 0 1.5px rgba(255,255,255,0.10)",
+        "purpose": "The hero phone's frame only; deeper than the cool-ink scale because it is the page's one dark object."
       },
       {
         "name": "stub",
@@ -351,16 +319,6 @@
         "purpose": "Primary button on hover."
       },
       {
-        "name": "stamp",
-        "value": "0 4px 10px rgba(0,109,61,0.25)",
-        "purpose": "Chosen stamp on the receipt."
-      },
-      {
-        "name": "printer",
-        "value": "0 14px 28px rgba(25,28,30,0.18), inset 0 1px 0 rgba(255,255,255,0.08)",
-        "purpose": "The printer housing."
-      },
-      {
         "name": "video-frame",
         "value": "0 24px 60px rgba(0,109,61,0.14)",
         "purpose": "Promo video frame only."
@@ -375,37 +333,37 @@
       {
         "name": "ease-out-expo",
         "value": "cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "Default easing for landing transitions: paper feed, line rise, stamps, stub hover, rail fill, FAQ open, owl pose settle."
+        "purpose": "Default easing for landing transitions: phone scroll, submit bar, pops, line rise, stub hover, rail fill, FAQ open, owl pose settle."
       },
       {
-        "name": "receipt-feed",
-        "value": "transform 650ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms ease-out",
-        "purpose": "Paper rising out of the slot one group at a time."
+        "name": "phone-scroll",
+        "value": "transform 1000ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The hero phone's screen scrolling down to the reason, like a flick that settles; its scroll indicator shows only while it moves."
       },
       {
-        "name": "receipt-ink",
-        "value": "520ms ease-out; opacity 0 and blur(3px) to settled",
-        "purpose": "A freshly printed group settling."
+        "name": "landing-tap",
+        "value": "520ms cubic-bezier(0.16, 1, 0.3, 1); opacity 0 and scale 1.6, to 1, presses to 0.82, lifts to 1.3 and fades",
+        "purpose": "A fingertip tapping a control on the hero phone's screen."
       },
       {
-        "name": "receipt-pop",
+        "name": "landing-pop",
         "value": "320ms cubic-bezier(0.16, 1, 0.3, 1); scale 0.6 to 1",
-        "purpose": "A status that just changed: Chosen, Passed, a signed key."
+        "purpose": "A state that just changed on the phone: the Selected chip, the success check, the new earnings total."
       },
       {
-        "name": "receipt-paid",
-        "value": "1600ms ease-out; secondary-container 55% to transparent",
-        "purpose": "The paid block's one-shot gold flash."
+        "name": "submit-bar",
+        "value": "500ms cubic-bezier(0.16, 1, 0.3, 1); translateY 100% to 0",
+        "purpose": "The phone's sticky Submit & Get Paid bar sliding up once a response is chosen."
       },
       {
-        "name": "amount-count",
-        "value": "800ms cubic ease-out",
-        "purpose": "The receipt total counting up from zero."
+        "name": "success-fade",
+        "value": "300ms opacity",
+        "purpose": "The phone's success screen fading in over the submitted task, and out over the next one."
       },
       {
-        "name": "receipt-type",
-        "value": "34ms per character",
-        "purpose": "The reason typing itself, with a primary caret blinking at 900ms steps(1)."
+        "name": "phone-type",
+        "value": "32ms per character",
+        "purpose": "The reason typing itself on the phone, with a primary caret blinking at 900ms steps(1)."
       },
       {
         "name": "landing-line-up",
@@ -445,7 +403,7 @@
       {
         "name": "reduced-motion",
         "value": "prefers-reduced-motion: reduce",
-        "purpose": "Receipt shows its finished state still; journey reads fully reached; stubs appear without wash; no tilt, no frame-open, no headline rise."
+        "purpose": "The phone shows the answered task still, scrolled to the reason with Submit enabled; journey reads fully reached; stubs appear without wash; no tilt, no frame-open, no headline rise."
       },
       {
         "name": "frame-open-start",
@@ -473,16 +431,6 @@
     ],
     "masks": [
       {
-        "name": "receipt-paper",
-        "tooth": "14px",
-        "edges": "bottom",
-        "alpha": {
-          "#000": "keep (opaque alpha)",
-          "#0000": "cut (transparent alpha)"
-        },
-        "purpose": "Torn bottom edge of the printing receipt."
-      },
-      {
         "name": "receipt-stub",
         "tooth": "14px",
         "edges": "top and bottom",
@@ -493,7 +441,7 @@
         "purpose": "Payout stubs and the closing stub."
       }
     ],
-    "maskAlphaNote": "#000 and #0000 in the receipt masks are alpha only (keep / cut); they are never painted colors and are not palette tokens."
+    "maskAlphaNote": "#000 and #0000 in the stub mask are alpha only (keep / cut); they are never painted colors and are not palette tokens."
   },
   "components": [
     {
@@ -521,12 +469,12 @@
       "css": ".ds-nav{display:flex;gap:28px;background:var(--color-surface);padding:24px}.ds-nav a{position:relative;font-family:var(--font-label);font-size:0.875rem;font-weight:600;color:var(--color-on-surface-variant);text-decoration:none;transition:color 200ms}.ds-nav a::after{content:'';position:absolute;left:0;right:0;bottom:-4px;height:2px;border-radius:9999px;background:var(--color-primary);transform:scaleX(0);transform-origin:left;transition:transform 300ms cubic-bezier(0.16,1,0.3,1)}.ds-nav a:hover{color:var(--color-primary)}.ds-nav a:hover::after{transform:scaleX(1)}.ds-nav a:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px;border-radius:6px}"
     },
     {
-      "name": "Receipt Paper",
+      "name": "Hero Phone",
       "kind": "custom",
-      "refersTo": "receipt-paper",
-      "description": "Signature: white paper torn along the bottom, rows with dotted leaders, dashed rules and a gold total, above a printer slot.",
-      "html": "<div class=\"ds-receipt\"><div class=\"ds-receipt-shadow\"><div class=\"ds-receipt-paper\"><div class=\"ds-rc-head\"><span class=\"ds-rc-mark\">Centient</span><span class=\"ds-rc-chip\">0.05 USDC</span></div><div class=\"ds-rc-rule\"></div><span class=\"ds-rc-label\">Prompt</span><p class=\"ds-rc-prompt\">What's 0.1 + 0.2 in most programming languages?</p><div class=\"ds-rc-rule\"></div><p class=\"ds-rc-row\"><span>Quality check</span><i></i><b class=\"ds-ok\">Passed</b></p><p class=\"ds-rc-row\"><span>Signatures</span><i></i><b>2 of 3</b></p><div class=\"ds-rc-rule\"></div><div class=\"ds-rc-paid\"><div><span class=\"ds-rc-label\">Paid</span><p class=\"ds-mono\">to GBX7…Q4NM</p></div><p class=\"ds-rc-amt\">0.05 <small>USDC</small></p></div></div></div><div class=\"ds-printer\"><div></div></div></div>",
-      "css": ".ds-receipt{max-width:22rem;padding:16px;background:var(--color-surface)}.ds-receipt-shadow{filter:drop-shadow(0 18px 30px rgba(25,28,30,0.10))}.ds-receipt-paper{background:var(--color-surface-container-lowest);padding:16px 20px 32px;--tooth:14px;-webkit-mask:linear-gradient(#000 0 0) top/100% calc(100% - var(--tooth)/2 + 1px) no-repeat,conic-gradient(from -45deg at bottom,#000 90deg,#0000 0) bottom/var(--tooth) calc(var(--tooth)/2) repeat-x;mask:linear-gradient(#000 0 0) top/100% calc(100% - var(--tooth)/2 + 1px) no-repeat,conic-gradient(from -45deg at bottom,#000 90deg,#0000 0) bottom/var(--tooth) calc(var(--tooth)/2) repeat-x}.ds-rc-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:12px}.ds-rc-mark{font-family:var(--font-headline);font-weight:800;letter-spacing:-0.05em;color:var(--color-primary)}.ds-rc-chip{border-radius:9999px;background:color-mix(in srgb,var(--color-secondary-fixed) 45%,transparent);color:var(--color-secondary);font-family:var(--font-headline);font-size:0.75rem;font-weight:700;padding:4px 10px}.ds-rc-rule{border-top:1px dashed var(--color-outline-variant);margin:4px 0 12px}.ds-rc-label{font-family:var(--font-label);font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--color-outline)}.ds-rc-prompt{margin:6px 0 12px;font-family:var(--font-headline);font-weight:700;font-size:15px;line-height:1.375;color:var(--color-on-surface)}.ds-rc-row{display:flex;align-items:center;margin:0 0 10px;font-family:var(--font-label);font-size:0.875rem}.ds-rc-row span{font-weight:600;color:var(--color-on-surface-variant)}.ds-rc-row i{flex:1;margin:0 8px;height:1px;transform:translateY(4px);border-bottom:1px dotted var(--color-outline-variant)}.ds-rc-row b{font-weight:600;color:var(--color-on-surface)}.ds-rc-row b.ds-ok{color:var(--color-primary)}.ds-rc-paid{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}.ds-mono{margin:4px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.75rem;color:var(--color-on-surface-variant)}.ds-rc-amt{margin:0;color:var(--color-secondary);font-family:var(--font-headline);font-size:2.25rem;font-weight:800;letter-spacing:-0.05em;font-variant-numeric:tabular-nums}.ds-rc-amt small{font-size:1rem;font-weight:700;letter-spacing:0}.ds-printer{position:relative;margin-top:-6px;height:28px;border-radius:12px;background:var(--color-inverse-surface);box-shadow:0 14px 28px rgba(25,28,30,0.18),inset 0 1px 0 rgba(255,255,255,0.08)}.ds-printer div{position:absolute;left:12px;right:12px;top:6px;height:6px;border-radius:9999px;background:var(--color-on-surface);box-shadow:inset 0 1px 2px rgba(25,28,30,0.9)}"
+      "refersTo": "phone-frame",
+      "description": "Signature: a handset whose 360 by 760 screen runs a miniature of the real task screen, scrolling, tapping and typing through one sample task to the success screen.",
+      "html": "<div class=\"ds-phone\"><div class=\"ds-phone-frame\"><div class=\"ds-phone-screen\"><div class=\"ds-ph-status\"><span>9:41</span><i></i></div><div class=\"ds-ph-head\"><b>Centient</b><span>$0.05</span></div><div class=\"ds-ph-body\"><div class=\"ds-ph-card\"><span class=\"ds-ph-label\">The Prompt</span><p>What's 0.1 + 0.2 in most programming languages?</p></div><div class=\"ds-ph-card ds-ph-sel\"><span class=\"ds-ph-label\">Response B</span><p>0.30000000000000004. Floating-point numbers can't represent 0.1 and 0.2 exactly.</p><span class=\"ds-ph-btn\">B is better</span></div></div><div class=\"ds-ph-home\"></div></div></div></div>",
+      "css": ".ds-phone{padding:24px;background:var(--color-surface)}.ds-phone-frame{width:15rem;border-radius:2.6rem;padding:0.55rem;background:var(--color-inverse-surface);box-shadow:0 32px 64px -20px rgba(25,28,30,0.38),0 14px 28px rgba(25,28,30,0.10),inset 0 0 0 1.5px rgba(255,255,255,0.10)}.ds-phone-screen{position:relative;aspect-ratio:360/760;overflow:hidden;border-radius:2.05rem;background:var(--color-surface);font-family:var(--font-body)}.ds-ph-status{display:flex;justify-content:space-between;align-items:center;height:34px;padding:0 22px;font-size:11px;font-weight:600;color:var(--color-on-surface)}.ds-ph-status i{position:absolute;left:50%;top:8px;width:70px;height:21px;margin-left:-35px;border-radius:9999px;background:var(--color-on-surface)}.ds-ph-head{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--color-surface-container-low)}.ds-ph-head b{font-family:var(--font-headline);font-weight:800;letter-spacing:-0.05em;color:var(--color-primary)}.ds-ph-head span{border-radius:9999px;padding:2px 8px;font-size:10px;font-weight:600;color:var(--color-secondary);background:color-mix(in srgb,var(--color-secondary-fixed) 20%,transparent)}.ds-ph-body{display:flex;flex-direction:column;gap:9px;padding:12px}.ds-ph-card{border-radius:1rem;padding:12px;background:var(--color-surface-container-lowest);box-shadow:0 8px 24px rgba(25,28,30,0.06)}.ds-ph-card p{margin:6px 0 0;font-size:10.5px;line-height:1.55;color:var(--color-on-surface)}.ds-ph-label{font-size:8px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--color-outline)}.ds-ph-sel{box-shadow:0 0 0 2px var(--color-primary)}.ds-ph-btn{display:block;margin-top:9px;border-radius:0.6rem;padding:7px;text-align:center;font-size:10px;font-weight:600;background:var(--color-primary);color:var(--color-on-primary)}.ds-ph-home{position:absolute;bottom:6px;left:50%;width:84px;height:4px;margin-left:-42px;border-radius:9999px;background:color-mix(in srgb,var(--color-on-surface) 85%,transparent)}"
     },
     {
       "name": "Payout Stub",
@@ -545,22 +493,6 @@
       "css": ".ds-journey{list-style:none;margin:0;padding:16px;display:grid;gap:40px;max-width:32rem}.ds-journey li{display:grid;grid-template-columns:2.5rem 1fr;gap:20px}.ds-disc{display:grid;place-items:center;width:40px;height:40px;border-radius:9999px;font-family:var(--font-headline);font-size:0.875rem;font-weight:700;font-variant-numeric:tabular-nums;background:var(--color-surface-container-lowest);color:var(--color-outline);box-shadow:0 0 0 1px var(--color-outline-variant);transition:background-color 500ms,color 500ms,box-shadow 500ms}.ds-disc.ds-on{background:var(--color-on-surface);color:var(--color-surface);box-shadow:0 8px 20px rgba(25,28,30,0.18)}.ds-journey h3{margin:4px 0 0;font-family:var(--font-headline);font-size:1.25rem;font-weight:700;color:var(--color-on-surface)}.ds-journey p{margin:8px 0 0;font-family:var(--font-body);line-height:1.625;color:var(--color-on-surface-variant)}.ds-fields{margin-top:16px;padding:10px 14px;border-radius:8px;background:var(--color-surface-container-lowest);box-shadow:0 4px 12px rgba(25,28,30,0.04);font-family:var(--font-label);font-size:0.875rem}.ds-fields p{display:flex;align-items:flex-start;margin:0}.ds-fields i{flex:1;min-width:24px;margin:0.9em 8px 0;height:1px;border-bottom:1px dotted var(--color-outline-variant)}.ds-fields b.ds-money{font-family:var(--font-headline);font-weight:700;color:var(--color-secondary)}"
     },
     {
-      "name": "Reward Chip",
-      "kind": "chip",
-      "refersTo": "reward-chip",
-      "description": "The task reward in the receipt header: gold on pale gold.",
-      "html": "<span class=\"ds-chip-reward\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z\"/></svg>0.05 USDC</span>",
-      "css": ".ds-chip-reward{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:9999px;background:color-mix(in srgb,var(--color-secondary-fixed) 45%,transparent);color:var(--color-secondary);font-family:var(--font-headline);font-size:0.75rem;font-weight:700}"
-    },
-    {
-      "name": "Response Option",
-      "kind": "card",
-      "refersTo": "response-option",
-      "description": "A/B response on the receipt; the chosen one gets a primary ring and a 6% tint.",
-      "html": "<ul class=\"ds-opts\"><li><span class=\"ds-tile\">A</span><span>Exactly 0.3.</span></li><li class=\"ds-chosen\"><span class=\"ds-tile\">B</span><span>0.30000000000000004. Floats can't store 0.1 exactly.</span></li></ul>",
-      "css": ".ds-opts{list-style:none;margin:0;padding:16px;display:grid;gap:20px;max-width:22rem;background:var(--color-surface-container-lowest)}.ds-opts li{display:flex;gap:12px;padding:10px 12px;border-radius:12px;background:var(--color-surface-container-low);font-family:var(--font-body);font-size:0.875rem;line-height:1.625;color:var(--color-on-surface-variant);transition:box-shadow 300ms,background-color 300ms}.ds-tile{display:grid;place-items:center;flex-shrink:0;width:24px;height:24px;border-radius:6px;background:var(--color-surface-container-highest);color:var(--color-on-surface-variant);font-family:var(--font-label);font-size:0.75rem;font-weight:700;transition:background-color 300ms,color 300ms}.ds-opts li.ds-chosen{background:color-mix(in srgb,var(--color-primary) 6%,transparent);box-shadow:0 0 0 2px var(--color-primary)}.ds-chosen .ds-tile{background:var(--color-primary);color:var(--color-on-primary)}"
-    },
-    {
       "name": "Content Card",
       "kind": "card",
       "refersTo": "content-card",
@@ -571,19 +503,19 @@
   ],
   "narrative": {
     "northStar": "The Payslip",
-    "overview": "Centient is recorded as two layers. The **incumbent brand system** (brand.md, installed as the Tailwind 4 `@theme` block in `app/globals.css`) supplies every color, both typefaces, the radius scale, the soft shadow scale, Material Symbols Outlined icons, the owl mascot and the green action gradient. This build kept all of it. The **receipt language** is what the landing / sign-in revamp (`components/LoginScreen.tsx` and its children) added: white paper with a torn edge, a printer slot the paper feeds out of, stubs torn at both ends, dotted leaders between a field name and its value, dashed rules between groups, uppercase micro-labels naming fields, and system mono only for hashes and addresses.\n\nThe payment is the hero. The page reads as one receipt for one answer: a sample task prints itself line by line, real testnet payouts sit below it as stubs, the journey itemizes the same answer, and the close is the last stub handed over with the sign-in on it. Density is calm: off-white ground, one white paper at a time, generous section padding, a single max-width column. Motion is short, eased hard out, and every piece of it has a still, finished state for reduced motion.\n\nScope: the receipt language lives on the landing, its loading skeleton and the FAQ. The task screen, success screen and admin console were not redesigned and still follow brand.md's card patterns only; do not claim they use receipts.",
+    "overview": "Centient is recorded as two layers. The **incumbent brand system** (brand.md, installed as the Tailwind 4 `@theme` block in `app/globals.css`) supplies every color, both typefaces, the radius scale, the soft shadow scale, Material Symbols Outlined icons, the owl mascot and the green action gradient. This build kept all of it. The **receipt language** is what the landing / sign-in revamp (`components/LoginScreen.tsx` and its children) added: stubs torn at both ends, dotted leaders between a field name and its value, dashed rules between groups, uppercase micro-labels naming fields, and system mono only for hashes and addresses.\n\nThe payment is the hero. The page follows one answer: a phone in the hero plays a sample task end to end on the real task screen, real testnet payouts sit below it as stubs, the journey itemizes the same answer, and the close is the last stub handed over with the sign-in on it. Density is calm: off-white ground, one white paper at a time, generous section padding, a single max-width column. Motion is short, eased hard out, and every piece of it has a still, finished state for reduced motion.\n\nScope: the receipt language lives on the landing's stubs, journey and close, and the FAQ. The task screen, success screen and admin console were not redesigned and still follow brand.md's card patterns only; do not claim they use receipts. The hero phone shows the task and success screens as they are, in miniature.",
     "keyCharacteristics": [
       "Off-white ground, white paper, no tinted card surfaces.",
       "Green only on actions and confirmations; gold on every amount.",
       "Manrope 800 for display and all numerals; Inter for body and labels; mono only for hashes, addresses and the build SHA.",
-      "Paper edges are cut with masks (torn teeth), not drawn with borders.",
+      "Stub edges are cut with masks (torn teeth), not drawn with borders.",
       "Receipt rows: field name, dotted leader, value.",
       "Every animation resolves to a finished, legible still frame under reduced motion."
     ],
     "rules": [
       {
         "name": "The Green Means Go Rule",
-        "body": "Green appears only on things you can press or on a state that has been confirmed (Chosen, Passed, signed keys, Confirmed). Progress indicators, rails and numbered discs are ink, not green.",
+        "body": "Green appears only on things you can press or on a state that has been confirmed (Selected, Confirmed). Progress indicators, rails and numbered discs are ink, not green.",
         "section": "colors"
       },
       {
@@ -627,7 +559,7 @@
       "Do set every amount in Payout Gold, Manrope 800, tabular numerals, with the unit beside it.",
       "Do keep green to presses and confirmations; draw progress, rails and step discs in ink.",
       "Do build receipt rows as field name, dotted leader (outline-variant), value; separate groups with dashed rules.",
-      "Do cut torn edges with the paper and stub masks (14px teeth) and shadow them with a drop-shadow filter on the parent.",
+      "Do cut torn edges with the stub mask (14px teeth) and shadow them with a drop-shadow filter on the parent.",
       "Do ease motion with cubic-bezier(0.16, 1, 0.3, 1) and give every animation a finished still frame under reduced motion.",
       "Do put any fade that hides clipped content outside the clipped element, so no row leaks at fractional edges.",
       "Do name sample data as a sample, and say testnet plainly wherever payouts appear."
@@ -635,11 +567,11 @@
     "donts": [
       "Don't use monospace for anything but addresses, hashes and the build SHA.",
       "Don't put a micro-label above a section heading; micro-labels name fields inside paper.",
-      "Don't give masked paper a box-shadow; it is clipped by the mask.",
+      "Don't give a masked stub a box-shadow; it is clipped by the mask.",
       "Don't use Tailwind's default shadows, pure black, or colors outside the palette.",
       "Don't draw solid outline borders around content cards; the only lines are the receipt's dashed rules and dotted leaders, and hairline dividers.",
       "Don't make gold a resting surface; gold washes flash once and fade.",
-      "Don't apply the receipt language to the task screen or admin console by assumption; they have not been redesigned."
+      "Don't apply the receipt language to the task screen or admin console by assumption; they have not been redesigned. The hero phone mirrors the task and success screens as shipped; when they change, update its miniature to match rather than restyling it."
     ]
   }
 }
