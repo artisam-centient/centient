@@ -89,7 +89,11 @@ The instant path made 80 payments from 21 to 24 September. The [metrics page](me
 
 The **volume proof** (#49) reconciles **122 payouts across 25 unique wallets, 0 duplicate, 0 unreconciled**, over 22–28 September — every payout listed by hash in the [D4 volume proof](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-28-d4-volume-proof.md). Both multisig accounts were re-verified on-chain at 2 / 2 / 2 with no drift ([D4 multisig re-verification](https://github.com/artisam-centient/centient/blob/develop/docs/d4-multisig-reverify.md)), and the four named failures were each injected and passed ([payout failure matrix](https://github.com/artisam-centient/centient/blob/develop/docs/payout-failure-matrix.md)).
 
-The 3–5 minute demo (connect → rank → validate → instant USDC → stellar.expert → reconciler) is **not yet recorded**; its transaction will be listed here once it runs.
+The **[D4 demo video](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3yWfejjQuOElUD9)** (3:58, captioned for a non-technical viewer) runs the whole path live on beta.centient.work at build `15bcbe8`, recorded 30 September: create a Freighter wallet → connect → rank → validate → instant USDC → reconciler → stellar.expert. Its payment is below; it was checked on Horizon on 1 October.
+
+| Date | What it proves | Transaction |
+| --- | --- | --- |
+| 30 Sep | **The demo's instant payout**: 0.25 USDC to a new wallet (`GDVE…2WBR`), two signatures inside a fee bump, confirmed by the reconciler (#52) | [`d362d6ff…`](https://stellar.expert/explorer/testnet/tx/d362d6ff1521eee34c063778193d6af613335d717eb94034097cda04d27ba4e5) |
 
 ## Evidence files
 
@@ -120,5 +124,5 @@ The 3–5 minute demo (connect → rank → validate → instant USDC → stella
 | Deliverable 1 proof of deliverables (PDF, explorer captures of both accounts and a two-signature payment) | D1 | Held by the builder; to be attached here |
 | Recording: wallet connect → signed challenge → session issued | D2 | [D2 evidence folder](https://drive.google.com/drive/folders/1JS5hYQ-G4g-n92Hzf9RTNRBKWsUuvbFd?usp=drive_link) |
 | Phone recordings for the #137 cases (iOS) | D3 | Held outside the repository; not yet reviewed on record |
-| Recording: connect → rank → instant USDC → reconciled | D3 | Covered by the Week 4 demo |
-| 3–5 minute demo (connect → rank → validate → instant USDC → stellar.expert → reconciler) | D4 | Not yet recorded |
+| Recording: connect → rank → instant USDC → reconciled | D3 | Covered by the [D4 demo video](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3yWfejjQuOElUD9) |
+| 3–5 minute demo (connect → rank → validate → instant USDC → stellar.expert → reconciler) | D4 | [D4 demo video](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3yWfejjQuOElUD9): 3:58, captioned, recorded 30 September |
