@@ -15,18 +15,34 @@ rediscovered from `git remote -v` each time.
 
 ## Sync procedure
 
-Mirrors track `develop`. After a PR merges into `develop` on the canonical
-repo, refresh the local branch and push it to each public mirror:
+Mirrors track `develop` and `staging`. After a PR merges into either branch
+on the canonical repo, refresh and push both to each public mirror:
 
 ```bash
 git fetch origin
-git push mirror-personal origin/develop:develop
-git push mirror-artisam  origin/develop:develop
+git push mirror-personal origin/develop:develop origin/staging:staging
+git push mirror-artisam  origin/develop:develop origin/staging:staging
+```
+
+`staging` must be pushed after every promotion, not only `develop`. Railway's
+`web` deploys from `staging`, and `/api/version` links the deployed commit on
+the artisam mirror (`PUBLIC_SOURCE_REPO` in `lib/build-info.ts`), so an
+unpushed promotion merge commit is a dead link. Each QA gate also checks that
+the build-under-test SHA is identical on all three repos.
+
+Check that the three repos agree:
+
+```bash
+git fetch --all
+for r in origin mirror-personal mirror-artisam; do
+  echo "$r $(git rev-parse --short $r/develop) $(git rev-parse --short $r/staging)"
+done
 ```
 
 Notes:
 
-- Only `develop` is mirrored; feature branches stay on the canonical repo.
+- Only `develop` and `staging` are mirrored; feature branches stay on the
+  canonical repo. `main` is not synced by this procedure.
 - The mirrors are push destinations, not sources of truth — never open PRs
   against them.
 - Run the sync from a checkout that has all three remotes configured (the
