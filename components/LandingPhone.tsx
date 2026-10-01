@@ -17,13 +17,13 @@ interface SampleTask {
 /** Tasks from the seeded pool (prisma/seed.ts). */
 const SAMPLES: SampleTask[] = [
   {
-    prompt: "What's 0.1 + 0.2 in most programming languages?",
+    prompt: "What is the capital of Australia?",
     responses: [
-      "Exactly 0.3.",
-      "0.30000000000000004. Floating-point numbers can't represent 0.1 and 0.2 exactly in binary, so you get a tiny rounding error.",
+      "Sydney.",
+      "Canberra. It's a common misconception that it's Sydney, which is the largest city but not the capital.",
     ],
     chosen: 1,
-    reason: "A is wrong. B gives the real result and explains the rounding.",
+    reason: "A is wrong. B names the real capital and explains the mix-up.",
     tx: "3f9a…c21e",
   },
   {
