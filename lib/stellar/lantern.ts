@@ -9,15 +9,18 @@
 //   • anywhere else — Lantern doesn't exist here; the Freighter path is untouched.
 //
 // The whole feature is off until `NEXT_PUBLIC_LANTERN_ORIGINS` lists the
-// origins Lantern frames dApps from (its Capacitor webview: `https://localhost`
-// on Android). The same list is what next.config.ts lets frame this app, so an
+// origins Lantern frames dApps from. Since Lantern 0.6.0 its Android webview is
+// `https://android.golantern.xyz`. Up to 0.5.x it was `https://localhost`,
+// Capacitor's default, which every Capacitor app on the phone shares, so don't
+// list that one: any of those apps could frame Centient and pass the bridge's
+// origin check. The same list is what next.config.ts lets frame this app, so an
 // unconfigured deployment can neither be framed by Lantern nor offer it.
 //
-// Detection and opening depend on two things Lantern 0.5.1 does not ship yet:
-// an `asset_statements` entry naming this site, so Chrome's
-// `getInstalledRelatedApps()` can see it, and a BROWSABLE `lantern://open`
-// intent filter that loads the `url` parameter in its Apps tab. See the
-// integration spec in docs/lantern-integration.md.
+// Detection and opening depend on Lantern listing this site in its curated
+// directory: 0.6.0 follows `lantern://open` only for directory sites, and
+// generates the `asset_statements` that Chrome's `getInstalledRelatedApps()`
+// reads from the same list. Until Centient is listed, the link is refused and
+// the page stays in the browser. See docs/lantern-integration.md.
 
 /** Lantern's Android application id. */
 export const LANTERN_PACKAGE = "com.lantern.wallet";

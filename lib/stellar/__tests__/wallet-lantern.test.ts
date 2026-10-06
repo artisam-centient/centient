@@ -13,7 +13,7 @@ import {
 } from "@/lib/stellar/wallet-lantern";
 import { WalletError } from "@/lib/stellar/wallet-errors";
 
-const LANTERN = "https://localhost";
+const LANTERN = "https://android.golantern.xyz";
 const kp = Keypair.random();
 const ADDR = kp.publicKey();
 
