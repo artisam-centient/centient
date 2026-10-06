@@ -133,3 +133,22 @@ criteria in #137.
   the user abandons leaves the dialog open until the page is reloaded. Tracked in #138.
 - **Rollback** is unsetting the project id and rebuilding `web`. There is no revert PR, no
   migration and no persisted state.
+
+## Amendment: Lantern on Android (2026-10-02, proposed)
+
+**Status: proposed, not shipped.** Built on branch `feat/lantern-wallet`; it needs
+changes in Lantern before it can work on a phone (see `docs/lantern-integration.md`).
+
+Lantern is a second *wallet*, not a second transport for Freighter, so this amends the
+decision above rather than its WalletConnect amendment. It is narrow on purpose:
+
+- **Android only.** Lantern ships no iOS app. iOS and desktop are unchanged.
+- **Additive.** Freighter stays the default everywhere, and on Android it is one tap
+  behind the Lantern offer ("Use Freighter instead").
+- **Off until configured.** Everything is behind `NEXT_PUBLIC_LANTERN_ORIGINS`. Unset, the
+  CSP still frames only this app and no Lantern UI renders.
+
+Lantern signs messages without SEP-53 (`ed25519_sign("Lantern signed message:\n" + m)`),
+so `SignatureScheme` widens to `"sep53" | "lantern"` and the verify routes take an optional
+`scheme`. A sign-in made inside Lantern gets a partitioned `SameSite=None` session cookie,
+because Lantern frames this app from another site.

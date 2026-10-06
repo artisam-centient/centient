@@ -21,8 +21,8 @@ Where each deliverable's §6.1 evidence stands today. Each row links to its deli
 | --- | --- | --- | --- |
 | [D1](deliverables/d1.md) | GitHub repo + testnet tx hash | ✅ **Present** | A two-signature, fee-bumped USDC payout on stellar.expert; payout account at threshold 2/2/2; payments lane green in CI. QA passed 28/28 |
 | [D2](deliverables/d2.md) | GitHub repo + screen recording | ✅ **Present** | Code, testnet sponsorship and identity tests are all present, and QA passed at `8f660cc`. The connect → signed challenge → session recording and proof are in the [D2 evidence folder](https://drive.google.com/drive/folders/1JS5hYQ-G4g-n92Hzf9RTNRBKWsUuvbFd?usp=drive_link) |
-| [D3](deliverables/d3.md) | Public URL + demo video + tx hashes | 🟡 **Partial** | The public URL is live, and instant per-answer payouts are on stellar.expert. QA passed at `1fde77d`. The demo video comes in Week 4 |
-| [D4](deliverables/d4.md) | Reconciler output + mainnet tx hash | ⬜ Week 4 | The reconciler output comes from the Week 4 volume run. The mainnet transaction is out of scope: the sprint is testnet only (D-7) |
+| [D3](deliverables/d3.md) | Public URL + demo video + tx hashes | ✅ **Present** | The public URL is live, instant per-answer payouts are on stellar.expert, and the [demo video](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3yWfejjQuOElUD9) shows the full rank → earn flow. QA passed at `1fde77d` |
+| [D4](deliverables/d4.md) | Reconciler output + mainnet tx hash | ✅ **Present** | The reconciler output is present: the [D4 volume proof](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-28-d4-volume-proof.md) reconciles 122 payouts across 25 wallets, 0 unreconciled. The [demo video](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3yWfejjQuOElUD9) is published. The mainnet transaction is out of scope: the sprint is testnet only (D-7). QA passed at `e9c28ad` |
 
 ## What Centient is
 
@@ -56,7 +56,7 @@ The labeling product already ran before the sprint. The sprint changes **how mon
 | [D1](deliverables/d1.md) | **Instant USDC reward rail.** Multisig payout account, independent co-signer, daily cap at both signers, hot/cold reserve | 1 | ✅ Complete. QA passed 28/28 at [`263be4c`](https://github.com/artisam-centient/centient/commit/263be4cd5ab06103d965044c6a8bd3c40678f308) |
 | [D2](deliverables/d2.md) | **Wallet-native onboarding.** Freighter sign-in by signed challenge, plus sponsored account and trustline for zero-XLM wallets | 2 | ✅ Complete. QA passed at [`8f660cc`](https://github.com/artisam-centient/centient/commit/8f660cc632f1c868a41618434a1c169dc0edabcc), 38 of 40 executed, 2 accepted as residual |
 | [D3](deliverables/d3.md) | **End-to-end contributor loop.** Connect, rank, validate, co-sign, pay, reconcile, with no custodial balance | 3 | ✅ Complete. QA passed at [`1fde77d`](https://github.com/artisam-centient/centient/commit/1fde77d539ca040bb12c07df0c82dad5c8cf3a58) |
-| [D4](deliverables/d4.md) | **Reconciliation and public release.** Failure tests, 100 payouts across 25 wallets, demo. Testnet only | 4 | Not started |
+| [D4](deliverables/d4.md) | **Reconciliation and public release.** Failure tests, 100 payouts across 25 wallets, demo. Testnet only | 4 | ✅ Complete. QA passed at [`e9c28ad`](https://github.com/artisam-centient/centient/commit/e9c28ad9537e2e72d0dd33d374c7338a9094aaec) |
 
 ## How to read this book
 
