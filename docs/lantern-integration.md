@@ -143,10 +143,15 @@ stays in the browser) and Chrome doesn't report Lantern as installed, so
 contributors on Android see the Freighter path. Opening Centient from the Apps
 tab by hand works as soon as the origin above is set.
 
-Lantern posts bridge replies to the exact origin its directory lists, so that
-entry has to be the origin contributors end up on after any redirects.
+Lantern posts bridge replies to the exact origin its directory lists, so each
+entry has to be an origin contributors end up on after any redirects.
 `centient.work` and `beta.centient.work` both serve the app directly (neither
-redirects), so the directory needs whichever one Centient treats as canonical.
+redirects), so Centient asks Lantern to list **both**: `https://centient.work/`
+and `https://beta.centient.work/`, as two entries or one entry carrying both
+origins (#192). Centient needs nothing more for that. Its bridge checks only
+the framing origin, never its own, and "Open in Lantern" hands over the current
+page's URL, so each domain opens itself. Sessions are per domain, but both
+share one database, so the same wallet reaches the same account on either.
 
 ## Tested
 
