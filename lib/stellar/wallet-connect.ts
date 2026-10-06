@@ -558,6 +558,9 @@ async function awaitAnswer<T>(
   try {
     return await Promise.race([pending, givenUp]);
   } catch (err) {
+    // Before the session teardown below, which can take DROP_SESSION_WAIT_MS:
+    // a wait that has ended must not bring Freighter forward in the meantime.
+    clearTimeout(focusTimer);
     if (err instanceof WalletError && (err.code === "timed_out" || err.code === "cancelled")) {
       await dropSession(provider);
     }
