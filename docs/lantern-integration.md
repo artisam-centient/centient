@@ -26,8 +26,10 @@ iOS and desktop never see any of this. Freighter stays available everywhere.
 ### 1. Let Chrome see that Lantern is installed
 
 Centient asks `navigator.getInstalledRelatedApps()`, and Chrome only answers
-for an app that declares the site. Add this to `AndroidManifest.xml`, inside
-`<application>`:
+for an app that declares the site. Centient is served from both
+`https://centient.work` and `https://beta.centient.work`, so declare both;
+Chrome on a host that isn't listed never reports Lantern, and "Open in Lantern"
+stays hidden there. Add this to `AndroidManifest.xml`, inside `<application>`:
 
 ```xml
 <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
@@ -40,12 +42,17 @@ and this to `res/values/strings.xml`:
 [{
   \"relation\": [\"delegate_permission/common.handle_all_urls\"],
   \"target\": { \"namespace\": \"web\", \"site\": \"https://centient.work\" }
+}, {
+  \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+  \"target\": { \"namespace\": \"web\", \"site\": \"https://beta.centient.work\" }
 }]
 </string>
 ```
 
-Centient's web manifest already names `com.lantern.wallet` in
-`related_applications`; the two together are what Chrome checks.
+Centient's web manifest, served on both hosts, already names
+`com.lantern.wallet` in `related_applications`; the two together are what
+Chrome checks. Lantern 0.6.0 generates these statements from its directory, so
+listing both origins there (see [Lantern 0.6.0](#lantern-060)) produces this.
 
 ### 2. A link that opens a URL in the Apps tab
 
