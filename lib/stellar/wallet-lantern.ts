@@ -10,7 +10,7 @@
 //                               lantern:publicKey { publicKey, network } | lantern:connectRejected
 //   lantern:signMessage         lantern:messageSigned { signature, publicKey }
 //     { message }               | lantern:signRejected { error? }
-//   lantern:signXdr  (proposed) lantern:signing, then
+//   lantern:signXdr  (0.6.0+)   lantern:signing, then
 //     { xdr, networkPassphrase } lantern:xdrSigned { signedXdr }
 //                               | lantern:signRejected { error? } | lantern:txError { error }
 //
@@ -20,10 +20,9 @@
 // SEP-53, so proofs from here carry `scheme: "lantern"` and the server verifies
 // them that way (signature.ts).
 //
-// `lantern:signXdr` is not in 0.5.1: Lantern only offers `signAndSubmit`, which
+// `lantern:signXdr` arrived in 0.6.0. 0.5.1 only offers `signAndSubmit`, which
 // takes a payment *intent* and builds the transaction itself, so it can't add
-// the recipient's half to payout setup's sponsored envelope. The proposal is to
-// expose the `SIGN_ONLY` action its signer already has. Until then a request
+// the recipient's half to payout setup's sponsored envelope. On 0.5.x a request
 // goes unanswered, so it must be acknowledged within {@link ACK_TIMEOUT_MS} or
 // it is reported as unsupported rather than left hanging for minutes.
 //
@@ -180,7 +179,7 @@ export async function signOwnership(
 
 /**
  * Co-sign a server-built envelope with Lantern, for payout setup's sponsored
- * trustline. Needs the proposed `lantern:signXdr`; see the header.
+ * trustline. Needs `lantern:signXdr` (Lantern 0.6.0+); see the header.
  */
 export async function signTransaction(xdr: string, expectedAddress: string): Promise<string> {
   const signedXdr = await request(
