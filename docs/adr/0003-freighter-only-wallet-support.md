@@ -1,6 +1,6 @@
 # ADR-0003: Support Freighter only; descope Albedo from Deliverable 2
 
-- **Status:** Accepted — 2026-09-14, **amended 2026-09-22** (see *Amendment: Freighter Mobile over WalletConnect*)
+- **Status:** Accepted — 2026-09-14, **amended 2026-09-22** (see *Amendment: Freighter Mobile over WalletConnect*) and **2026-10-06** (see *Amendment: Lantern on Android*)
 - **Scope:** Deliverable 2 (wallet-native contributor onboarding) and everything built on it in Deliverables 3–4.
 - **Relates to:** [#21](https://github.com/webnxt-2030/Centient/issues/21) (Epic 2), [#24](https://github.com/webnxt-2030/Centient/issues/24) (wallet signing spike), [#26](https://github.com/webnxt-2030/Centient/issues/26) (wallet-connect session), [#28](https://github.com/webnxt-2030/Centient/issues/28) (sponsored trustline + fee bump), [#31](https://github.com/webnxt-2030/Centient/issues/31) (Epic 2 QA), SOW §3.1, §4.1, §5.1, §6.
 
@@ -134,10 +134,14 @@ criteria in #137.
 - **Rollback** is unsetting the project id and rebuilding `web`. There is no revert PR, no
   migration and no persisted state.
 
-## Amendment: Lantern on Android (2026-10-02, proposed)
+## Amendment: Lantern on Android (2026-10-06)
 
-**Status: proposed, not shipped.** Built on branch `feat/lantern-wallet`; it needs
-changes in Lantern before it can work on a phone (see `docs/lantern-integration.md`).
+**Status: accepted, shipped.** Proposed 2026-10-02; [PR #185](https://github.com/webnxt-2030/Centient/pull/185)
+shipped it, and it is live on centient.work and beta.centient.work since 2026-10-06.
+`NEXT_PUBLIC_LANTERN_ORIGINS` names Lantern 0.6.0's Android origin,
+`https://android.golantern.xyz` ([#192](https://github.com/webnxt-2030/Centient/issues/192)).
+"Open in Lantern" from Chrome waits on Lantern's directory listing Centient (see
+`docs/lantern-integration.md`).
 
 Lantern is a second *wallet*, not a second transport for Freighter, so this amends the
 decision above rather than its WalletConnect amendment. It is narrow on purpose:

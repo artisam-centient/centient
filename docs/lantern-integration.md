@@ -2,8 +2,9 @@
 
 Centient can sign contributors in with **Lantern**, the Android Stellar wallet
 (`com.lantern.wallet`), and set up their USDC payouts through it. Centient's side
-is built (branch `feat/lantern-wallet`). Lantern 0.5.1 is missing four things
-before it can work on a phone. This page is the spec for them.
+is built and live. Lantern 0.5.1 was missing four things before it could work
+on a phone; this page is the spec for them. For what Lantern 0.6.0 ships, see
+[Lantern 0.6.0](#lantern-060).
 
 ## How it works
 
@@ -25,8 +26,10 @@ iOS and desktop never see any of this. Freighter stays available everywhere.
 ### 1. Let Chrome see that Lantern is installed
 
 Centient asks `navigator.getInstalledRelatedApps()`, and Chrome only answers
-for an app that declares the site. Add this to `AndroidManifest.xml`, inside
-`<application>`:
+for an app that declares the site. Centient is served from both
+`https://centient.work` and `https://beta.centient.work`, so declare both;
+Chrome on a host that isn't listed never reports Lantern, and "Open in Lantern"
+stays hidden there. Add this to `AndroidManifest.xml`, inside `<application>`:
 
 ```xml
 <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
@@ -39,12 +42,17 @@ and this to `res/values/strings.xml`:
 [{
   \"relation\": [\"delegate_permission/common.handle_all_urls\"],
   \"target\": { \"namespace\": \"web\", \"site\": \"https://centient.work\" }
+}, {
+  \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+  \"target\": { \"namespace\": \"web\", \"site\": \"https://beta.centient.work\" }
 }]
 </string>
 ```
 
-Centient's web manifest already names `com.lantern.wallet` in
-`related_applications`; the two together are what Chrome checks.
+Centient's web manifest, served on both hosts, already names
+`com.lantern.wallet` in `related_applications`; the two together are what
+Chrome checks. Lantern 0.6.0 generates these statements from its directory, so
+listing both origins there (see [Lantern 0.6.0](#lantern-060)) produces this.
 
 ### 2. A link that opens a URL in the Apps tab
 
@@ -112,8 +120,45 @@ seconds as "this Lantern can't sign transactions" rather than waiting.
 
 ## Turning it on
 
-Set `NEXT_PUBLIC_LANTERN_ORIGINS=https://localhost` on `web` and redeploy. Unset,
-none of this exists: the CSP frames only Centient, and no Lantern UI renders.
+Set `NEXT_PUBLIC_LANTERN_ORIGINS=https://android.golantern.xyz` on `web` and
+redeploy (it is inlined at build time). The response should then carry
+`frame-ancestors 'self' https://android.golantern.xyz`. Unset, none of this
+exists: the CSP frames only Centient, and no Lantern UI renders.
+
+Don't list `https://localhost`. It was Lantern's Android origin up to 0.5.x, but
+it is Capacitor's default and every Capacitor app on the phone shares it, so
+listing it lets any of them frame Centient and pass the bridge's origin check.
+Under Lantern 0.6.0, a deployment that lists only `https://localhost` won't
+load in the Apps tab (`net::ERR_BLOCKED_BY_RESPONSE`).
+
+Not listed on purpose:
+
+- `https://app.golantern.xyz`, Lantern's browser build for iPhone users. It
+  only runs Lantern's bundled mini-apps, not remote dApps, so it never frames
+  Centient.
+- `chrome-extension://<id>`. The unpacked extension's id differs per install,
+  and allowing the whole scheme would let any extension frame Centient.
+
+## Lantern 0.6.0
+
+Lantern 0.6.0 moved its Android webview to `https://android.golantern.xyz`. It
+ships `lantern://open` (change 2) and `lantern:signXdr` (change 4), and
+generates the `asset_statements` (change 1), but both `lantern://open` and the
+`asset_statements` are driven by Lantern's curated directory. Until
+Centient is listed there, Lantern refuses the "Open in Lantern" link (the page
+stays in the browser) and Chrome doesn't report Lantern as installed, so
+contributors on Android see the Freighter path. Opening Centient from the Apps
+tab by hand works as soon as the origin above is set.
+
+Lantern posts bridge replies to the exact origin its directory lists, so each
+entry has to be an origin contributors end up on after any redirects.
+`centient.work` and `beta.centient.work` both serve the app directly (neither
+redirects), so Centient asks Lantern to list **both**: `https://centient.work/`
+and `https://beta.centient.work/`, as two entries or one entry carrying both
+origins (#192). Centient needs nothing more for that. Its bridge checks only
+the framing origin, never its own, and "Open in Lantern" hands over the current
+page's URL, so each domain opens itself. Sessions are per domain, but both
+share one database, so the same wallet reaches the same account on either.
 
 ## Tested
 
