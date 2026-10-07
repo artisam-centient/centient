@@ -129,7 +129,7 @@ Levels show effort and unlock cosmetic things such as badge frames and quest var
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Total XP | 0 | 100 | 300 | 600 | 1,000 | 1,500 | 2,200 | 3,000 | 4,000 | 5,500 |
 
-At ten answers a day (about 150 XP with the goal bonus and quests), level 5 takes about a week and level 10 five to six weeks: one season.
+At ten answers a day (about 150 XP with the goal bonus and quests), level 5 takes about a week and level 10 about five weeks: one season.
 
 ### 3.4 Tiers
 

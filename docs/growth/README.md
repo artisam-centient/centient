@@ -19,3 +19,13 @@ Plans and research for growing Centient's contributor base and its first campaig
 * **Schedule:** Season 0 (closed) from 16 to 29 November 2026, Season 1 (public) from 11 January to 21 February 2027.
 
 The decisions the owner needs to make are listed in [the plan's §12](onboarding-gamification-plan.md#12-decisions-for-the-owner).
+
+## PDFs
+
+Designed, printable versions of the three documents, with charts and diagrams:
+
+* [Onboarding and gamification plan](pdf/Centient-Onboarding-Gamification-Plan.pdf) (15 pages)
+* [Onboarding and daily-use research](pdf/Centient-Onboarding-Research.pdf) (8 pages)
+* [Campaign design partners](pdf/Centient-Campaign-Design-Partners.pdf) (9 pages)
+
+The Markdown files are the source of record. If they change, regenerate the PDFs.
