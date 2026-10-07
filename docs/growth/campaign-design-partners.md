@@ -13,6 +13,7 @@ Facts about other companies come from public reporting found by web search. Seve
 * **Start with Filipino-language AI products.** Filipino and Taglish are where global models are weakest (the best model scored 72.23% on FilBench, the best Southeast Asian model 61.07%), where Centient's crowd is strongest, and where the platform's own question bank already holds Taglish banking conversations.
 * **Recommended first cohort, all small:** Proto (Taglish customer-service AI, about 35 people), Anycase.ai (Philippine legal AI, founder-led), GradeChum (AI grading, ₱15 million seed), Educato (YC-backed exam prep, Philippine civil service included) and a Stellar-ecosystem AI builder (StellarGPT or StroopyAI). Alternates: Lex Pilipinas, KARTILYA.PH, AregLaw.ai, EDGE Tutor and the Stellar AI Agent Kit.
 * **Bigger organisations come later,** once there are case studies: Kollab (Senti AI), Thinking Machines (Temus), AI Singapore, Cohere, Sarvam, Sentient, Nous Research, Prime Intellect and Arena.
+* **An inbound lead to act on now:** LTP's Digital Transformation Office is running an AI and Cybersecurity Event for its employees on **Thursday 22 October 2026**. LTP is a bigger organisation, so it is not a first-cohort campaign partner, but its agenda (human validation, trusted data, responsible AI) is exactly what Centient does. Offer a short segment and a hands-on activity ([§7](#7-inbound-lead-ltps-ai-and-cybersecurity-event-22-october-2026)).
 * **Watch the competition:** YGG's GIG Rewards already pays Filipinos load for rating AI responses, and Sapien runs a gamified labelling network. Centient's answer is per-answer dollars on a public ledger, plus quality data on every campaign.
 
 ## 1. Why small companies first
@@ -187,7 +188,65 @@ Most of the campaign side exists: campaigns funded from a balance, CSV upload, p
 * **A partner preview:** a read-only link to sample results before the full export.
 * **Expert tracks for law and education:** the qualification step in the plan's tiers ([plan §3.4](onboarding-gamification-plan.md#34-tiers)), needed by the Anycase.ai and GradeChum campaigns.
 
-## 7. Who funds the incentive budget
+## 7. Inbound lead: LTP's AI and Cybersecurity Event (22 October 2026)
+
+LTP's Digital Transformation Office (contact on file) shared its plans for an **AI and Cybersecurity Event** for LTP employees on **Thursday 22 October 2026**, 15 days from this brief. LTP's full name and size weren't found in public sources; fill them in from the conversation.
+
+### What LTP is planning
+
+* **Two focus areas:** AI awareness and responsible adoption, and cybersecurity awareness for employees.
+* **The AI session:** *AI & Microsoft 365 Copilot: Working Smarter with AI*.
+* **The objective:** practical and awareness-focused, showing the opportunities AI brings to the workplace while emphasising responsible and secure adoption.
+
+### Where it sits in this plan
+
+LTP is a bigger organisation with its own Digital Transformation Office, so under "small companies first" it is **not a first-cohort campaign partner**. It is something else: an inbound, warm relationship, a stage in front of employees who are about to use AI at work, and a later enterprise lead. Teams rolling out Copilot need people to check AI output, which is human validation at work.
+
+### How Centient's work maps to LTP's agenda
+
+| # | LTP's AI topic | Centient's angle | Fit |
+| --- | --- | --- | --- |
+| 1 | How AI is changing the workplace | Context only | Some |
+| 2 | Practical examples of AI use cases | Real side-by-side comparisons of AI answers to workplace tasks | Some |
+| 3 | Introduction to Microsoft Copilot | Not Centient's expertise. Leave it to LTP's IT team or Microsoft partner | Leave to others |
+| 4 | What AI can and cannot do | Live pairs where one AI answer is confidently wrong. Centient's hidden quality checks are built the same way: factually wrong, empty, refusing, or nonsense | **Strong** |
+| 5 | AI + Data: why trusted data matters | Centient exists to produce trusted, human-judged data: quality checks, agreement between people, written reasons | **Strong** |
+| 6 | Data confidentiality and what not to put into AI tools | Centient's own rule for partners: no personal data in tasks. Turn it into a "never paste" list | Some |
+| 7 | Human validation and accountability | The core of Centient: people check AI and say why | **Strongest** |
+| 8 | Responsible AI | The people who check AI deserve fair, visible pay; transparency about where AI's judgment comes from | **Strong** |
+| 9 | What employees should know before using AI for work | A one-page "before you use AI for work" checklist | **Strong** |
+
+**Cybersecurity tie-in:** AI makes scams more convincing. Lookalike names and fake giveaways are a live example: Centient and "Sentient" differ by one letter, and Sentient has a token and has run airdrops. The lesson for any employee: no real service asks for your password, one-time code or recovery phrase.
+
+### What to offer LTP
+
+1. **A 15-minute segment, "Human validation in practice",** inside the AI session, covering topics 4, 5, 7, 8 and 9.
+2. **A 10-minute hands-on activity, "Which answer would you trust?"** Five workplace pairs, each with two AI answers: an email summary with a wrong date, a policy answer that invents a rule, a formula explanation, a meeting recap that leaks confidential details, and a Taglish customer reply. Attendees vote by show of hands or a poll, then the reveal explains why. All examples are invented, with no LTP data. Run it from slides or a simple poll: the plan's interactive sample task isn't built yet, so don't depend on it for 22 October.
+3. **A one-page takeaway:** "Before you use AI for work", nine points mapped to LTP's topics.
+4. **Keep Centient itself to one closing slide.** No crypto or testnet talk in the main content (the brand's "no jargon by default"), and no recruiting LTP employees as paid contributors at their own company event.
+
+**In return, ask for:** a mention as session contributor, permission to describe the session publicly as a responsible-AI education case, and a follow-up conversation about human review of AI output in LTP's own AI rollout.
+
+### Timeline
+
+| Date | Step |
+| --- | --- |
+| Thu 8 – Fri 9 Oct | Reply to LTP. Confirm the format: segment length, audience size and roles, on-site or online, language mix, phones for polling, and that the Copilot introduction is covered by LTP's IT team or Microsoft partner |
+| Wed 14 Oct | Send the outline and the five example pairs for LTP's review |
+| Mon 19 Oct | Final slides, activity and handout to LTP |
+| Wed 21 Oct | Dry run with the Digital Transformation Office |
+| **Thu 22 Oct** | **Event** |
+| Tue 27 Oct | Follow-up: thanks, the handout, feedback, and a proposed call about human validation in LTP's AI rollout |
+
+### Questions for LTP
+
+* How long is the AI session, and how much of it would Centient have?
+* Who is the audience, how many people, and on-site, online or hybrid?
+* Is Microsoft 365 Copilot already deployed, or about to be? That changes which examples land.
+* Is there an internal AI-use or data-confidentiality policy the content should match?
+* Any speaker requirements: accreditation, NDA, recording, branding rules?
+
+## 8. Who funds the incentive budget
 
 The plan's incentive values are TBD ([plan §4](onboarding-gamification-plan.md#4-tester-incentives-the-founding-contributor-programme)). Once they are set, possible sources are:
 
@@ -206,6 +265,7 @@ Check before outreach or external use:
 * Educato's Philippine presence comes from its YC profile and a Philippine job listing. Its student and exam counts are the company's own.
 * StellarGPT, StroopyAI and the Stellar AI Agent Kit award amounts come from SCF project pages. Check each project is still active.
 * Proto's partner list and its May 2025 Tagalog launch come from Proto's own news pages.
+* LTP's event details come from its Digital Transformation Office's message to Centient. LTP's full name wasn't found in public sources.
 
 ## Sources
 

@@ -16,6 +16,7 @@ Plans and research for growing Centient's contributor base and its first campaig
 * **Reward accuracy, not volume:** quality-weighted XP with a daily cap, and tiers gated well above chance that unlock better work.
 * **Be honest on testnet:** XP is not money or a token. Real incentives (load, prizes, bounties, a fixed mainnet bonus, a tier that carries over) have values TBD but fixed payout dates: a run every Wednesday during a season, and set dates for season-end and mainnet rewards.
 * **Guarantee supply:** an evergreen task pool plus free "data grant" campaigns for five small AI companies first (Proto, Anycase.ai, GradeChum, Educato and a Stellar AI builder), with bigger organisations later.
+* **Act on an inbound lead:** LTP's AI and Cybersecurity Event for employees on 22 October 2026, where Centient can offer a human-validation segment and a hands-on activity ([partners §7](campaign-design-partners.md#7-inbound-lead-ltps-ai-and-cybersecurity-event-22-october-2026)).
 * **Schedule:** Season 0 (closed) from 16 to 29 November 2026, Season 1 (public) from 11 January to 21 February 2027.
 
 The decisions the owner needs to make are listed in [the plan's §12](onboarding-gamification-plan.md#12-decisions-for-the-owner).
@@ -26,6 +27,6 @@ Designed, printable versions of the three documents, with charts and diagrams:
 
 * [Onboarding and gamification plan](pdf/Centient-Onboarding-Gamification-Plan.pdf) (16 pages)
 * [Onboarding and daily-use research](pdf/Centient-Onboarding-Research.pdf) (8 pages)
-* [Campaign design partners](pdf/Centient-Campaign-Design-Partners.pdf) (9 pages)
+* [Campaign design partners](pdf/Centient-Campaign-Design-Partners.pdf) (11 pages)
 
 The Markdown files are the source of record. If they change, regenerate the PDFs.
