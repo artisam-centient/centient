@@ -14,11 +14,11 @@
 2. **A small, forgiving daily habit.** A daily goal the contributor picks (5, 10 or 20 answers), a streak counted in Manila days, streak freezes, and a rule that an empty task pool never breaks a streak.
 3. **A game that rewards accuracy.** XP comes only from accepted answers and is weighted by quality-check accuracy, with a daily cap. Levels track effort. Tiers (Regular, Trusted, Expert, Mentor) track quality and unlock better work.
 4. **Social pull.** Weekly leagues by nickname, squads of three to eight people, referrals that pay out only once the new contributor proves quality, and community goals such as "Get Cebuano to 1,000 answers".
-5. **Honest tester incentives.** A Founding Contributor programme for the testnet seasons: status, a tier that carries over to mainnet, mobile load for streak milestones, league prizes, bug bounties, and a fixed mainnet welcome bonus. About ₱187,000 (roughly $3,200) for a six-week season.
+5. **Honest tester incentives.** A Founding Contributor programme for the testnet seasons: status, a tier that carries over to mainnet, mobile load for streak milestones, league prizes, bug bounties, and a fixed mainnet welcome bonus. Values are TBD. When each one is paid is fixed: a payout run every Wednesday during a season, plus set dates for season-end and mainnet rewards.
 6. **A daily-use engine.** Opt-in reminders by web push, a fixed daily drop of new tasks, and a guaranteed supply of tasks from an evergreen pool and design-partner campaigns.
 7. **Seasons.** A two-week closed Season 0 in November, then a six-week public Season 1 from 11 January 2027 with themed weeks, ending with Founding Contributor certification.
 
-**What it needs:** four epics and 16 issues, built one at a time on the existing stack, plus owner decisions on budget, legal review and the mainnet bonus (see [§12](#12-decisions-for-the-owner)).
+**What it needs:** four epics and 16 issues, built one at a time on the existing stack, plus owner decisions on incentive values, legal review and the mainnet bonus (see [§12](#12-decisions-for-the-owner)).
 
 ---
 
@@ -49,7 +49,7 @@ Today's baseline is 25 unique wallets in the instant-payout window (the #49 volu
 | Quality guardrail | Agreement | Share of answers matching the majority on resolved tasks (`Task.majorityAnswer`) | No drop of more than 3 points from the Season 0 baseline |
 | Quality guardrail | Blocked answers | Spam, repetition and bias rejections ÷ submissions | ≤ 5% |
 | Quality guardrail | Early pauses | New contributors cooled down in their first week | ≤ 5% |
-| Cost | Incentive cost per DQC | Season incentive spend ÷ final-week DQC | ≤ ₱1,600 |
+| Cost | Incentive cost per DQC | Season incentive spend ÷ final-week DQC | TBD, once incentive values are set |
 
 If a quality guardrail fails for a week, incentives tied to volume (league prizes, streak load) pause until it recovers.
 
@@ -77,10 +77,10 @@ The sample task asks for **less** than a wallet signature, so it keeps the "the 
 | 2 | Training checks finished, with explanations. "Sharp eye" badge progress | Learning |
 | 3 | Invitation to start or join a squad | Friends |
 | 4–6 | First weekly league placement after Monday's reset | Rank |
-| 7 | **7-day milestone**: a streak freeze, the "Week one" badge and, once Regular, a ₱50 load claim | A real reward |
+| 7 | **7-day milestone**: a streak freeze, the "Week one" badge and, once Regular, a load reward (value TBD) in the next Wednesday payout run | A real reward |
 | 14 | Halfway to Trusted. First weekly "Your impact" summary | Progress, meaning |
 | 21 | Invitation to an expert track (Filipino writing, Cebuano, education, coding) | Better work |
-| 30 | **30-day milestone**: "Month one" badge, ₱200 load claim. Founding Contributor status locks once Trusted | Status, a real reward |
+| 30 | **30-day milestone**: "Month one" badge and a load reward (value TBD) in the next Wednesday payout run. Founding Contributor status locks once Trusted | Status, a real reward |
 
 ## 3. The game system
 
@@ -184,7 +184,7 @@ Progress and badges use the deep-green primary. The warm gold secondary stays re
 
 * **Squad:** three to eight people. Any Regular contributor can start one, and others join by link or code. If every member meets their goal on four or more days in a week, each earns a squad badge step and +50 XP.
 * **Invite link:** `centient.work/?ref=CODE`. The code is random and never a wallet address. A newcomer sees "Invited by *nickname*" and joins the inviter's squad, and can leave it.
-* **Referral reward:** only when the newcomer reaches **Regular**. Then both get XP, and the inviter gets ₱25 of load, capped at ten a month.
+* **Referral reward:** only when the newcomer reaches **Regular**. Then both get XP, and the inviter gets mobile load (value TBD), capped at ten a month. It is paid in the next Wednesday payout run.
 * **Why squads:** referred customers churn about 18% more slowly, but only while their referrer stays. Squads keep both of them coming back.
 
 ### 3.9 Coaching and beginner-safe quality
@@ -217,40 +217,44 @@ On testnet, the product's core promise of getting paid is deliberately absent. T
 
 ### Incentive menu
 
-| # | Incentive | What it is | Who qualifies | Notes |
-| --- | --- | --- | --- | --- |
-| 1 | **Founding Contributor status** | A permanent badge and profile label, plus an opt-in public list | Trusted during Season 1 | Costs nothing. Status |
-| 2 | **Tier carries over to mainnet** | Tier and accuracy history carry over, so a Trusted tester starts mainnet with access to Trusted-only campaigns | Every tier | A Stellar address is the same on both networks, so the identity carries over naturally. This is real earning power, not speculation |
-| 3 | **Mainnet welcome bonus** | A fixed amount of real USDC, the same for everyone who qualifies (for example 3 USDC), paid when mainnet launches | Trusted at the end of Season 1, after review | Announced in advance and capped. Based on tier, never on XP. Paid as its own job type on the existing rail. Needs legal review |
-| 4 | **Streak milestone load** | ₱50 at 7 days, ₱200 at 30 days | Regular | Load or e-wallet credit. GIG Rewards has shown load works as a reward in the Philippines |
-| 5 | **League prizes** | ₱500 / ₱300 / ₱200 to the top three in each top-division group, every week | Regular, after review | A contest of skill, so it needs a DTI permit |
-| 6 | **Bug and UX bounties** | ₱100–₱1,000 per confirmed bug, by severity. ₱300 for a 30-minute recorded interview | Anyone signed in | Pay for work: the simplest legally. Feeds the QA gate |
-| 7 | **Campus chapter stipend** | ₱2,000 per season for each active chapter lead, plus merch | Mentor | |
-| 8 | **Merch and certificate** | Owl stickers and shirts. A digital certificate of contribution for students' resumes | Founding Contributors and top contributors | Ask partner schools whether the work could count toward practicum hours |
+Values are **TBD** for now. What is fixed is who qualifies and **when each incentive is paid**.
+
+| # | Incentive | What it is | Who qualifies | Value | Disbursed |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **Founding Contributor status** | A permanent badge and profile label, plus an opt-in public list | Trusted during Season 1 | Status, no cash value | Locked when Season 1 closes (Sun 21 Feb 2027); badge and list published in the final payout run (Wed 24 Feb 2027) |
+| 2 | **Tier carries over to mainnet** | Tier and accuracy history carry over, so a Trusted tester starts mainnet with access to Trusted-only campaigns. A Stellar address is the same on both networks, so the identity carries over naturally | Every tier | Access, no cash value | On the day mainnet launches (date set by the mainnet decision in the week of 22 Feb 2027) |
+| 3 | **Mainnet welcome bonus** | Real USDC, the same amount for everyone who qualifies. Based on tier, never on XP. Paid as its own job type on the existing rail | Trusted at the end of Season 1 (snapshot Sun 21 Feb 2027), after review | TBD | In the first payout run after mainnet launches |
+| 4 | **Streak milestone load** | Mobile load or e-wallet credit at 7 days and at 30 days. GIG Rewards has shown load works as a reward in the Philippines | Regular | TBD | In the Wednesday payout run after the week the milestone was reached |
+| 5 | **League prizes** | For the top three in each top-division group, every week. A contest of skill, so it needs a DTI permit | Regular, after review | TBD | Every Wednesday, for the league week that closed on the Sunday before |
+| 6 | **Referral reward** | Mobile load for the inviter once the newcomer reaches Regular, capped at ten a month | Regular inviters | TBD | In the Wednesday payout run after the newcomer reaches Regular |
+| 7 | **Bug and UX bounties** | Per confirmed bug, by severity, and per 30-minute recorded interview. Pay for work: the simplest legally. Feeds the QA gate | Anyone signed in | TBD | In the Wednesday payout run after the bug is confirmed or the interview is done. Outside a season, on the last Wednesday of the month |
+| 8 | **Campus chapter stipend** | For each active chapter lead | Mentor | TBD | Half in the mid-season run (Wed 3 Feb 2027), half in the final run (Wed 24 Feb 2027), after chapter review |
+| 9 | **Certificate and merch** | A digital certificate of contribution for students' resumes; owl stickers and shirts. Ask partner schools whether the work could count toward practicum hours | Founding Contributors and top contributors | Certificate free; merch TBD | Certificates in the final week (by Fri 26 Feb 2027); merch shipped by Wed 31 Mar 2027 |
 
 **Not recommended for Season 1:** raffles and loot-box rewards. They run on chance, need permits, attract farmers, and sit badly next to paid work.
 
-### Season 1 budget
+### Disbursement calendar
 
-Assumes 400 activated contributors, 120 DQC in the final week, and ₱58 to the US dollar. Check the rate when the budget is approved.
+Every season week closes on Sunday at 23:59 Manila time. Monday and Tuesday are for operator review (fraud checks, one payout identity per person). Wednesday is the payout run.
 
-| Item | Basis | ₱ |
-| --- | --- | ---: |
-| 7-day streak load | 200 × ₱50 | 10,000 |
-| 30-day streak load | 80 × ₱200 | 16,000 |
-| League prizes | ₱2,000 a week × 6 | 12,000 |
-| Referral load | 100 × ₱25 | 2,500 |
-| Bug bounties and interviews | ₱15,000 pool + 20 × ₱300 | 21,000 |
-| Chapter stipends | 5 × ₱2,000 | 10,000 |
-| Merch | Stickers and about 50 shirts | 30,000 |
-| Onboarding sessions | 5 × ₱4,000 (venue, snacks) | 20,000 |
-| DTI permits and legal review | Estimate | 15,000 |
-| **Subtotal, paid during the season** | | **136,500** |
-| Mainnet welcome bonus | 150 × 3 USDC = 450 USDC, owed at mainnet launch | 26,100 |
-| Contingency | 15% | 24,390 |
-| **Total** | | **≈ 187,000 (≈ $3,200)** |
+| Run | Date | What is paid |
+| --- | --- | --- |
+| Season 0, week 1 | Wed 25 Nov 2026 | Closed-beta bounties and interviews, plus any Season 0 rewards, handled by hand |
+| Season 0, week 2 | Wed 2 Dec 2026 | The rest of Season 0's bounties and interviews |
+| Season 1, week 1 | Wed 20 Jan 2027 | League prizes and 7-day streak load for 11–17 Jan; bounties, interviews, referrals |
+| Season 1, week 2 | Wed 27 Jan 2027 | The same for 18–24 Jan |
+| Season 1, week 3 | Wed 3 Feb 2027 | The same for 25–31 Jan, plus the first half of chapter stipends |
+| Season 1, week 4 | Wed 10 Feb 2027 | The same for 1–7 Feb |
+| Season 1, week 5 | Wed 17 Feb 2027 | The same for 8–14 Feb, including the first 30-day streak rewards |
+| Season 1, final | Wed 24 Feb 2027 | The same for 15–21 Feb, the second half of chapter stipends, Founding Contributor status |
+| Season 1 wrap-up | By Fri 26 Feb 2027 / Wed 31 Mar 2027 | Certificates / merch shipped |
+| Mainnet launch | First payout run after launch (date TBD) | Mainnet welcome bonus; tiers carried over |
 
-That is about ₱1,560 per final-week DQC for the whole season. Sponsors could cover parts of it: telcos for load (Smart already does for GIG), anchors or exchanges for prizes, or SCF and Instawards follow-on funding.
+**Values must be set by Fri 4 Dec 2026.** A DTI permit application describes the prizes, and permits must be filed at least 30 days before Season 1 (by 11 Dec 2026).
+
+### Budget
+
+**TBD.** It follows from the values above. Sponsors could cover parts of it: telcos for load (Smart already does for GIG), anchors or exchanges for prizes, or SCF and Instawards follow-on funding.
 
 ### Programme rules
 
@@ -339,7 +343,7 @@ Leagues reset each week. Tiers and badges persist into the next season.
 | 12–25 Oct 2026 | Epic 1 (activation and analytics). Design-partner outreach starts. Chapter leads recruited |
 | 26 Oct – 15 Nov | Epic 2 (daily loop) |
 | 16–29 Nov | **Season 0**. Epic 3 starts |
-| December | Epics 3 and 4. DTI permits filed at least 30 days before Season 1. First design-partner campaigns loaded. Chapter recruiting |
+| December | Epics 3 and 4. Incentive values set by 4 Dec; DTI permits filed by 11 Dec, at least 30 days before Season 1. First design-partner campaigns loaded. Chapter recruiting |
 | **11 Jan – 21 Feb 2027** | **Season 1**, after the holidays, with classes back and student organisations active |
 | Week of 22 Feb | Season review and a mainnet readiness decision |
 
@@ -500,7 +504,7 @@ With a few hundred contributors, small effects won't reach significance. Treat r
 | X-4 | Freezes protect habits | Freeze at day 7 vs none | D14 retention | Accuracy |
 | X-5 | A chosen reminder time beats a fixed one | Picker vs 7 pm | D7 retention | Opt-out rate |
 | X-6 | Prizes add to leagues | Leagues with prizes vs without | Active days a week | Accuracy, cost per DQC |
-| X-7 | Load adds to referral XP | ₱25 and XP vs XP only | Referred contributors reaching Regular | Referral flags in review |
+| X-7 | Load adds to referral XP | Load and XP vs XP only | Referred contributors reaching Regular | Referral flags in review |
 
 ## 10. Risks
 
@@ -539,7 +543,7 @@ Verbs first, plain words, no emoji, testnet stated plainly. Native speakers shou
 ## 12. Decisions for the owner
 
 1. **North star and targets:** adopt DQC and the Season 1 targets in §1?
-2. **Budget:** approve about ₱187,000 for Season 1, and decide whether to seek sponsors for load and prizes.
+2. **Incentive values:** set the values left TBD in §4 by Fri 4 Dec 2026, so DTI permits can be filed by 11 Dec, and decide whether to seek sponsors for load and prizes.
 3. **Mainnet promises:** commit to tier carry-over and a fixed welcome bonus? Once announced, both are public promises.
 4. **Legal:** counsel review of DTI permits, prize tax and Data Privacy Act obligations before anything is announced.
 5. **Beginner-safe quality:** accept training checks and moving the pause rule to hidden checks, as a new ADR.
