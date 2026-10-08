@@ -120,9 +120,16 @@ seconds as "this Lantern can't sign transactions" rather than waiting.
 
 ## Turning it on
 
-Set `NEXT_PUBLIC_LANTERN_ORIGINS=https://android.golantern.xyz` on `web` and
-redeploy (it is inlined at build time). The response should then carry
-`frame-ancestors 'self' https://android.golantern.xyz`. Unset, none of this
+Set `NEXT_PUBLIC_LANTERN_ORIGINS` on `web` to
+
+```
+https://android.golantern.xyz chrome-extension://iflpkjgolcbleombhldiibhojohjpnmd
+```
+
+and redeploy (it is inlined at build time). The response should then carry
+`frame-ancestors 'self' https://android.golantern.xyz chrome-extension://iflpkjgolcbleombhldiibhojohjpnmd`.
+The first is Lantern's Android webview, the second its Chrome extension, whose
+id Lantern pins with a manifest `key` so every install shares it (#197). Unset, none of this
 exists: the CSP frames only Centient, and no Lantern UI renders.
 
 Don't list `https://localhost`. It was Lantern's Android origin up to 0.5.x, but
@@ -136,8 +143,10 @@ Not listed on purpose:
 - `https://app.golantern.xyz`, Lantern's browser build for iPhone users. It
   only runs Lantern's bundled mini-apps, not remote dApps, so it never frames
   Centient.
-- `chrome-extension://<id>`. The unpacked extension's id differs per install,
-  and allowing the whole scheme would let any extension frame Centient.
+- `chrome-extension:` on its own, or any id other than Lantern's pinned one.
+  Allowing the whole scheme would let any installed extension frame Centient
+  and pass the bridge's origin check, so `parseLanternOrigins` keeps only a
+  full 32-letter id.
 
 ## Lantern 0.6.0
 

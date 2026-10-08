@@ -12,6 +12,7 @@ import {
 } from "@/lib/stellar/lantern";
 
 const LANTERN = "https://android.golantern.xyz";
+const EXTENSION = "chrome-extension://iflpkjgolcbleombhldiibhojohjpnmd";
 const ANDROID_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/128.0 Mobile Safari/537.36";
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
 
@@ -66,6 +67,26 @@ describe("parseLanternOrigins", () => {
   it("is empty when unset", () => {
     expect(parseLanternOrigins(undefined)).toEqual([]);
   });
+
+  it("keeps the Chrome extension's pinned origin", () => {
+    expect(parseLanternOrigins(`${LANTERN} ${EXTENSION}/`)).toEqual([LANTERN, EXTENSION]);
+  });
+
+  it("refuses the bare extension scheme, a malformed id, or a path, so no other extension can frame us", () => {
+    expect(
+      parseLanternOrigins(
+        [
+          "chrome-extension:",
+          "chrome-extension://",
+          "chrome-extension://*",
+          "chrome-extension://iflpkjgolcbleombhldiibhojohjpn",
+          "chrome-extension://IFLPKJGOLCBLEOMBHLDIIBHOJOHJPNMD",
+          "chrome-extension://zflpkjgolcbleombhldiibhojohjpnmd",
+          `${EXTENSION}/popup.html`,
+        ].join(" "),
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("isLanternEnabled", () => {
@@ -83,6 +104,18 @@ describe("isInLantern", () => {
 
   it("is false when framed by anything else", () => {
     framedBy("https://evil.example");
+    expect(isInLantern()).toBe(false);
+  });
+
+  it("is true when framed by Lantern's Chrome extension, on any platform", () => {
+    process.env.NEXT_PUBLIC_LANTERN_ORIGINS = `${LANTERN} ${EXTENSION}`;
+    framedBy(EXTENSION);
+    expect(isInLantern()).toBe(true);
+  });
+
+  it("is false when framed by any other extension", () => {
+    process.env.NEXT_PUBLIC_LANTERN_ORIGINS = `${LANTERN} ${EXTENSION}`;
+    framedBy("chrome-extension://abcdefghijklmnopabcdefghijklmnop");
     expect(isInLantern()).toBe(false);
   });
 
