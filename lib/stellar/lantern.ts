@@ -16,6 +16,11 @@
 // origin check. The same list is what next.config.ts lets frame this app, so an
 // unconfigured deployment can neither be framed by Lantern nor offer it.
 //
+// Lantern's Chrome extension frames dApps too, from `chrome-extension://<id>`.
+// Lantern pins that id with a manifest `key`, so one exact
+// `chrome-extension://` origin can be listed. Only a full 32-letter id is
+// accepted: the bare scheme would let any installed extension frame Centient.
+//
 // Detection and opening depend on Lantern listing this site in its curated
 // directory: 0.6.0 follows `lantern://open` only for directory sites, and
 // generates the `asset_statements` that Chrome's `getInstalledRelatedApps()`
@@ -35,7 +40,7 @@ export function parseLanternOrigins(raw: string | undefined): string[] {
   return (raw ?? "")
     .split(/[\s,]+/)
     .map((s) => s.trim().replace(/\/+$/, ""))
-    .filter((s) => /^https?:\/\/[^/\s]+$/i.test(s));
+    .filter((s) => /^https?:\/\/[^/\s]+$/i.test(s) || /^chrome-extension:\/\/[a-p]{32}$/.test(s));
 }
 
 /** True when this deployment offers Lantern at all. */
