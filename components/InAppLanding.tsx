@@ -5,14 +5,20 @@ import SubmitButton from "./SubmitButton";
 import Faq from "./Faq";
 import { REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 import { useLogoReady } from "@/lib/use-logo-ready";
+import { GAMIFICATION_ON } from "@/lib/gamification/flag";
+import type { ProgressSummary } from "@/lib/gamification/types";
+import XpCard from "./gamification/XpCard";
+import WeekCard from "./gamification/WeekCard";
 
 interface InAppLandingProps {
   totalEarned: string;
   submissionCount: number;
   onStart: () => void;
+  /** #201: the XP loop, behind NEXT_PUBLIC_GAMIFICATION. Undefined while loading; null when unavailable. */
+  progress?: ProgressSummary | null;
 }
 
-export default function InAppLanding({ totalEarned, submissionCount, onStart }: InAppLandingProps) {
+export default function InAppLanding({ totalEarned, submissionCount, onStart, progress }: InAppLandingProps) {
   const isNew = submissionCount === 0;
   const subline = isNew
     ? "Welcome — let's get started."
@@ -24,6 +30,9 @@ export default function InAppLanding({ totalEarned, submissionCount, onStart }: 
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
         <div className="absolute -right-[10%] -top-[20%] h-[80vw] w-[80vw] rounded-full bg-primary/5 blur-[100px]" />
         <div className="absolute -left-[20%] top-[40%] h-[70vw] w-[70vw] rounded-full bg-secondary/5 blur-[80px]" />
+        {GAMIFICATION_ON && (
+          <div className="absolute -right-[25%] top-[55%] h-[70vw] w-[70vw] rounded-full bg-tertiary/10 blur-[90px]" />
+        )}
       </div>
 
       <div className="relative z-10 mx-auto flex max-w-lg flex-col items-center gap-6">
@@ -69,11 +78,33 @@ export default function InAppLanding({ totalEarned, submissionCount, onStart }: 
           </div>
         </div>
 
-        <Faq />
+        {GAMIFICATION_ON ? (
+          <>
+            {progress ? (
+              <>
+                <XpCard xpTotal={progress.xpTotal} xpThisWeek={progress.xpThisWeek} />
+                <WeekCard progress={progress} />
+              </>
+            ) : progress === null ? null : (
+              <div aria-hidden="true" className="flex w-full flex-col gap-6">
+                <div className="h-[104px] w-full animate-pulse rounded-3xl bg-surface-container-high motion-reduce:animate-none" />
+                <div className="h-[168px] w-full animate-pulse rounded-3xl bg-surface-container-high motion-reduce:animate-none" />
+              </div>
+            )}
+            <div className="w-full pt-2">
+              <SubmitButton label="Start Earning" onClick={onStart} />
+            </div>
+            <Faq />
+          </>
+        ) : (
+          <>
+            <Faq />
 
-        <div className="w-full pt-2">
-          <SubmitButton label="Start Earning" onClick={onStart} />
-        </div>
+            <div className="w-full pt-2">
+              <SubmitButton label="Start Earning" onClick={onStart} />
+            </div>
+          </>
+        )}
 
         <p className="pt-4 text-xs font-label font-bold uppercase tracking-[0.2em] text-outline">
           centient.work

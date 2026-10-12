@@ -21,6 +21,12 @@ colors:
   inverse-surface: "#2e3132"
   outline: "#6c7b6e"
   outline-variant: "#bbcabc"
+  tertiary: "#494bd6"
+  on-tertiary: "#ffffff"
+  tertiary-container: "#aeb0ff"
+  tertiary-fixed: "#e1e0ff"
+  on-tertiary-fixed: "#07006c"
+  on-tertiary-fixed-variant: "#2f2ebe"
 typography:
   display:
     fontFamily: "Manrope, ui-sans-serif, system-ui, sans-serif"
@@ -185,7 +191,7 @@ Centient is recorded as two layers. The **incumbent brand system** (brand.md, in
 
 The payment is the hero. The page follows one answer: a phone in the hero plays a sample task end to end on the real task screen, real testnet payouts sit below it as stubs, the journey itemizes the same answer, and the close is the last stub handed over with the sign-in on it. Density is calm: off-white ground, one white paper at a time, generous section padding, a single max-width column. Motion is short, eased hard out, and every piece of it has a still, finished state for reduced motion.
 
-Scope: the receipt language lives on the landing's stubs, journey and close, and the FAQ. The task screen, success screen and admin console were not redesigned and still follow brand.md's card patterns only; do not claim they use receipts. The hero phone shows the task and success screens as they are, in miniature.
+Scope: the receipt language lives on the landing's stubs, journey and close, and the FAQ, and, since the XP loop (#201), on the in-app success screen's Accepted Stub and the quality-check XP row. The task screen and admin console were not redesigned and still follow brand.md's card patterns only; do not claim they use receipts. The XP loop's in-app pieces (Home's XP and week cards, the task screen's today strip and XP pill, the stub) ship behind `NEXT_PUBLIC_GAMIFICATION=on`; with it off the app is as before. The hero phone shows the task and success screens as they ship with the flag off, in miniature.
 
 **Key Characteristics:**
 - Off-white ground, white paper, no tinted card surfaces.
@@ -207,6 +213,12 @@ A cool off-white and white paper palette, carried by deep green for action and w
 - **Payout Gold** (secondary): every amount and its unit (stub amounts, the money line's icon). In the hero it also colors the tagline line "cent by cent.", which is the one wordplay accent per screen brand.md allows (it replaces brand.md's gradient text accent here).
 - **Gold Wash** (secondary-fixed): transient only. A new payout stub carries secondary-fixed at 50% and fades.
 
+### Tertiary
+brand.md reserved indigo; the XP loop (#201) gives it one job: progress.
+- **Progress Indigo** (tertiary): XP figures and the XP card's fill, met days on the week card, the today strip's segments and streak count, the goal-met toast. Tiers and stamps join it in #202.
+- **Indigo Mist** (tertiary-fixed): today's and a rest day's disc fill, and secondary text on an indigo surface.
+- **Indigo Ink** (on-tertiary-fixed-variant, on-tertiary-fixed): numerals and icons on Indigo Mist.
+
 ### Neutral
 - **Canvas** (surface): page ground, header background, and the hero phone's screen.
 - **Paper** (surface-container-lowest): stubs, line-item field panels, the FAQ card.
@@ -220,7 +232,9 @@ A cool off-white and white paper palette, carried by deep green for action and w
 - **Error** (error, error-container, on-error-container): sign-in errors and failure states only.
 
 ### Named Rules
-**The Green Means Go Rule.** Green appears only on things you can press or on a state that has been confirmed (Selected, Confirmed). Progress indicators, rails and numbered discs are ink, not green.
+**The Green Means Go Rule.** Green appears only on things you can press or on a state that has been confirmed (Selected, Confirmed). Progress indicators, rails and numbered discs are ink, not green; the XP loop's progress is indigo (below).
+
+**The Indigo Is Progress Rule.** Indigo marks the labeler's own progress: XP, the daily goal, streaks, rest days, and from #202 tiers and stamps. It never colors money (that is gold) or an action (that is green), and an XP figure is never gold. Indigo is the one tinted resting surface allowed, and only on the XP card and the goal-met toast.
 
 **The Gold Is Money Rule.** Any amount of USDC is Payout Gold in Manrope. Gold washes are one-shot highlights that fade to paper; gold is never a resting surface.
 
@@ -324,6 +338,17 @@ A numbered sequence on an ink rail. Each line: a 40px disc (ink with a Canvas nu
 ### Closing Stub
 The last stub, torn at both ends: wordmark over a dashed rule, headline, body, a dashed rule, then the wallet sign-in again (without the phone pairing prompt).
 
+### Accepted Stub (in app, #201)
+The success screen's receipt, behind the gamification flag: an Answer accepted micro-label with the date and time, then Reward (gold), Payout (Pending) and XP rows on dotted leaders. The Daily goal and streak-milestone rows appear only when they happened. A dashed rule sits over Total XP, and an earned rest day adds one more dashed rule and a `bedtime` line. Every XP value is indigo. It is cut with the stub mask, so its drop-shadow sits on the wrapper. Above it, the check shrinks to 88px and the heading's amount turns gold. A passed quality check shows a single XP row on a Whisper field panel instead.
+
+### XP and Week Cards (Home, #201)
+After Total earned, behind the flag:
+- **XP card:** Progress Indigo fill with white text and an indigo-tinted shadow (0 14px 32px -10px at 55%). It shows the XP micro-label, the total in Manrope 800 with tabular numerals, and "+N this week". It has no tier name until #202.
+- **Week card:** a Paper card with seven 36px discs, Monday to Sunday in Manila time. A met day is filled indigo with a check. Today has an indigo ring on Indigo Mist and reads "n/5". A rest day has a dashed indigo ring and a `bedtime` icon. Protected, missed and future days are a Rule Line ring.
+- **Under the discs:** a five-bar tally and a line saying what today decides. An ended streak replaces that line with a plain statement, never in error red.
+
+Start Earning then comes before the FAQ, and a third ambient blob in indigo joins the green and gold ones. On the task screen, a today strip of five 4px indigo segments sits in the header's Band, and the reward pill gains a hairline and "+N XP".
+
 ## Do's and Don'ts
 
 ### Do:
@@ -343,4 +368,5 @@ The last stub, torn at both ends: wordmark over a dashed rule, headline, body, a
 - **Don't** use Tailwind's default shadows, pure black, or colors outside the palette.
 - **Don't** draw solid outline borders around content cards; the only lines are the receipt's dashed rules and dotted leaders, and hairline dividers.
 - **Don't** make gold a resting surface; gold washes flash once and fade.
-- **Don't** apply the receipt language to the task screen or admin console by assumption; they have not been redesigned. The hero phone mirrors the task and success screens as shipped; when they change, update its miniature to match rather than restyling it.
+- **Don't** apply the receipt language to the task screen or admin console by assumption; they have not been redesigned. The hero phone mirrors the task and success screens as shipped with the gamification flag off; when they change, update its miniature to match rather than restyling it.
+- **Don't** put an XP figure in gold or a USDC amount in indigo; XP is never money (ADR-0010).
