@@ -1,20 +1,68 @@
-import { STAMPS } from "@/lib/gamification/stamps";
-import type { ProgressSummary, StandingSummary } from "@/lib/gamification/types";
+"use client";
+
+import { useState } from "react";
+import type { ProgressView } from "@/lib/gamification/types";
+import EventCodeCard from "./EventCodeCard";
 import OnHoldCard from "./OnHoldCard";
 import StampGrid from "./StampGrid";
 import TierCard from "./TierCard";
+import WeeklyBoard from "./WeeklyBoard";
+
+export type ProgressTab = "stamps" | "week";
 
 interface ProgressScreenProps {
-  progress: (ProgressSummary & StandingSummary) | null | undefined;
+  progress: ProgressView | null | undefined;
   onBack: () => void;
+  initialTab?: ProgressTab;
+  /** #203: a code from a booth link, waiting on the Event code card. */
+  pendingCode?: string | null;
+  /** After a code is added: reload progress so its stamp and XP show. */
+  onRedeemed?: () => void;
+}
+
+function Tabs({ tab, onTab, earned, total }: { tab: ProgressTab; onTab: (t: ProgressTab) => void; earned: number; total: number }) {
+  const item = (id: ProgressTab, label: React.ReactNode) => (
+    <button
+      type="button"
+      role="tab"
+      id={`progress-tab-${id}`}
+      aria-selected={tab === id}
+      aria-controls="progress-panel"
+      onClick={() => onTab(id)}
+      className={`flex h-11 items-center justify-center gap-1.5 rounded-full font-label text-sm transition-[background-color,box-shadow] duration-200 focus-visible:ring-2 focus-visible:ring-primary ${
+        tab === id
+          ? "bg-surface-container-lowest font-bold text-on-surface shadow-[0_4px_12px_rgba(25,28,30,0.04)]"
+          : "font-semibold text-on-surface-variant"
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div role="tablist" aria-label="Progress views" className="grid grid-cols-2 gap-1 rounded-full bg-surface-container-high p-1">
+      {item(
+        "stamps",
+        <>
+          Stamps{" "}
+          <span className="font-bold tabular-nums text-tertiary">
+            {earned} of {total}
+          </span>
+        </>,
+      )}
+      {item("week", "This week")}
+    </div>
+  );
 }
 
 /**
- * #202 (board 07): the tier in full and the stamps. The weekly board and the
- * event-code form join it in #203.
+ * #202 (board 07): the tier in full and the stamps. #203 (boards 07, 08): a
+ * This week tab for the weekly board, and the Event code card under the stamps.
  */
-export default function ProgressScreen({ progress, onBack }: ProgressScreenProps) {
+export default function ProgressScreen({ progress, onBack, initialTab = "stamps", pendingCode = null, onRedeemed }: ProgressScreenProps) {
+  const [tab, setTab] = useState<ProgressTab>(initialTab);
   const earned = progress?.stamps.filter((s) => s.awardedAt).length ?? 0;
+  const total = progress?.stamps.length ?? 0;
+
   return (
     <div className="min-h-screen bg-surface">
       <div className="mx-auto flex max-w-lg flex-col gap-3.5 px-5 pb-8 pt-3">
@@ -33,21 +81,30 @@ export default function ProgressScreen({ progress, onBack }: ProgressScreenProps
         </header>
 
         {progress ? (
-          <>
-            <TierCard
-              tier={progress.tier}
-              xpTotal={progress.xpTotal}
-              detail={{ streakDays: progress.streak.days, restDays: progress.streak.restDays }}
-            />
-            {progress.tier.onHold && <OnHoldCard tier={progress.tier} />}
-            <div className="flex items-baseline justify-between pt-3">
-              <h2 className="m-0 font-headline text-base font-bold text-on-surface">Stamps</h2>
-              <span className="font-label text-sm font-bold tabular-nums text-tertiary">
-                {earned} of {STAMPS.length}
-              </span>
-            </div>
-            <StampGrid stamps={progress.stamps} />
-          </>
+          tab === "stamps" ? (
+            <>
+              <TierCard
+                tier={progress.tier}
+                xpTotal={progress.xpTotal}
+                detail={{ streakDays: progress.streak.days, restDays: progress.streak.restDays }}
+              />
+              {progress.tier.onHold && <OnHoldCard tier={progress.tier} />}
+              <div className="pt-3">
+                <Tabs tab={tab} onTab={setTab} earned={earned} total={total} />
+              </div>
+              <div id="progress-panel" role="tabpanel" aria-labelledby="progress-tab-stamps" className="flex flex-col gap-3.5">
+                <StampGrid stamps={progress.stamps} bestRank={progress.board?.bestRank ?? null} />
+                <EventCodeCard initialCode={pendingCode} onRedeemed={() => onRedeemed?.()} />
+              </div>
+            </>
+          ) : (
+            <>
+              <Tabs tab={tab} onTab={setTab} earned={earned} total={total} />
+              <div id="progress-panel" role="tabpanel" aria-labelledby="progress-tab-week" className="flex flex-col gap-3.5">
+                <WeeklyBoard />
+              </div>
+            </>
+          )
         ) : progress === null ? (
           <p className="font-body text-sm text-on-surface-variant">Your progress couldn&apos;t load. Try again in a moment.</p>
         ) : (

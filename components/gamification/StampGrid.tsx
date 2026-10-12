@@ -1,4 +1,4 @@
-import { STAMPS } from "@/lib/gamification/stamps";
+import { STAMPS, type StampDef } from "@/lib/gamification/stamps";
 import type { StampStatus } from "@/lib/gamification/types";
 import { earnedToday, stampCaption } from "./tier-format";
 
@@ -6,10 +6,34 @@ import { earnedToday, stampCaption } from "./tier-format";
 // per position so the grid never reshuffles between renders.
 const TILT = [-6, 4, -3, -9, 5, -4, 3, -5, 6, -2, 4, -7];
 
-/** #202 (board 07): twelve stamps, earned ones first and filled, locked ones dashed with their progress. */
-export default function StampGrid({ stamps, now = new Date() }: { stamps: StampStatus[]; now?: Date }) {
+/** An event code's own stamp, drawn like the twelve (#203). */
+function eventDef(s: StampStatus): StampDef | null {
+  if (!s.event) return null;
+  return { id: s.id, title: s.event.title, icon: s.event.icon, criteria: "From a Centient event.", goal: null, earnable: true };
+}
+
+/**
+ * #202 (board 07): the twelve stamps, earned ones first and filled, locked ones
+ * dashed with their progress. #203: each event stamp held joins them, and the
+ * Event slot stays open for the next event.
+ */
+export default function StampGrid({
+  stamps,
+  now = new Date(),
+  bestRank = null,
+}: {
+  stamps: StampStatus[];
+  now?: Date;
+  bestRank?: number | null;
+}) {
   const byId = new Map(stamps.map((s) => [s.id, s]));
-  const rows = STAMPS.map((def) => ({ def, status: byId.get(def.id) ?? { id: def.id, awardedAt: null, progress: null } }));
+  const rows = [
+    ...STAMPS.map((def) => ({ def, status: byId.get(def.id) ?? { id: def.id, awardedAt: null, progress: null } })),
+    ...stamps.flatMap((status) => {
+      const def = eventDef(status);
+      return def ? [{ def, status }] : [];
+    }),
+  ];
   const earned = rows
     .filter((r) => r.status.awardedAt)
     .sort((a, b) => a.status.awardedAt!.localeCompare(b.status.awardedAt!));
@@ -18,7 +42,7 @@ export default function StampGrid({ stamps, now = new Date() }: { stamps: StampS
   return (
     <ul className="m-0 grid list-none grid-cols-3 gap-x-3 gap-y-[18px] p-0 pt-1">
       {[...earned, ...locked].map(({ def, status }, i) => {
-        const caption = stampCaption(def.id, status, now);
+        const caption = stampCaption(def.id, status, now, bestRank);
         const isNew = status.awardedAt !== null && earnedToday(status.awardedAt, now);
         const label = status.awardedAt
           ? `${def.title}, earned ${caption}`

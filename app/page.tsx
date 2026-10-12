@@ -27,7 +27,8 @@ import type { Progress, ProgressView } from "@/lib/gamification/types";
 import AcceptedStub from "@/components/gamification/AcceptedStub";
 import TodayStrip from "@/components/gamification/TodayStrip";
 import TierUpScreen from "@/components/gamification/TierUpScreen";
-import ProgressScreen from "@/components/gamification/ProgressScreen";
+import ProgressScreen, { type ProgressTab } from "@/components/gamification/ProgressScreen";
+import { captureCodeFromUrl, clearPendingCode, pendingCode as storedCode } from "@/lib/gamification/event-link";
 
 const MIN_LOADING_MS = 1500;
 
@@ -145,6 +146,9 @@ export default function Home() {
   /** #202: a tier the last answer opened, shown once before the next task. */
   const [pendingTierUp, setPendingTierUp] = useState<number | null>(null);
   const [accepted, setAccepted] = useState<{ progress: Progress; at: Date } | null>(null);
+  /** #203: which Progress tab opens, and a booth code waiting to be added. */
+  const [progressTab, setProgressTab] = useState<ProgressTab>("stamps");
+  const [pendingCode, setPendingCode] = useState<string | null>(null);
   const [demographics, setDemographics] = useState<{
     country: string | null;
     gender: string | null;
@@ -203,6 +207,26 @@ export default function Home() {
     } catch {
       if (sessionGeneration.current === generation) setProgress(null);
     }
+  }, []);
+
+  // #203: a booth link's `?code=` waits in this tab through sign-in and
+  // onboarding, then opens Progress with the code on the Event code card.
+  useEffect(() => {
+    if (!GAMIFICATION_ON) return;
+    captureCodeFromUrl();
+    setPendingCode(storedCode());
+  }, []);
+
+  useEffect(() => {
+    if (screen === "landing" && pendingCode) {
+      setProgressTab("stamps");
+      setScreen("progress");
+    }
+  }, [screen, pendingCode]);
+
+  const settleCode = useCallback(() => {
+    clearPendingCode();
+    setPendingCode(null);
   }, []);
 
   // Home and each task show today's goal and the streak as they stand.
@@ -378,6 +402,8 @@ export default function Home() {
     setProgress(undefined);
     setAccepted(null);
     setPendingTierUp(null);
+    clearPendingCode();
+    setPendingCode(null);
     setDemographics({ country: null, gender: null, ageRange: null });
     setScreen("login");
   }, []);
@@ -560,7 +586,10 @@ export default function Home() {
         submissionCount={submissionCount}
         onStart={handleStartEarning}
         progress={progress}
-        onOpenProgress={() => setScreen("progress")}
+        onOpenProgress={(tab = "stamps") => {
+          setProgressTab(tab);
+          setScreen("progress");
+        }}
       />
     );
   } else if (screen === "task" && task) {
@@ -675,7 +704,10 @@ export default function Home() {
               reward={reward}
               symbol={symbol}
               at={accepted.at}
-              onSeeStamp={() => setScreen("progress")}
+              onSeeStamp={() => {
+                setProgressTab("stamps");
+                setScreen("progress");
+              }}
             />
           </div>
           <div className="w-full pt-4">
@@ -893,7 +925,23 @@ export default function Home() {
       />
     );
   } else if (screen === "progress") {
-    body = <ProgressScreen progress={progress} onBack={() => setScreen("landing")} />;
+    body = (
+      <ProgressScreen
+        key={progressTab}
+        progress={progress}
+        initialTab={progressTab}
+        pendingCode={pendingCode}
+        onRedeemed={() => {
+          settleCode();
+          void fetchProgress();
+        }}
+        onBack={() => {
+          // Seen and left: the link's code doesn't reopen Progress again.
+          settleCode();
+          setScreen("landing");
+        }}
+      />
+    );
   // ✅ FIX 2: Add explicit handling for wallet_error state
   } else if (screen === "wallet_error") {
     body = (
