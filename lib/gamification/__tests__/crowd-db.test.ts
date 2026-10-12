@@ -1,6 +1,7 @@
 // #202 — resolution and crowd-match XP beside the payout rail: the
 // resolution-only threshold, +5 per answer matching the majority, nothing for a
-// tie, idempotent, and a failing XP write that still lets the job reach `done`.
+// tie, idempotent, and a failing XP write or target-less resolution that still
+// lets the job reach `done`.
 // Lives outside the payments lane: the lane's own suites run unchanged.
 import { vi, describe, it, expect, beforeEach } from "vitest";
 
@@ -88,6 +89,34 @@ describe("resolution without a response target (§3.1 A)", () => {
     });
     expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).majorityAnswer).toBe("B");
     expect((await prisma.payoutJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("done");
+  });
+
+  it("never quarantines a paid answer when resolving a target-less task fails; the next payout resolves it", async () => {
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_refuse_task_updates() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'forced tasks update failure'; END;
+      $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_refuse_task_updates BEFORE UPDATE ON "tasks"
+      FOR EACH ROW EXECUTE FUNCTION test_refuse_task_updates()`);
+    const task = await createTask({ responseTarget: null });
+    for (const c of ["A", "A", "B", "A"] as const) await settled(task.id, c);
+    let paid: Awaited<ReturnType<typeof payNew>>;
+    try {
+      paid = await payNew(task.id, "A");
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS test_refuse_task_updates ON "tasks"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS test_refuse_task_updates()`);
+    }
+
+    const job = await prisma.payoutJob.findUniqueOrThrow({ where: { id: paid.job.id } });
+    expect(job.status).toBe("done");
+    expect(job.lastError).toBeNull();
+    expect((await prisma.submission.findUniqueOrThrow({ where: { id: paid.sub.id } })).payoutStatus).toBe("sent");
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).resolvedAt).toBeNull();
+
+    await payNew(task.id, "A");
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: task.id } })).majorityAnswer).toBe("A");
   });
 });
 

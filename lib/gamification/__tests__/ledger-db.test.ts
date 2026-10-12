@@ -53,6 +53,16 @@ describe("recordAccepted", () => {
     expect(user.xp).toBe(20);
   });
 
+  it("throws, rather than reading as already recorded, when another key collides", async () => {
+    for (let i = 0; i < 4; i++) await answer(MON);
+    // The day's goal row exists already, so the fifth answer's goal award collides.
+    await prisma.xpEvent.create({
+      data: { userId, kind: "DAILY_GOAL", amount: 20, dedupeKey: `goal:${userId}:2026-10-12`, dayKey: "2026-10-12", weekKey: "2026-10-12" },
+    });
+    await expect(answer(MON, { submissionId: "sub-fifth" })).rejects.toMatchObject({ code: "P2002" });
+    expect(await prisma.xpEvent.count({ where: { dedupeKey: "answer:sub-fifth" } })).toBe(0);
+  });
+
   it("awards a passed quality check +5 and counts it toward the goal", async () => {
     const r = await answer(MON, { isQualityCheck: true, difficulty: null });
     expect(r.lines).toEqual([{ kind: "QUALITY_CHECK", amount: 5 }]);

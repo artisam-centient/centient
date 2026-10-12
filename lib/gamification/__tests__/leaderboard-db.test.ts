@@ -9,7 +9,7 @@ vi.mock("../server-analytics", () => ({ captureStanding: vi.fn(), captureServer:
 import { prisma, truncateAll } from "@/tests/helpers/db";
 import { createGoldTask, createUser, VALID_REASON } from "@/tests/helpers/factories";
 import { captureServer } from "../server-analytics";
-import { closeWeek, readBoard, weekEntries } from "../leaderboard";
+import { closeFinishedWeeks, closeWeek, readBoard, weekEntries } from "../leaderboard";
 import type { XpKind } from "@/app/generated/prisma/client";
 
 // Wednesday 14 Oct 2026, 10:00 Manila. The week runs 12–18 Oct.
@@ -98,6 +98,14 @@ describe("weekEntries", () => {
     });
     const [entry] = await weekEntries(WEEK);
     expect(entry.checks).toEqual({ passed: 1, total: 2 });
+  });
+
+  it("leaves out a banned labeler, so they can't place or take a Top 3 stamp", async () => {
+    const [a, banned] = [await labeler(), await labeler()];
+    await xp(a, 40);
+    await xp(banned, 900);
+    await prisma.user.update({ where: { id: banned }, data: { isBanned: true } });
+    expect((await weekEntries(WEEK)).map((e) => e.userId)).toEqual([a]);
   });
 });
 
@@ -221,5 +229,35 @@ describe("closing a week", () => {
     expect(board.bestRank).toBe(2);
     expect((await readBoard(ids[3], NOW)).bestRank).toBe(4);
     expect((await readBoard(await labeler(), NOW)).bestRank).toBeNull();
+  });
+});
+
+describe("closeFinishedWeeks", () => {
+  const TWO_WEEKS_AGO = "2026-09-28";
+
+  it("closes only last week before any week has closed, so earlier weeks stay open", async () => {
+    const a = await labeler();
+    await xp(a, 100, { weekKey: TWO_WEEKS_AGO, at: new Date("2026-09-30T02:00:00Z") });
+    expect((await closeFinishedWeeks(NOW)).map((w) => w.weekKey)).toEqual([LAST_WEEK]);
+    expect(await prisma.boardWeek.findUnique({ where: { weekKey: TWO_WEEKS_AGO } })).toBeNull();
+  });
+
+  it("closes a week nobody read the board after, with its finishes and Top 3 stamps", async () => {
+    await prisma.boardWeek.create({ data: { weekKey: "2026-09-21" } });
+    const a = await labeler();
+    await xp(a, 100, { weekKey: TWO_WEEKS_AGO, at: new Date("2026-09-30T02:00:00Z") });
+
+    const weeks = await closeFinishedWeeks(NOW);
+    expect(weeks.map((w) => [w.weekKey, w.closed])).toEqual([[TWO_WEEKS_AGO, true], [LAST_WEEK, true]]);
+    expect(await prisma.weeklyResult.findMany({ where: { weekKey: TWO_WEEKS_AGO } })).toMatchObject([{ userId: a, rank: 1 }]);
+    expect(await prisma.userStamp.count({ where: { userId: a, stampId: "top-3-week" } })).toBe(1);
+    expect(await closeFinishedWeeks(NOW)).toEqual([]);
+  });
+
+  it("closes a long gap a few weeks per call, oldest first, and the next call goes on", async () => {
+    await prisma.boardWeek.create({ data: { weekKey: "2026-08-03" } });
+    const first = await closeFinishedWeeks(NOW, 4);
+    expect(first.map((w) => w.weekKey)).toEqual(["2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31"]);
+    expect((await closeFinishedWeeks(NOW, 4))[0].weekKey).toBe("2026-09-07");
   });
 });

@@ -54,18 +54,33 @@ its campaign's resolves at `RESOLUTION_MIN_ANSWERS` settled answers (default
 5). That writes `majorityAnswer`, `agreementScore` and `resolvedAt` only;
 supply stays uncapped, which a response target alone does. The write is
 conditional on `resolvedAt` being null, so two workers resolve a task once.
+This resolution is best effort, beside the rail: if it fails, the paid answer's
+job still reaches `done`, and the task's next payout tries again. If that was
+the task's last payout, it stays open and its crowd XP is never awarded: XP
+lost, never money. A task with
+its own `responseTarget` resolves on the rail, as it did before.
 
 **Crowd match is +5 XP, beside the rail.** When a task resolves, each settled
 answer matching the majority earns `CROWD_MATCH` XP, keyed
 `crowd:<submissionId>`; an answer that settles on an already-resolved task is
 judged alone. A tie (`agreementScore` 0.5) earns nothing: its recorded "A" is
 only the tie-break. Like ADR-0010's XP, this runs in the payout worker after
-the payout has persisted and before the job is marked `done`, best effort: a
-failure is reported to Sentry and the job still reaches `done`.
+the job is marked `done`, best effort: a failure is reported to Sentry and
+never holds or quarantines the payout.
 
 **Retest stays out.** Gold checks answered during post-cooldown retest are
 marked `Submission.retest` and left out of the floors and stamps; retest
-decides a ban, not a tier.
+decides a ban, not a tier. Retest rows written before the column existed are
+marked by a backfill: the first 3 checks after a labeler's latest ban
+(`users.lastBanAt`), since nothing else is accepted while banned. Earlier bans
+aren't on record.
+
+**A quality check looks like any task.** A gold task has no difficulty, which
+would always read as 10 XP and Starter on the task screen. It shows a stand-in
+difficulty instead: a real open task's, picked stably per labeler and task from
+the band that labeler is served, so checks follow the pool's own spread. Display
+only: a passed check still earns `QUALITY_CHECK` XP, and its reward amount is
+unchanged (gold has always paid the default, a separate tell).
 
 ## Consequences
 
@@ -78,8 +93,7 @@ decides a ban, not a tier.
   campaign balances faster. Watch both in the first week.
 - Exports gain `labeler_tier`, the tier when the answer was given
   (`Submission.labelerTier`), so a customer's export doesn't shift as
-  labelers level up. Rows from before #202 read empty, and so do their retest
-  flags.
+  labelers level up. Rows from before #202 read empty for the tier.
 - `tier_up`, `tier_on_hold` and `stamp_awarded` are sent from the server, keyed
   by the internal user id the browser identifies with, at the one transaction
   that changes them. Each fires once, wherever it happened.

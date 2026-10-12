@@ -33,7 +33,8 @@ export const TOP_STAMP = "top-3-week";
 export async function weekEntries(weekKey: string, db: Db = prisma): Promise<WeekEntry[]> {
   const sums = await db.xpEvent.groupBy({
     by: ["userId"],
-    where: { weekKey, kind: { notIn: [...UNRANKED_KINDS] } },
+    // A banned (or cooling-down) labeler doesn't place, so can't take a Top 3 stamp.
+    where: { weekKey, kind: { notIn: [...UNRANKED_KINDS] }, user: { isBanned: false } },
     _sum: { amount: true },
     _max: { createdAt: true },
   });
@@ -101,13 +102,41 @@ export async function closeWeek(weekKey: string, at: Date = new Date()): Promise
   return result;
 }
 
+/** How far back a quiet stretch is caught up: a year of weeks at most. */
+const CATCH_UP_WEEKS = 52;
+
+/** Weeks one labeler's board read closes; the cron, or the next read, does the rest. */
+export const READ_CATCH_UP_WEEKS = 4;
+
+/**
+ * Close every finished week that isn't closed yet, oldest first: each week
+ * after the newest closed one, up to last week. A week nobody read the board
+ * after still gets its finishes and Top 3 stamps. Before any week has closed,
+ * only last week is, so weeks from before the board (backfilled XP) stay open.
+ * At most `limit` weeks per call, oldest first, so the next call goes on.
+ */
+export async function closeFinishedWeeks(
+  at: Date = new Date(),
+  limit: number = CATCH_UP_WEEKS,
+): Promise<{ weekKey: string; closed: boolean; stamped: string[] }[]> {
+  const last = addDays(manilaWeekKey(at), -7);
+  const newest = await prisma.boardWeek.findFirst({ orderBy: { weekKey: "desc" }, select: { weekKey: true } });
+  const floor = addDays(last, -7 * (CATCH_UP_WEEKS - 1));
+  let weekKey = newest ? addDays(newest.weekKey, 7) : last;
+  if (weekKey < floor) weekKey = floor;
+
+  const out: { weekKey: string; closed: boolean; stamped: string[] }[] = [];
+  for (; weekKey <= last && out.length < limit; weekKey = addDays(weekKey, 7)) out.push({ weekKey, ...(await closeWeek(weekKey, at)) });
+  return out;
+}
+
 const nameSelect = { displayName: true, showOnBoard: true, displayNameHiddenAt: true, tier: true } as const;
 
-/** This week's board for one labeler. Closes last week first, best effort. */
+/** This week's board for one labeler. Closes any finished week first, best effort. */
 export async function readBoard(userId: string, at: Date = new Date()): Promise<BoardView> {
   const weekKey = manilaWeekKey(at);
   try {
-    await closeWeek(addDays(weekKey, -7), at);
+    await closeFinishedWeeks(at, READ_CATCH_UP_WEEKS);
   } catch (err) {
     Sentry.captureException(err, { extra: { context: "board-close-week", weekKey } });
   }

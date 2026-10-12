@@ -39,13 +39,18 @@ the week's `weekKey`, every kind except `EVENT_CODE` and `INVITE`, so a booth
 code or a referral can't buy a place (both still count toward tiers). Ties go to whoever reached the total
 first. To place, quality checks that week must be 80% or better, counted from
 3 checks; under 3, XP alone places, as ADR-0011's floors do. Checks are counted
-by time within the Manila week, since a failed check writes no XP row. The top
-20 show, with the caller's own row below them when they're further down.
+by time within the Manila week, since a failed check writes no XP row. A
+labeler banned when the week is read or closed doesn't place, even for a week
+they earned before the ban. The top 20 show, with the caller's own row below them when they're further down.
 
 **A week closes lazily, once.** The first board read of a new week records each
 placed labeler's finish (`weekly_results`, for "Best: #6") and awards the Top 3
-stamp to those who don't hold it. `POST /api/cron/weekly-board` does the same
-as a backstop. The week's `board_weeks` row is inserted in the same
+stamp to those who don't hold it. It closes every finished week since the
+newest closed one, so a week nobody read the board after still closes; before
+any week has closed, only last week is, so weeks of backfilled XP from before
+the board stay open. One board read closes at most 4 weeks, oldest first, and
+the next read goes on; `POST /api/cron/weekly-board` closes up to a year as a
+backstop. The week's `board_weeks` row is inserted in the same
 transaction, `ON CONFLICT DO NOTHING`, so racing reads close it once. A week
 still running is never closed.
 

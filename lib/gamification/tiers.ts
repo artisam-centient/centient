@@ -88,6 +88,17 @@ export function tierOfDifficulty(difficulty: number | null): number {
   return def ? def.id : TIERS.length - 1;
 }
 
+/**
+ * What a quality check shows instead of its own (empty) difficulty: a stand-in
+ * from the band the labeler is served, stable per seed, so its XP pill and tier
+ * chip look like any other task's. Display only: never pay, serving or XP.
+ */
+export function standInDifficulty(seed: string, maxDifficulty: number): number {
+  let h = 0;
+  for (const c of seed) h = (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0;
+  return 1 + (h % maxDifficulty);
+}
+
 /** A stored tier's name; null for a row from before tiers (#202). */
 export function labelerTierName(tier: number | null): string | null {
   return tier === null ? null : (TIERS[tier]?.name ?? null);
