@@ -4,6 +4,12 @@
 -- 3 (RETEST_GOLD_COUNT) quality checks a labeler answers after a ban: nothing
 -- else is accepted while banned. Only the latest ban is on record
 -- (users.lastBanAt), so mark the first 3 checks after it.
+--
+-- A one-off fitted to the data at release (2 labelers ever banned, both by the
+-- gold-check auto-ban, which writes the failing check before lastBanAt). It is
+-- not a general rule: an admin or flagged-withdrawal ban sets lastBanAt with no
+-- retest, retests before the latest ban stay unmarked, and an account unbanned
+-- through a dispute (lastBanAt null) is skipped. New rows are marked as written.
 WITH after_ban AS (
   SELECT
     s.id,

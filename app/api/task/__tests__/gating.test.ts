@@ -145,6 +145,13 @@ describe("GET /api/task - the task's tier, for the chip (#202)", () => {
     // A Starter is served up to difficulty 3, so a check never reads above it.
     expect((await served(await labeler(0)))?.tier).toBe(0);
   });
+
+  it("borrows a real task's difficulty for a check when the band has one", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    await createGoldTask("A");
+    await createTask({ difficulty: 4 });
+    expect(await served(await labeler(3))).toMatchObject({ tier: 1, xp: 15 });
+  });
 });
 
 describe("GET /api/task - GAMIFICATION_GATING off (#202)", () => {

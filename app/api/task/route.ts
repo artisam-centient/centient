@@ -28,6 +28,20 @@ function computeResponseTarget(
   return taskResponseTarget ?? campaignDefaultResponseTarget ?? null;
 }
 
+/**
+ * A quality check's stand-in difficulty: a real task's, picked stably per seed
+ * from the open tasks in the band, so checks follow the pool's own spread.
+ * Without one, an even pick across the band.
+ */
+async function checkStandIn(seed: string, max: number): Promise<number> {
+  const [row] = await prisma.$queryRaw<{ difficulty: number }[]>`
+    SELECT "difficulty" FROM "tasks"
+    WHERE "isGold" = false AND "disabled" = false AND "difficulty" IS NOT NULL AND "difficulty" <= ${max}
+    ORDER BY md5(id || ${seed})
+    LIMIT 1`;
+  return row?.difficulty ?? standInDifficulty(seed, max);
+}
+
 export async function GET(req: NextRequest) {
   // ST-5d: task assignment is keyed on the session (userId), not a `?wallet=` param.
   const userId = await getLabelerSession(req);
@@ -168,7 +182,7 @@ export async function GET(req: NextRequest) {
   // A quality check has no difficulty of its own, which would always read as
   // 10 XP and Starter. It shows a stand-in from the labeler's band instead.
   const shownDifficulty = task.isGold
-    ? standInDifficulty(`${task.id}:${userId}`, gatingOn() ? maxDifficulty(user.tier, user.tierOnHold) : TIERS[TIERS.length - 1].maxDifficulty)
+    ? await checkStandIn(`${task.id}:${userId}`, gatingOn() ? maxDifficulty(user.tier, user.tierOnHold) : TIERS[TIERS.length - 1].maxDifficulty)
     : task.difficulty;
 
   return NextResponse.json({

@@ -105,13 +105,20 @@ export async function closeWeek(weekKey: string, at: Date = new Date()): Promise
 /** How far back a quiet stretch is caught up: a year of weeks at most. */
 const CATCH_UP_WEEKS = 52;
 
+/** Weeks one labeler's board read closes; the cron, or the next read, does the rest. */
+export const READ_CATCH_UP_WEEKS = 4;
+
 /**
  * Close every finished week that isn't closed yet, oldest first: each week
  * after the newest closed one, up to last week. A week nobody read the board
  * after still gets its finishes and Top 3 stamps. Before any week has closed,
  * only last week is, so weeks from before the board (backfilled XP) stay open.
+ * At most `limit` weeks per call, oldest first, so the next call goes on.
  */
-export async function closeFinishedWeeks(at: Date = new Date()): Promise<{ weekKey: string; closed: boolean; stamped: string[] }[]> {
+export async function closeFinishedWeeks(
+  at: Date = new Date(),
+  limit: number = CATCH_UP_WEEKS,
+): Promise<{ weekKey: string; closed: boolean; stamped: string[] }[]> {
   const last = addDays(manilaWeekKey(at), -7);
   const newest = await prisma.boardWeek.findFirst({ orderBy: { weekKey: "desc" }, select: { weekKey: true } });
   const floor = addDays(last, -7 * (CATCH_UP_WEEKS - 1));
@@ -119,7 +126,7 @@ export async function closeFinishedWeeks(at: Date = new Date()): Promise<{ weekK
   if (weekKey < floor) weekKey = floor;
 
   const out: { weekKey: string; closed: boolean; stamped: string[] }[] = [];
-  for (; weekKey <= last; weekKey = addDays(weekKey, 7)) out.push({ weekKey, ...(await closeWeek(weekKey, at)) });
+  for (; weekKey <= last && out.length < limit; weekKey = addDays(weekKey, 7)) out.push({ weekKey, ...(await closeWeek(weekKey, at)) });
   return out;
 }
 
@@ -129,7 +136,7 @@ const nameSelect = { displayName: true, showOnBoard: true, displayNameHiddenAt: 
 export async function readBoard(userId: string, at: Date = new Date()): Promise<BoardView> {
   const weekKey = manilaWeekKey(at);
   try {
-    await closeFinishedWeeks(at);
+    await closeFinishedWeeks(at, READ_CATCH_UP_WEEKS);
   } catch (err) {
     Sentry.captureException(err, { extra: { context: "board-close-week", weekKey } });
   }

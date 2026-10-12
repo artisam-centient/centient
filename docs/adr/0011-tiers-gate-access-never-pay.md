@@ -55,7 +55,9 @@ its campaign's resolves at `RESOLUTION_MIN_ANSWERS` settled answers (default
 supply stays uncapped, which a response target alone does. The write is
 conditional on `resolvedAt` being null, so two workers resolve a task once.
 This resolution is best effort, beside the rail: if it fails, the paid answer's
-job still reaches `done`, and the task's next payout tries again. A task with
+job still reaches `done`, and the task's next payout tries again. If that was
+the task's last payout, it stays open and its crowd XP is never awarded: XP
+lost, never money. A task with
 its own `responseTarget` resolves on the rail, as it did before.
 
 **Crowd match is +5 XP, beside the rail.** When a task resolves, each settled
@@ -75,8 +77,10 @@ aren't on record.
 
 **A quality check looks like any task.** A gold task has no difficulty, which
 would always read as 10 XP and Starter on the task screen. It shows a stand-in
-difficulty instead, stable per labeler and task, from the band that labeler is
-served. Display only: a passed check still earns `QUALITY_CHECK` XP.
+difficulty instead: a real open task's, picked stably per labeler and task from
+the band that labeler is served, so checks follow the pool's own spread. Display
+only: a passed check still earns `QUALITY_CHECK` XP, and its reward amount is
+unchanged (gold has always paid the default, a separate tell).
 
 ## Consequences
 

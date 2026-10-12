@@ -253,4 +253,11 @@ describe("closeFinishedWeeks", () => {
     expect(await prisma.userStamp.count({ where: { userId: a, stampId: "top-3-week" } })).toBe(1);
     expect(await closeFinishedWeeks(NOW)).toEqual([]);
   });
+
+  it("closes a long gap a few weeks per call, oldest first, and the next call goes on", async () => {
+    await prisma.boardWeek.create({ data: { weekKey: "2026-08-03" } });
+    const first = await closeFinishedWeeks(NOW, 4);
+    expect(first.map((w) => w.weekKey)).toEqual(["2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31"]);
+    expect((await closeFinishedWeeks(NOW, 4))[0].weekKey).toBe("2026-09-07");
+  });
 });
