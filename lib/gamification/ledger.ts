@@ -44,6 +44,9 @@ function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === "P2002";
 }
 
+/** The answer's own XP row already exists: it was recorded before. */
+class AlreadyRecorded extends Error {}
+
 const streakSelect = { xp: true, streakDays: true, bestStreak: true, restDays: true, lastGoalDay: true } as const;
 const tierSelect = { tier: true, tierOnHold: true, holdChecksPassed: true } as const;
 
@@ -124,10 +127,15 @@ export async function recordAccepted(answer: AcceptedAnswer): Promise<Progress> 
         lines.push({ kind, amount });
       };
 
-      // A duplicate here throws P2002 and rolls the whole award back, so the
-      // day's count below moves once per submission.
-      if (isQualityCheck) await award("QUALITY_CHECK", QUALITY_CHECK_XP, `check:${submissionId}`, submissionId);
-      else await award("ANSWER", answerXp(difficulty), `answer:${submissionId}`, submissionId);
+      // A duplicate here rolls the whole award back, so the day's count below
+      // moves once per submission. Only this row's key means "already
+      // recorded"; any other unique violation is a real failure and is thrown.
+      try {
+        if (isQualityCheck) await award("QUALITY_CHECK", QUALITY_CHECK_XP, `check:${submissionId}`, submissionId);
+        else await award("ANSWER", answerXp(difficulty), `answer:${submissionId}`, submissionId);
+      } catch (err) {
+        throw isUniqueViolation(err) ? new AlreadyRecorded() : err;
+      }
 
       // The increment locks the day's row until commit, so concurrent answers
       // see distinct counts and only one sees exactly the goal.
@@ -196,7 +204,7 @@ export async function recordAccepted(answer: AcceptedAnswer): Promise<Progress> 
       };
     });
   } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
+    if (!(err instanceof AlreadyRecorded)) throw err;
     return currentProgress(userId, dayKey);
   }
   return withStanding(await withQuests(recorded.progress, answer), recorded.stored, answer);
