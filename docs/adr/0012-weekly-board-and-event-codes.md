@@ -44,8 +44,10 @@ banned labeler doesn't place. The top 20 show, with the caller's own row below t
 
 **A week closes lazily, once.** The first board read of a new week records each
 placed labeler's finish (`weekly_results`, for "Best: #6") and awards the Top 3
-stamp to those who don't hold it. `POST /api/cron/weekly-board` does the same
-as a backstop. The week's `board_weeks` row is inserted in the same
+stamp to those who don't hold it. It closes every finished week since the
+newest closed one, so a week nobody read the board after still closes; before
+any week has closed, only last week is, so weeks of backfilled XP from before
+the board stay open. `POST /api/cron/weekly-board` does the same as a backstop. The week's `board_weeks` row is inserted in the same
 transaction, `ON CONFLICT DO NOTHING`, so racing reads close it once. A week
 still running is never closed.
 

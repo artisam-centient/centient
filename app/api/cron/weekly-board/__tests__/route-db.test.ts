@@ -35,8 +35,15 @@ describe("POST /api/cron/weekly-board", () => {
   it("closes last week once", async () => {
     const lastWeek = addDays(manilaWeekKey(), -7);
     const first = await call(`Bearer ${SECRET}`);
-    expect(await first.json()).toEqual({ weekKey: lastWeek, closed: true, stamped: 0 });
+    expect(await first.json()).toEqual({ weekKey: lastWeek, closed: [lastWeek], stamped: 0 });
     const again = await call(`Bearer ${SECRET}`);
-    expect(await again.json()).toEqual({ weekKey: lastWeek, closed: false, stamped: 0 });
+    expect(await again.json()).toEqual({ weekKey: lastWeek, closed: [], stamped: 0 });
+  });
+
+  it("catches up on weeks missed since the last one closed", async () => {
+    const lastWeek = addDays(manilaWeekKey(), -7);
+    await prisma.boardWeek.create({ data: { weekKey: addDays(lastWeek, -21) } });
+    const res = await call(`Bearer ${SECRET}`);
+    expect((await res.json()).closed).toEqual([addDays(lastWeek, -14), addDays(lastWeek, -7), lastWeek]);
   });
 });
