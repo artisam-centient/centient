@@ -22,7 +22,7 @@
   --color-on-secondary-fixed: #251a00;
   --color-on-secondary-fixed-variant: #5a4300;
 
-  /* Tertiary — indigo (reserved, not used in v1 core flows) */
+  /* Tertiary — indigo: progress only (XP, goal, streaks; DESIGN.md "Indigo Is Progress") */
   --color-tertiary: #494bd6;
   --color-on-tertiary: #ffffff;
   --color-tertiary-container: #aeb0ff;
@@ -142,6 +142,22 @@ details > summary {
 }
 
 /* The in-app loader shows up only once a wait has lasted long enough to notice. */
+/* #202: a new tier. The owl settles in and the receipt prints down from the band. */
+@keyframes tier-owl {
+  from {
+    transform: scale(0.82) translateY(6px);
+  }
+}
+/* Negative insets leave room for the stub's drop-shadow once it has printed. */
+@keyframes tier-print {
+  from {
+    clip-path: inset(-48px -48px 100% -48px);
+  }
+  to {
+    clip-path: inset(-48px);
+  }
+}
+
 @keyframes screen-loader-in {
   from {
     opacity: 0;

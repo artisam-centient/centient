@@ -21,6 +21,8 @@ import { getLabelerSession } from "@/lib/labeler-auth";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
 import { accountHasUsdcTrustline } from "@/lib/stellar/client";
 import { REWARDED_STATUSES } from "@/lib/constants";
+import { recordAccepted, type AcceptedAnswer, type Progress } from "@/lib/gamification/ledger";
+import { updateStanding } from "@/lib/gamification/standing";
 
 function errorResponse(code: string, status: number, context: Record<string, unknown> = {}) {
   console.error(`[submit] ${code}`, context);
@@ -29,6 +31,34 @@ function errorResponse(code: string, status: number, context: Record<string, unk
     extra: context,
   });
   return NextResponse.json({ error: code }, { status });
+}
+
+/**
+ * XP for an answer whose own write has already committed (#201, ADR-0010). It
+ * sits beside the payout rail, not inside it: a failure here is reported and
+ * the answer still succeeds, just without a `progress` block.
+ */
+async function awardXp(answer: AcceptedAnswer): Promise<{ progress?: Progress }> {
+  try {
+    return { progress: await recordAccepted(answer) };
+  } catch (err) {
+    Sentry.captureException(err, {
+      extra: { context: "submit-xp", userId: answer.userId, submissionId: answer.submissionId },
+    });
+    return {};
+  }
+}
+
+/**
+ * #202: a failed check can hold the labeler's tier. Best effort, after the
+ * check's own write, like the XP above.
+ */
+async function recordFailedCheck(userId: string): Promise<void> {
+  try {
+    await updateStanding(userId, "check_failed");
+  } catch (err) {
+    Sentry.captureException(err, { extra: { context: "submit-standing", userId } });
+  }
 }
 
 /**
@@ -46,6 +76,13 @@ function errorResponse(code: string, status: number, context: Record<string, unk
  * broadcasts it through the co-signer out of band, so the response says
  * `pending`, never paid. A passed gold check earns nothing and says so only
  * after the answer, so nothing before it tells a gold task apart.
+ *
+ * #201: an accepted answer and a passed gold check outside retest then earn XP,
+ * after their write commits. No rejected path, and no retest answer, does.
+ *
+ * #202: every row carries the labeler's tier when they answered, a retest check
+ * is marked so the tier floors leave it out, and a failed check outside retest
+ * can put the tier on hold.
  */
 export async function POST(req: NextRequest) {
   // ST-5d: identity is the session (userId), not a `0x` wallet in the body. #30:
@@ -176,6 +213,8 @@ export async function POST(req: NextRequest) {
               goldPassed: correct,
               payoutAmountUnits: 0n,
               payoutStatus: "skipped",
+              retest: true,
+              labelerTier: user.tier,
             },
           });
           await tx.user.update({
@@ -247,6 +286,7 @@ export async function POST(req: NextRequest) {
               goldPassed: false,
               payoutAmountUnits: 0n,
               payoutStatus: "skipped",
+              labelerTier: user.tier,
             },
           });
           await tx.user.update({
@@ -285,6 +325,7 @@ export async function POST(req: NextRequest) {
           });
         }
 
+        await recordFailedCheck(userId);
         return NextResponse.json({ paid: false, reason: "quality_check_failed" });
       }
 
@@ -316,6 +357,7 @@ export async function POST(req: NextRequest) {
             isGoldCheck: task.isGold,
             payoutAmountUnits: 0n,
             payoutStatus: "skipped",
+            labelerTier: user.tier,
           },
         });
         await prisma.user.update({
@@ -334,6 +376,7 @@ export async function POST(req: NextRequest) {
       choice,
       reason: reason.trim(),
       isGoldCheck: task.isGold,
+      labelerTier: user.tier,
     };
 
     // A passed gold check earns nothing now that a reward moves money on-chain
@@ -348,7 +391,8 @@ export async function POST(req: NextRequest) {
         await tx.user.update({ where: { id: userId }, data: { lastSubmissionAt: new Date() } });
         return row;
       });
-      return NextResponse.json({ paid: false, reason: "quality_check_passed", submissionId: gold.id });
+      const xp = await awardXp({ userId, submissionId: gold.id, difficulty: null, isQualityCheck: true });
+      return NextResponse.json({ paid: false, reason: "quality_check_passed", submissionId: gold.id, ...xp });
     }
 
     const amount = resolveRewardUnits(task.rewardUnits, task.campaign?.rewardUnits ?? null);
@@ -418,11 +462,14 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
+    const xp = await awardXp({ userId, submissionId: submission.id, difficulty: task.difficulty, isQualityCheck: false });
+
     // `pending` is the truth: the payout is queued, not broadcast. The account
     // sheet shows it move to sent and confirmed.
     return NextResponse.json({
       status: "pending",
       submissionId: submission.id,
+      ...xp,
     });
   } catch (err) {
     // #38: a repeated request converges. Two concurrent submits for one task can
