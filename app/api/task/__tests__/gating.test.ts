@@ -2,6 +2,8 @@
 // with no difficulty open to all, Campaign.minTier, holds, and the server flag
 // that keeps serving unchanged until it is on.
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { standInDifficulty, tierOfDifficulty } from "@/lib/gamification/tiers";
+import { answerXp } from "@/lib/gamification/rules";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/task/route";
 import { signLabelerJWT } from "@/lib/labeler-auth";
@@ -36,7 +38,7 @@ async function served(userId: string) {
     }),
   );
   expect(res.status).toBe(200);
-  return (await res.json()).task as { id: string; tier: number } | null;
+  return (await res.json()).task as { id: string; tier: number; xp: number | null } | null;
 }
 
 /** An out-of-band task first, so the oldest-first order would serve it if it weren't filtered. */
@@ -129,11 +131,19 @@ describe("GET /api/task - the task's tier, for the chip (#202)", () => {
     expect((await served(await labeler(3)))?.tier).toBe(tier);
   });
 
-  it("reads a platform quality check as an open task, like any with no difficulty", async () => {
+  it("shows a quality check as a task from the labeler's own band, the same each time", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
-    await createGoldTask("A");
-    const task = await served(await labeler(3));
-    expect(task?.tier).toBe(0);
+    const gold = await createGoldTask("A");
+    const expert = await labeler(3);
+    const first = await served(expert);
+    expect(first?.id).toBe(gold.id);
+    const shown = standInDifficulty(`${gold.id}:${expert}`, 9);
+    expect(first?.tier).toBe(tierOfDifficulty(shown));
+    expect(first?.xp).toBe(answerXp(shown));
+    expect(await served(expert)).toMatchObject({ tier: first?.tier, xp: first?.xp });
+
+    // A Starter is served up to difficulty 3, so a check never reads above it.
+    expect((await served(await labeler(0)))?.tier).toBe(0);
   });
 });
 

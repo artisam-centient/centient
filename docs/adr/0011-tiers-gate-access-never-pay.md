@@ -68,7 +68,15 @@ never holds or quarantines the payout.
 
 **Retest stays out.** Gold checks answered during post-cooldown retest are
 marked `Submission.retest` and left out of the floors and stamps; retest
-decides a ban, not a tier.
+decides a ban, not a tier. Retest rows written before the column existed are
+marked by a backfill: the first 3 checks after a labeler's latest ban
+(`users.lastBanAt`), since nothing else is accepted while banned. Earlier bans
+aren't on record.
+
+**A quality check looks like any task.** A gold task has no difficulty, which
+would always read as 10 XP and Starter on the task screen. It shows a stand-in
+difficulty instead, stable per labeler and task, from the band that labeler is
+served. Display only: a passed check still earns `QUALITY_CHECK` XP.
 
 ## Consequences
 
@@ -81,8 +89,7 @@ decides a ban, not a tier.
   campaign balances faster. Watch both in the first week.
 - Exports gain `labeler_tier`, the tier when the answer was given
   (`Submission.labelerTier`), so a customer's export doesn't shift as
-  labelers level up. Rows from before #202 read empty, and so do their retest
-  flags.
+  labelers level up. Rows from before #202 read empty for the tier.
 - `tier_up`, `tier_on_hold` and `stamp_awarded` are sent from the server, keyed
   by the internal user id the browser identifies with, at the one transaction
   that changes them. Each fires once, wherever it happened.

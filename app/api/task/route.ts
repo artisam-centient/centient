@@ -19,7 +19,7 @@ import {
 import { markProtected } from "@/lib/gamification/ledger";
 import { answerXp } from "@/lib/gamification/rules";
 import { gatingOn } from "@/lib/gamification/flag";
-import { effectiveTier, maxDifficulty, tierOfDifficulty } from "@/lib/gamification/tiers";
+import { effectiveTier, maxDifficulty, standInDifficulty, tierOfDifficulty, TIERS } from "@/lib/gamification/tiers";
 
 function computeResponseTarget(
   taskResponseTarget: number | null,
@@ -165,6 +165,12 @@ export async function GET(req: NextRequest) {
   const resolvedUnits = resolveRewardUnits(task.rewardUnits, task.campaign?.rewardUnits ?? null);
   const rewardDisplay = unitsToUsdcDisplay(resolvedUnits);
 
+  // A quality check has no difficulty of its own, which would always read as
+  // 10 XP and Starter. It shows a stand-in from the labeler's band instead.
+  const shownDifficulty = task.isGold
+    ? standInDifficulty(`${task.id}:${userId}`, gatingOn() ? maxDifficulty(user.tier, user.tierOnHold) : TIERS[TIERS.length - 1].maxDifficulty)
+    : task.difficulty;
+
   return NextResponse.json({
     task: {
       id: task.id,
@@ -176,11 +182,10 @@ export async function GET(req: NextRequest) {
       rewardDisplay,
       rewardSymbol: REWARD_TOKEN_SYMBOL,
       // #201: what the answer earns if accepted. A retest answer earns none. A
-      // gold task shows the same as any other, so nothing tells it apart.
-      xp: inRetest ? null : answerXp(task.difficulty),
-      // #202: the band the task belongs to, for the "Skilled task" chip. Read
-      // from difficulty alone, so a quality check looks like any other task.
-      tier: tierOfDifficulty(task.difficulty),
+      // gold task shows a stand-in, so nothing tells it apart.
+      xp: inRetest ? null : answerXp(shownDifficulty),
+      // #202: the band the task belongs to, for the "Skilled task" chip.
+      tier: tierOfDifficulty(shownDifficulty),
     },
   });
 }
