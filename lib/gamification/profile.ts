@@ -29,43 +29,46 @@ export async function setBoardProfile(
   userId: string,
   body: { displayName?: unknown; showOnBoard?: unknown },
 ): Promise<ProfileResult | null> {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select });
-  if (!user) return null;
-
   const data: { displayName?: string; displayNameHiddenAt?: null; showOnBoard?: boolean } = {};
+  let name: string | undefined;
   if (body.displayName !== undefined) {
     const checked = validateDisplayName(body.displayName);
     if (!checked.ok) return { ok: false, error: checked.reason };
-    if (await prisma.retiredDisplayName.findUnique({ where: { name: checked.name } })) {
-      return { ok: false, error: "name_retired" };
-    }
-    data.displayName = checked.name;
-    data.displayNameHiddenAt = null;
+    name = checked.name;
   }
   if (body.showOnBoard !== undefined) {
     if (typeof body.showOnBoard !== "boolean") return { ok: false, error: "invalid" };
     data.showOnBoard = body.showOnBoard;
   }
-  const showOnBoard = data.showOnBoard ?? user.showOnBoard;
-  if (showOnBoard && !(data.displayName ?? user.displayName)) return { ok: false, error: "name_required" };
 
-  let saved: typeof user;
+  let result: ProfileResult | null;
   try {
-    saved = await prisma.user.update({ where: { id: userId }, data, select });
+    // The row is held like hideDisplayName holds it, so a name retired by a
+    // hide that commits first is refused here, never written back.
+    result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${userId} FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: userId }, select });
+      if (!user) return null;
+      if (name !== undefined) {
+        if (await tx.retiredDisplayName.findUnique({ where: { name } })) return { ok: false, error: "name_retired" } as const;
+        data.displayName = name;
+        data.displayNameHiddenAt = null;
+      }
+      const showOnBoard = data.showOnBoard ?? user.showOnBoard;
+      if (showOnBoard && !(data.displayName ?? user.displayName)) return { ok: false, error: "name_required" } as const;
+      const saved = await tx.user.update({ where: { id: userId }, data, select });
+      return {
+        ok: true,
+        settings: { displayName: saved.displayName, showOnBoard: saved.showOnBoard, nameHidden: saved.displayNameHiddenAt !== null },
+      } as const;
+    });
   } catch (err) {
     if (isUniqueViolation(err)) return { ok: false, error: "name_taken" };
     throw err;
   }
 
-  if (data.displayName !== undefined) captureServer(userId, "display_name_set", { shown: saved.showOnBoard });
-  return {
-    ok: true,
-    settings: {
-      displayName: saved.displayName,
-      showOnBoard: saved.showOnBoard,
-      nameHidden: saved.displayNameHiddenAt !== null,
-    },
-  };
+  if (result?.ok && data.displayName !== undefined) captureServer(userId, "display_name_set", { shown: result.settings.showOnBoard });
+  return result;
 }
 
 /** An admin hides a labeler's name. Null when there's no name to hide. */

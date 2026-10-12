@@ -33,7 +33,8 @@ export const TOP_STAMP = "top-3-week";
 export async function weekEntries(weekKey: string, db: Db = prisma): Promise<WeekEntry[]> {
   const sums = await db.xpEvent.groupBy({
     by: ["userId"],
-    where: { weekKey, kind: { notIn: [...UNRANKED_KINDS] } },
+    // A banned (or cooling-down) labeler doesn't place, so can't take a Top 3 stamp.
+    where: { weekKey, kind: { notIn: [...UNRANKED_KINDS] }, user: { isBanned: false } },
     _sum: { amount: true },
     _max: { createdAt: true },
   });

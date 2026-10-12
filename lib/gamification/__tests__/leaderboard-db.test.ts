@@ -99,6 +99,14 @@ describe("weekEntries", () => {
     const [entry] = await weekEntries(WEEK);
     expect(entry.checks).toEqual({ passed: 1, total: 2 });
   });
+
+  it("leaves out a banned labeler, so they can't place or take a Top 3 stamp", async () => {
+    const [a, banned] = [await labeler(), await labeler()];
+    await xp(a, 40);
+    await xp(banned, 900);
+    await prisma.user.update({ where: { id: banned }, data: { isBanned: true } });
+    expect((await weekEntries(WEEK)).map((e) => e.userId)).toEqual([a]);
+  });
 });
 
 describe("readBoard", () => {

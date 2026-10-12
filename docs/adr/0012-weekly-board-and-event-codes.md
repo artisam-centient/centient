@@ -39,8 +39,8 @@ the week's `weekKey`, every kind except `EVENT_CODE` and `INVITE`, so a booth
 code or a referral can't buy a place (both still count toward tiers). Ties go to whoever reached the total
 first. To place, quality checks that week must be 80% or better, counted from
 3 checks; under 3, XP alone places, as ADR-0011's floors do. Checks are counted
-by time within the Manila week, since a failed check writes no XP row. The top
-20 show, with the caller's own row below them when they're further down.
+by time within the Manila week, since a failed check writes no XP row. A
+banned labeler doesn't place. The top 20 show, with the caller's own row below them when they're further down.
 
 **A week closes lazily, once.** The first board read of a new week records each
 placed labeler's finish (`weekly_results`, for "Best: #6") and awards the Top 3
