@@ -35,6 +35,12 @@ model User {
   ageRange             String?
   onboardingCompleted  Boolean  @default(false)
   lastSubmissionAt     DateTime?
+  // XP loop (#201, ADR-0010). XP is never money. lastGoalDay is a Manila day key.
+  xp                   Int      @default(0)
+  streakDays           Int      @default(0)
+  bestStreak           Int      @default(0)
+  restDays             Int      @default(0)
+  lastGoalDay          String?
 
   submissions   Submission[]
   disputes      Dispute[]
@@ -44,6 +50,8 @@ model User {
   flaggedWithdrawals FlaggedWithdrawal[]
   sponsoredTrustlines SponsoredTrustline[]
   legacyEarningsBackfill LegacyEarningsBackfill?
+  xpEvents      XpEvent[]
+  dailyProgress DailyProgress[]
 
   @@map("users")
 }
@@ -206,6 +214,8 @@ model Task {
   agreementScore Float?
   resolvedAt     DateTime?
   disabled       Boolean   @default(false)
+  // 1–9, from the 9 Oct pool pricing (#201). Sets the answer's XP band; null pays the lowest.
+  difficulty     Int?
 
   submissions Submission[]
   campaign    Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -564,4 +574,47 @@ model QaFixtureRun {
 
   @@index([seededAt])
   @@map("qa_fixture_runs")
+}
+
+enum XpKind {
+  ANSWER
+  QUALITY_CHECK
+  DAILY_GOAL
+  STREAK_MILESTONE
+}
+
+// XP ledger (#201, ADR-0010). Append-only, like BalanceLedger: never updated or
+// deleted. dedupeKey makes every award idempotent: answer:<submissionId>,
+// check:<submissionId>, goal:<userId>:<dayKey>, streak:<userId>:<dayKey>.
+model XpEvent {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind         XpKind
+  amount       Int
+  submissionId String?  // no FK — same reasoning as UserBalanceLedger
+  dedupeKey    String   @unique
+  dayKey       String   // Manila day
+  weekKey      String   // Monday of that Manila week
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([weekKey, userId])
+  @@map("xp_events")
+}
+
+// One row per labeler per Manila day they did anything the loop counts.
+// `protected`: /api/task had nothing open for them that day, so it can't break
+// their streak. `restUsed`: a rest day covered it.
+model DailyProgress {
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dayKey    String
+  counted   Int     @default(0)
+  goalMet   Boolean @default(false)
+  protected Boolean @default(false)
+  restUsed  Boolean @default(false)
+
+  @@id([userId, dayKey])
+  @@map("daily_progress")
 }

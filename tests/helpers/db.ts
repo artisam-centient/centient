@@ -32,6 +32,8 @@ export async function truncateAll(): Promise<void> {
     }
   };
 
+  await tryDelete(() => prisma.xpEvent.deleteMany());
+  await tryDelete(() => prisma.dailyProgress.deleteMany());
   await tryDelete(() => prisma.flaggedWithdrawal.deleteMany());
   await tryDelete(() => prisma.bannedIdentity.deleteMany());
   await tryDelete(() => prisma.userIdentifierHistory.deleteMany());

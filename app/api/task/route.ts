@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import {
@@ -15,6 +16,8 @@ import {
   isInRetest,
   RETEST_GOLD_COUNT,
 } from "@/lib/admin-data";
+import { markProtected } from "@/lib/gamification/ledger";
+import { answerXp } from "@/lib/gamification/rules";
 
 function computeResponseTarget(
   taskResponseTarget: number | null,
@@ -68,6 +71,7 @@ export async function GET(req: NextRequest) {
     isGold: boolean;
     responseTarget: number | null;
     rewardUnits: bigint | null;
+    difficulty: number | null;
     campaign: { defaultResponseTarget: number; rewardUnits: bigint } | null;
     _count: { submissions: number };
   } | null = null;
@@ -136,6 +140,13 @@ export async function GET(req: NextRequest) {
   }
 
   if (!task) {
+    // #201: nothing is open for this labeler, so today can't break their streak.
+    // Best effort: the answer below doesn't depend on it.
+    try {
+      await markProtected(userId);
+    } catch (err) {
+      Sentry.captureException(err, { extra: { context: "task-protect-day", userId } });
+    }
     return NextResponse.json({ task: null, message: "No more tasks available" });
   }
 
@@ -154,6 +165,9 @@ export async function GET(req: NextRequest) {
       rewardUnits: resolvedUnits.toString(),
       rewardDisplay,
       rewardSymbol: REWARD_TOKEN_SYMBOL,
+      // #201: what the answer earns if accepted. A retest answer earns none. A
+      // gold task shows the same as any other, so nothing tells it apart.
+      xp: inRetest ? null : answerXp(task.difficulty),
     },
   });
 }

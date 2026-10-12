@@ -14,6 +14,7 @@
     "worker": "tsx lib/upload-worker.ts",
     "reconciler": "tsx lib/reconciler.ts",
     "reconcile:report": "tsx scripts/reconcile-report.ts",
+    "xp:repair": "tsx scripts/xp-repair.ts",
     "payout": "tsx lib/payout-worker.ts",
     "cosign": "tsx services/cosigner/server.ts",
     "stellar:multisig:setup": "tsx scripts/stellar-multisig-setup.ts",
