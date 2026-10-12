@@ -58,3 +58,30 @@ export function dayKeysBetween(from: string, to: string): string[] {
 export function weekDayKeys(weekKey: string): string[] {
   return Array.from({ length: 7 }, (_, i) => addDays(weekKey, i));
 }
+
+/** A real calendar day written as a day key. */
+export function isDayKey(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const ms = toUtcMs(value);
+  return !Number.isNaN(ms) && fromUtcMs(ms) === value;
+}
+
+/**
+ * The instant a Manila day begins (#203): the board counts a week's quality
+ * checks by their time, since a failed check has no XP row to carry a week key.
+ */
+export function dayStartUtc(dayKey: string): Date {
+  const guess = toUtcMs(dayKey);
+  const wall = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone(),
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(guess));
+  const part = (type: string) => wall.find((p) => p.type === type)?.value ?? "00";
+  const wallMs = Date.parse(`${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}:00Z`);
+  return new Date(guess - (wallMs - guess));
+}

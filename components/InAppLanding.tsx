@@ -6,7 +6,6 @@ import Faq from "./Faq";
 import { REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 import { useLogoReady } from "@/lib/use-logo-ready";
 import { GAMIFICATION_ON } from "@/lib/gamification/flag";
-import { STAMPS } from "@/lib/gamification/stamps";
 import type { ProgressView } from "@/lib/gamification/types";
 import TierCard from "./gamification/TierCard";
 import OnHoldCard from "./gamification/OnHoldCard";
@@ -18,8 +17,46 @@ interface InAppLandingProps {
   onStart: () => void;
   /** #201: the XP loop, behind NEXT_PUBLIC_GAMIFICATION. Undefined while loading; null when unavailable. */
   progress?: ProgressView | null;
-  /** #202: opens Progress and stamps. */
-  onOpenProgress?: () => void;
+  /** #202: opens Progress and stamps; #203: or straight to This week. */
+  onOpenProgress?: (tab?: "stamps" | "week") => void;
+}
+
+/** #203 (board 03): where the labeler stands on this week's board. */
+function boardStanding(board: ProgressView["board"] | undefined): string {
+  if (!board || board.xp === 0) return "Not on it yet";
+  if (!board.placed || board.rank === null) return "Not placed yet";
+  return `You're #${board.rank}`;
+}
+
+function NavRow({
+  icon,
+  label,
+  onClick,
+  children,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-[52px] w-full items-center gap-2.5 rounded-xl text-left text-on-surface focus-visible:ring-2 focus-visible:ring-primary"
+    >
+      <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-tertiary-fixed">
+        <span className="material-symbols-outlined text-[18px] text-tertiary" aria-hidden="true">
+          {icon}
+        </span>
+      </span>
+      <span className="min-w-0 flex-1 truncate font-label text-[15px] font-semibold">{label}</span>
+      <span className="shrink-0 font-body text-[13px] tabular-nums text-on-surface-variant">{children}</span>
+      <span className="material-symbols-outlined text-[22px] text-outline" aria-hidden="true">
+        chevron_right
+      </span>
+    </button>
+  );
 }
 
 export default function InAppLanding({
@@ -100,24 +137,13 @@ export default function InAppLanding({
                     aria-label="Your progress"
                     className="w-full rounded-3xl bg-surface-container-lowest px-4 py-1 shadow-[0_8px_24px_rgba(25,28,30,0.06)]"
                   >
-                    <button
-                      type="button"
-                      onClick={onOpenProgress}
-                      className="flex min-h-[52px] w-full items-center gap-2.5 rounded-xl text-left text-on-surface focus-visible:ring-2 focus-visible:ring-primary"
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-tertiary-fixed">
-                        <span className="material-symbols-outlined text-[18px] text-tertiary" aria-hidden="true">
-                          approval
-                        </span>
-                      </span>
-                      <span className="min-w-0 flex-1 truncate font-label text-[15px] font-semibold">Progress and stamps</span>
-                      <span className="shrink-0 font-body text-[13px] tabular-nums text-on-surface-variant">
-                        {progress.stamps.filter((s) => s.awardedAt).length} of {STAMPS.length}
-                      </span>
-                      <span className="material-symbols-outlined text-[22px] text-outline" aria-hidden="true">
-                        chevron_right
-                      </span>
-                    </button>
+                    <NavRow icon="approval" label="Progress and stamps" onClick={() => onOpenProgress("stamps")}>
+                      {progress.stamps.filter((s) => s.awardedAt).length} of {progress.stamps.length}
+                    </NavRow>
+                    <div aria-hidden="true" className="ml-[42px] h-px bg-outline-variant/30" />
+                    <NavRow icon="leaderboard" label="This week's board" onClick={() => onOpenProgress("week")}>
+                      {boardStanding(progress.board)}
+                    </NavRow>
                   </nav>
                 )}
               </>

@@ -174,7 +174,7 @@ describe("StampGrid", () => {
     expect(stampCaption("answers-250", status("answers-250", { progress: { current: 53, target: 250 } }), now)).toBe("53 / 250");
     expect(stampCaption("in-step", status("in-step", { progress: { current: 18, target: 25 } }), now)).toBe("Matched 18 / 25");
     expect(stampCaption("all-rounder", status("all-rounder", { progress: { current: 4, target: 6 } }), now)).toBe("4 / 6 topics");
-    expect(stampCaption("blockquest-fiesta", status("blockquest-fiesta"), now)).toBe("Event code");
+    expect(stampCaption("event", status("event"), now)).toBe("Event code");
     expect(stampCaption("top-3-week", status("top-3-week"), now)).toBe("Weekly top 3");
   });
 

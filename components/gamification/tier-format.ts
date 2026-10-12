@@ -61,11 +61,17 @@ export function earnedToday(awardedAt: string, now: Date): boolean {
   return DAY_KEY.format(new Date(awardedAt)) === DAY_KEY.format(now);
 }
 
-/** Under a stamp: when it was earned, or how far along it is. */
-export function stampCaption(id: string, s: StampStatus, now: Date): string {
-  if (s.awardedAt) return earnedToday(s.awardedAt, now) ? "Today" : DAY.format(new Date(s.awardedAt));
-  if (id === "blockquest-fiesta") return "Event code";
-  if (id === "top-3-week") return "Weekly top 3";
+/**
+ * Under a stamp: when it was earned, or how far along it is. #203: an event
+ * stamp says it's from an event, and the locked Top 3 shows the best finish.
+ */
+export function stampCaption(id: string, s: StampStatus, now: Date, bestRank: number | null = null): string {
+  if (s.awardedAt) {
+    const when = earnedToday(s.awardedAt, now) ? "Today" : DAY.format(new Date(s.awardedAt));
+    return s.event ? `Event · ${when}` : when;
+  }
+  if (id === "event") return "Event code";
+  if (id === "top-3-week") return bestRank !== null ? `Best: #${bestRank}` : "Weekly top 3";
   if (!s.progress) return "";
   const of = `${s.progress.current} / ${s.progress.target}`;
   if (id === "in-step") return `Matched ${of}`;
