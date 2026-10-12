@@ -4,6 +4,7 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import SubmitButton from "./SubmitButton";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 import { validateReason } from "@/lib/validators";
+import { GAMIFICATION_ON } from "@/lib/gamification/flag";
 
 type Side = "A" | "B";
 
@@ -23,6 +24,8 @@ interface TaskCardProps {
   error?: string | null;
   reward?: string;
   tokenSymbol?: string;
+  /** #201: what the answer earns in XP if accepted; null when it earns none. */
+  xp?: number | null;
 }
 
 const SIDES: readonly Side[] = ["A", "B"];
@@ -47,7 +50,7 @@ export function choiceForKey(key: string, focused: Side): Side | null {
 }
 
 /** One ranking task: holds the chosen response and the reason, and submits them. */
-export default function TaskCard({ task, onSubmit, loading, error = null, reward, tokenSymbol }: TaskCardProps) {
+export default function TaskCard({ task, onSubmit, loading, error = null, reward, tokenSymbol, xp }: TaskCardProps) {
   const [choice, setChoice] = useState<Side | null>(null);
   const [reason, setReason] = useState("");
 
@@ -66,6 +69,7 @@ export default function TaskCard({ task, onSubmit, loading, error = null, reward
       error={error}
       reward={reward}
       tokenSymbol={tokenSymbol}
+      xp={xp}
       onChoose={setChoice}
       onReasonChange={setReason}
       onSubmit={handleSubmit}
@@ -81,6 +85,7 @@ interface TaskCardViewProps {
   error: string | null;
   reward?: string;
   tokenSymbol?: string;
+  xp?: number | null;
   onChoose: (side: Side) => void;
   onReasonChange: (reason: string) => void;
   onSubmit: () => void;
@@ -95,6 +100,7 @@ export function TaskCardView({
   error,
   reward,
   tokenSymbol,
+  xp,
   onChoose,
   onReasonChange,
   onSubmit,
@@ -150,6 +156,12 @@ export function TaskCardView({
             monetization_on
           </span>
           <span className="font-headline text-sm font-bold text-secondary">{displayReward} {displaySymbol}</span>
+          {GAMIFICATION_ON && xp != null && (
+            <>
+              <span aria-hidden="true" className="h-3.5 w-px bg-outline-variant" />
+              <span className="font-headline text-sm font-extrabold text-tertiary">+{xp} XP</span>
+            </>
+          )}
         </div>
       </div>
 

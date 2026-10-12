@@ -22,7 +22,7 @@
   --color-on-secondary-fixed: #251a00;
   --color-on-secondary-fixed-variant: #5a4300;
 
-  /* Tertiary — indigo (reserved, not used in v1 core flows) */
+  /* Tertiary — indigo: progress only (XP, goal, streaks; DESIGN.md "Indigo Is Progress") */
   --color-tertiary: #494bd6;
   --color-on-tertiary: #ffffff;
   --color-tertiary-container: #aeb0ff;
