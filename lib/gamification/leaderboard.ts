@@ -24,8 +24,8 @@ export type { BoardRow, BoardView } from "./types";
 
 type Db = Prisma.TransactionClient;
 
-/** XP the board doesn't rank: a booth code can't buy a place. It still counts toward tiers. */
-export const UNRANKED_KINDS: readonly XpKind[] = ["EVENT_CODE"];
+/** XP the board doesn't rank: a booth code or an invite can't buy a place. Both still count toward tiers. */
+export const UNRANKED_KINDS: readonly XpKind[] = ["EVENT_CODE", "INVITE"];
 
 export const TOP_STAMP = "top-3-week";
 

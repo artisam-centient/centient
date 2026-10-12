@@ -91,14 +91,14 @@ describe("GET /api/me/progress - tier (#202)", () => {
 });
 
 describe("GET /api/me/progress - stamps (#202)", () => {
-  it("lists all 12, earned ones with their date and locked ones with progress", async () => {
+  it("lists all 14, earned ones with their date and locked ones with progress", async () => {
     const userId = await labeler({});
     const awardedAt = new Date("2026-10-11T03:00:00Z");
     await prisma.userStamp.create({ data: { userId, stampId: "first-answer", awardedAt } });
     await prisma.user.update({ where: { id: userId }, data: { bestStreak: 4 } });
 
     const { stamps } = await getAs(userId);
-    expect(stamps).toHaveLength(12);
+    expect(stamps).toHaveLength(14);
     expect(stamps[0]).toEqual({ id: "first-answer", awardedAt: awardedAt.toISOString(), progress: { current: 0, target: 1 } });
     expect(stamps.find((s: { id: string }) => s.id === "streak-7")).toEqual({
       id: "streak-7",

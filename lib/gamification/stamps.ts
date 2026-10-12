@@ -2,8 +2,9 @@
 // definitions the server awards from. A stamp is a keepsake: it never pays and
 // never opens a task.
 //
-// Two of the twelve aren't counted from stats (#203): the Event slot, filled by
-// an event code, and the weekly Top 3, awarded when a week's board closes. Each
+// Four of the fourteen aren't counted from stats (#203): the Event slot, filled
+// by an event code; the two invite stamps, awarded when an invited friend
+// reaches Skilled; and the weekly Top 3, awarded when a week's board closes. Each
 // code also has a stamp of its own, `event:<codeId>`, held beside the slot
 // (lib/gamification/events.ts), so the count grows with every event.
 
@@ -92,6 +93,22 @@ export const STAMPS: readonly StampDef[] = [
     title: "Event",
     icon: "festival",
     criteria: "Add a code from a Centient event.",
+    goal: null,
+    earnable: true,
+  },
+  {
+    id: "invited-in",
+    title: "Invited in",
+    icon: "waving_hand",
+    criteria: "Join through a friend's invite and reach Skilled.",
+    goal: null,
+    earnable: true,
+  },
+  {
+    id: "brought-a-friend",
+    title: "Brought a friend",
+    icon: "group_add",
+    criteria: "Invite a friend who reaches Skilled.",
     goal: null,
     earnable: true,
   },

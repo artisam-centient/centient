@@ -1,4 +1,4 @@
-// #203 — GET /api/me/progress: each event code's own stamp beside the twelve,
+// #203 — GET /api/me/progress: each event code's own stamp beside the fourteen,
 // and where the labeler stands on this week's board.
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
@@ -27,7 +27,7 @@ async function getAs(userId: string) {
 }
 
 describe("GET /api/me/progress - event stamps (#203)", () => {
-  it("lists the twelve, then each event stamp held, with its own title and icon", async () => {
+  it("lists the fourteen, then each event stamp held, with its own title and icon", async () => {
     const userId = (await createUser()).id;
     const admin = await createAdminUser();
     const today = manilaDayKey();
@@ -42,9 +42,9 @@ describe("GET /api/me/progress - event stamps (#203)", () => {
     if (!redeemed?.ok) throw new Error("setup");
 
     const { stamps } = await getAs(userId);
-    expect(stamps).toHaveLength(13);
+    expect(stamps).toHaveLength(15);
     expect(stamps.find((s: { id: string }) => s.id === "event")).toEqual({ id: "event", awardedAt: null, progress: null });
-    expect(stamps[12]).toEqual({
+    expect(stamps[14]).toEqual({
       id: redeemed.stamp.id,
       awardedAt: expect.any(String),
       progress: null,
@@ -66,5 +66,32 @@ describe("GET /api/me/progress - board (#203)", () => {
 
     expect((await getAs(b)).board).toEqual({ rank: 2, xp: 120, placed: true, bestRank: 6 });
     expect((await getAs(a)).board).toEqual({ rank: 1, xp: 300, placed: true, bestRank: null });
+  });
+});
+
+describe("GET /api/me/progress - quests and the invite card (#203)", () => {
+  it("lists this week's three quests, with the ones already awarded done", async () => {
+    const userId = (await createUser()).id;
+    const weekKey = manilaWeekKey();
+    await prisma.xpEvent.create({
+      data: { userId, kind: "QUEST", amount: 30, dedupeKey: `quest:checks-3:${userId}:${weekKey}`, dayKey: manilaDayKey(), weekKey },
+    });
+
+    const { quests } = await getAs(userId);
+    expect(quests.map((q: { id: string }) => q.id)).toEqual(["health-5", "checks-3", "goal-days-4"]);
+    expect(quests[0]).toEqual({ id: "health-5", title: "Answer 5 health tasks", icon: "stethoscope", current: 0, target: 5, xp: 30, done: false });
+    expect(quests[1]).toMatchObject({ id: "checks-3", done: true });
+  });
+
+  it("gives the labeler one invite code and counts only the friends who paid them", async () => {
+    const userId = (await createUser()).id;
+    const first = (await getAs(userId)).invite;
+    expect(first).toEqual({ code: expect.stringMatching(/^[A-HJKMNP-Z2-9]{8}$/), qualified: 0, cap: 10 });
+
+    for (const inviterRewarded of [true, false]) {
+      const friend = (await createUser()).id;
+      await prisma.inviteReward.create({ data: { inviteeId: friend, inviterId: userId, inviterRewarded } });
+    }
+    expect((await getAs(userId)).invite).toEqual({ code: first.code, qualified: 1, cap: 10 });
   });
 });

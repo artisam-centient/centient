@@ -22,15 +22,15 @@ const byId = (id: string) => {
 };
 
 describe("STAMPS", () => {
-  it("defines the 12 v1 stamps with unique ids", () => {
-    expect(STAMPS).toHaveLength(12);
-    expect(new Set(STAMPS.map((s) => s.id)).size).toBe(12);
+  it("defines the 14 stamps with unique ids", () => {
+    expect(STAMPS).toHaveLength(14);
+    expect(new Set(STAMPS.map((s) => s.id)).size).toBe(14);
   });
 
-  it("awards every stamp: the event and weekly ones through their own hooks (#203)", () => {
+  it("awards every stamp: the event, invite and weekly ones through their own hooks (#203)", () => {
     expect(STAMPS.every((s) => s.earnable)).toBe(true);
     const hooked = STAMPS.filter((s) => s.goal === null).map((s) => s.id);
-    expect(hooked.sort()).toEqual(["event", "top-3-week"]);
+    expect(hooked.sort()).toEqual(["brought-a-friend", "event", "invited-in", "top-3-week"]);
   });
 
   it("keeps one generic Event slot; each code's own stamp is held beside it", () => {

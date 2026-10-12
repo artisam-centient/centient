@@ -52,6 +52,12 @@ model User {
   displayName          String?  @unique
   showOnBoard          Boolean  @default(false)
   displayNameHiddenAt  DateTime?
+  // Invites (#203, ADR-0012). inviteCode is made on first read; invitedById is
+  // set only when the account is created through an invite link.
+  inviteCode           String?  @unique
+  invitedById          String?
+  invitedBy            User?    @relation("Invites", fields: [invitedById], references: [id], onDelete: SetNull)
+  invitees             User[]   @relation("Invites")
 
   submissions   Submission[]
   disputes      Dispute[]
@@ -66,6 +72,8 @@ model User {
   stamps        UserStamp[]
   eventRedemptions EventRedemption[]
   weeklyResults WeeklyResult[]
+  inviteRewardAsInvitee InviteReward? @relation("InviteRewardInvitee")
+  inviteRewardsAsInviter InviteReward[] @relation("InviteRewardInviter")
 
   @@map("users")
 }
@@ -604,6 +612,8 @@ enum XpKind {
   STREAK_MILESTONE
   CROWD_MATCH
   EVENT_CODE
+  QUEST
+  INVITE
 }
 
 // XP ledger (#201, ADR-0010). Append-only, like BalanceLedger: never updated or
@@ -713,4 +723,19 @@ model WeeklyResult {
   @@id([weekKey, userId])
   @@index([userId])
   @@map("weekly_results")
+}
+
+// An invite that paid off (#203): written once, when the invitee first reaches
+// Skilled. The key is the invitee, so it pays once. inviterRewarded is false
+// past the inviter's cap of 10; the invitee is rewarded either way.
+model InviteReward {
+  inviteeId       String   @id
+  invitee         User     @relation("InviteRewardInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  inviterId       String
+  inviter         User     @relation("InviteRewardInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviterRewarded Boolean
+  createdAt       DateTime @default(now())
+
+  @@index([inviterId])
+  @@map("invite_rewards")
 }

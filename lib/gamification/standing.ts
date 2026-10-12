@@ -6,12 +6,14 @@
 // the same labeler evaluate one after another, so a tier opens once and a stamp
 // is awarded once, and each PostHog event is sent once.
 
+import * as Sentry from "@sentry/nextjs";
 import prisma from "@/lib/prisma";
 import { unitsToUsdcDisplay } from "@/lib/stellar/config";
 import { readStampStats, readTierSignals } from "./quality-window";
 import { captureStanding } from "./server-analytics";
 import { answerXp } from "./rules";
 import { eventCodeIdOf, eventStampId, isEventStampId } from "./events";
+import { qualifyInvite } from "./invites";
 import { newlyEarned, stampProgress, STAMPS } from "./stamps";
 import { evaluateTier, nextTier, TIER_RULES, TIERS, type TierEvent } from "./tiers";
 import type { StandingSummary, TierBand } from "./types";
@@ -63,6 +65,15 @@ export async function updateStanding(userId: string, event: TierEvent): Promise<
       stampsAwarded: earned,
     };
   });
+
+  // #203: an invite pays off when the invited labeler's first tier opens.
+  if (standing.tierUp !== null) {
+    try {
+      await qualifyInvite(userId);
+    } catch (err) {
+      Sentry.captureException(err, { extra: { context: "invite-qualify", userId } });
+    }
+  }
 
   if (standing.tierUp !== null || standing.heldNow || standing.stampsAwarded.length > 0) {
     captureStanding(userId, {
