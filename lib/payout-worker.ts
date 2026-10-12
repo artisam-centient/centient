@@ -6,7 +6,7 @@ import { maybeSendCapAlert } from "./payout-cap";
 import { StellarPaymentError, describeStellarError } from "./stellar/client";
 import { checkAndAlert } from "./stellar/balance";
 import { computeIAA } from "./quality";
-import { SETTLED_STATUSES } from "./constants";
+import { RESOLUTION_MIN_ANSWERS, SETTLED_STATUSES } from "./constants";
 import { refundReversal } from "./user-balance";
 import {
   abandonAcceptedPayment,
@@ -19,6 +19,8 @@ import { refundCampaignBalance } from "./payout-refund";
 import { confirmAttempt, settleOpenAttempt } from "./payout-attempts";
 import { CoSignerCapError, CoSignerUnavailableError } from "./stellar/cosigner-errors";
 import { COSIGNER_RETRY_AFTER_MS, raiseCoSignerDeferralAlert } from "./payout-deferral";
+import { recordCrowd } from "./gamification/crowd";
+import { updateStanding } from "./gamification/standing";
 
 const STALE_PROCESSING_MS = 60_000;
 // Refresh the in-flight job's heartbeat well within STALE_PROCESSING_MS so a slow
@@ -543,7 +545,11 @@ async function processSubmissionPayout(
     maybeSendCapAlert().catch(() => {});
 
     const task = submission.task;
-    if (!task.isGold && task.responseTarget != null && !task.resolvedAt) {
+    // #202: a task with no target of its own or its campaign's resolves at
+    // RESOLUTION_MIN_ANSWERS. That writes the majority only; supply stays uncapped.
+    const resolveAt = task.responseTarget ?? task.campaign?.defaultResponseTarget ?? RESOLUTION_MIN_ANSWERS;
+    let resolvedNow = false;
+    if (!task.isGold && !task.resolvedAt) {
       const paidCount = await prisma.submission.count({
         where: {
           taskId: submission.taskId,
@@ -553,19 +559,37 @@ async function processSubmissionPayout(
           payoutStatus: { in: [...SETTLED_STATUSES] },
         },
       });
-      if (paidCount >= task.responseTarget) {
+      if (paidCount >= resolveAt) {
         const iaa = await computeIAA(submission.taskId);
         if (iaa) {
-          await prisma.task.update({
-            where: { id: submission.taskId },
+          // Conditional: two workers settling the same task resolve it once (#202).
+          const { count } = await prisma.task.updateMany({
+            where: { id: submission.taskId, resolvedAt: null },
             data: {
               majorityAnswer: iaa.majorityAnswer,
               agreementScore: iaa.agreementScore,
               resolvedAt: new Date(),
             },
           });
+          resolvedNow = count === 1;
         }
       }
+    }
+
+    // #202 (ADR-0011): crowd XP, tiers and stamps sit beside the rail, like the
+    // submit route's XP. Best effort: the payout stands and the job still
+    // reaches `done` whatever happens here.
+    if (!task.isGold) {
+      try {
+        await recordCrowd({ taskId: submission.taskId, submissionId, resolvedNow });
+      } catch (err) {
+        Sentry.captureException(err, { extra: { context: "payout-crowd-xp", submissionId } });
+      }
+    }
+    try {
+      await updateStanding(submission.userId, "payout");
+    } catch (err) {
+      Sentry.captureException(err, { extra: { context: "payout-standing", submissionId } });
     }
 
     await prisma.payoutJob.update({

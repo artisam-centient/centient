@@ -6,8 +6,10 @@ import Faq from "./Faq";
 import { REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 import { useLogoReady } from "@/lib/use-logo-ready";
 import { GAMIFICATION_ON } from "@/lib/gamification/flag";
-import type { ProgressSummary } from "@/lib/gamification/types";
-import XpCard from "./gamification/XpCard";
+import { STAMPS } from "@/lib/gamification/stamps";
+import type { ProgressView } from "@/lib/gamification/types";
+import TierCard from "./gamification/TierCard";
+import OnHoldCard from "./gamification/OnHoldCard";
 import WeekCard from "./gamification/WeekCard";
 
 interface InAppLandingProps {
@@ -15,10 +17,18 @@ interface InAppLandingProps {
   submissionCount: number;
   onStart: () => void;
   /** #201: the XP loop, behind NEXT_PUBLIC_GAMIFICATION. Undefined while loading; null when unavailable. */
-  progress?: ProgressSummary | null;
+  progress?: ProgressView | null;
+  /** #202: opens Progress and stamps. */
+  onOpenProgress?: () => void;
 }
 
-export default function InAppLanding({ totalEarned, submissionCount, onStart, progress }: InAppLandingProps) {
+export default function InAppLanding({
+  totalEarned,
+  submissionCount,
+  onStart,
+  progress,
+  onOpenProgress,
+}: InAppLandingProps) {
   const isNew = submissionCount === 0;
   const subline = isNew
     ? "Welcome — let's get started."
@@ -82,8 +92,34 @@ export default function InAppLanding({ totalEarned, submissionCount, onStart, pr
           <>
             {progress ? (
               <>
-                <XpCard xpTotal={progress.xpTotal} xpThisWeek={progress.xpThisWeek} />
+                <TierCard tier={progress.tier} xpTotal={progress.xpTotal} />
+                {progress.tier.onHold && <OnHoldCard tier={progress.tier} />}
                 <WeekCard progress={progress} />
+                {onOpenProgress && (
+                  <nav
+                    aria-label="Your progress"
+                    className="w-full rounded-3xl bg-surface-container-lowest px-4 py-1 shadow-[0_8px_24px_rgba(25,28,30,0.06)]"
+                  >
+                    <button
+                      type="button"
+                      onClick={onOpenProgress}
+                      className="flex min-h-[52px] w-full items-center gap-2.5 rounded-xl text-left text-on-surface focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-tertiary-fixed">
+                        <span className="material-symbols-outlined text-[18px] text-tertiary" aria-hidden="true">
+                          approval
+                        </span>
+                      </span>
+                      <span className="min-w-0 flex-1 truncate font-label text-[15px] font-semibold">Progress and stamps</span>
+                      <span className="shrink-0 font-body text-[13px] tabular-nums text-on-surface-variant">
+                        {progress.stamps.filter((s) => s.awardedAt).length} of {STAMPS.length}
+                      </span>
+                      <span className="material-symbols-outlined text-[22px] text-outline" aria-hidden="true">
+                        chevron_right
+                      </span>
+                    </button>
+                  </nav>
+                )}
               </>
             ) : progress === null ? null : (
               <div aria-hidden="true" className="flex w-full flex-col gap-6">

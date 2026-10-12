@@ -18,6 +18,8 @@ import {
 } from "@/lib/admin-data";
 import { markProtected } from "@/lib/gamification/ledger";
 import { answerXp } from "@/lib/gamification/rules";
+import { gatingOn } from "@/lib/gamification/flag";
+import { effectiveTier, maxDifficulty, tierOfDifficulty } from "@/lib/gamification/tiers";
 
 function computeResponseTarget(
   taskResponseTarget: number | null,
@@ -103,6 +105,13 @@ export async function GET(req: NextRequest) {
         ? Prisma.sql`AND t.id NOT IN (${Prisma.join(doneIds)})`
         : Prisma.empty;
 
+    // #202: only the labeler's band, and campaigns open to their tier. A held
+    // tier serves the band below. A task with no difficulty is open to all.
+    const tierCondition = gatingOn()
+      ? Prisma.sql`AND (t."difficulty" IS NULL OR t."difficulty" <= ${maxDifficulty(user.tier, user.tierOnHold)})
+        AND COALESCE(c."minTier", 0) <= ${effectiveTier(user.tier, user.tierOnHold)}`
+      : Prisma.empty;
+
     const available = await prisma.$queryRaw<{ id: string }[]>`
       SELECT t.id
       FROM "tasks" t
@@ -114,6 +123,7 @@ export async function GET(req: NextRequest) {
         )
         AND t."disabled" = false
         ${doneIdCondition}
+        ${tierCondition}
         AND (
           COALESCE(t."responseTarget", c."defaultResponseTarget") IS NULL
           OR (
@@ -168,6 +178,9 @@ export async function GET(req: NextRequest) {
       // #201: what the answer earns if accepted. A retest answer earns none. A
       // gold task shows the same as any other, so nothing tells it apart.
       xp: inRetest ? null : answerXp(task.difficulty),
+      // #202: the band the task belongs to, for the "Skilled task" chip. Read
+      // from difficulty alone, so a quality check looks like any other task.
+      tier: tierOfDifficulty(task.difficulty),
     },
   });
 }

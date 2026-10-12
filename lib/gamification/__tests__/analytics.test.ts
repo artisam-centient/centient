@@ -13,6 +13,8 @@ const base: Progress = {
   xpTotal: 15,
   today: { counted: 1, goal: 5, goalMet: false, goalJustMet: false },
   streak: { days: 0, best: 0, restDays: 0, restEarned: false, restUsed: 0, endedAtDays: null },
+  tier: { tier: 0, onHold: false, tierUp: null, holdChecksPassed: 0 },
+  stampsAwarded: [],
 };
 
 beforeEach(() => vi.mocked(track).mockReset());

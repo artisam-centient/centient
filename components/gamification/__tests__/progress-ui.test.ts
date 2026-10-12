@@ -6,7 +6,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import WeekCard from "../WeekCard";
 import AcceptedStub from "../AcceptedStub";
 import TodayStrip from "../TodayStrip";
-import XpCard from "../XpCard";
 import { restLine, todayLine, weekdayName } from "../format";
 import type { Progress, ProgressSummary, WeekDayStatus } from "@/lib/gamification/types";
 
@@ -31,6 +30,8 @@ const progress = (overrides: Partial<Progress> = {}): Progress => ({
   xpTotal: 1015,
   today: { counted: 2, goal: 5, goalMet: false, goalJustMet: false },
   streak: { days: 6, best: 6, restDays: 0, restEarned: false, restUsed: 0, endedAtDays: null },
+  tier: { tier: 0, onHold: false, tierUp: null, holdChecksPassed: 0 },
+  stampsAwarded: [],
   ...overrides,
 });
 
@@ -136,7 +137,7 @@ describe("AcceptedStub", () => {
   });
 });
 
-describe("TodayStrip and XpCard", () => {
+describe("TodayStrip", () => {
   it("shows today's count as a progressbar, with the streak", () => {
     const html = renderToStaticMarkup(createElement(TodayStrip, { counted: 4, streakDays: 6 }));
     expect(text(html)).toContain("Today 4 of 5");
@@ -148,11 +149,6 @@ describe("TodayStrip and XpCard", () => {
     const html = renderToStaticMarkup(createElement(TodayStrip, { counted: 8, streakDays: 0 }));
     expect(text(html)).toContain("Today 5 of 5");
     expect(text(html)).not.toContain("streak");
-  });
-
-  it("shows the XP total and this week's gain, with no tier name", () => {
-    const t = text(renderToStaticMarkup(createElement(XpCard, { xpTotal: 1015, xpThisWeek: 120 })));
-    expect(t).toBe("XP 1,015 +120 this week");
   });
 });
 

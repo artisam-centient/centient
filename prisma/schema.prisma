@@ -41,6 +41,11 @@ model User {
   bestStreak           Int      @default(0)
   restDays             Int      @default(0)
   lastGoalDay          String?
+  // Tiers (#202, ADR-0011): 0 Starter … 3 Expert. Never lowered; a missed floor
+  // holds the tier instead, and passes in a row since then reopen it.
+  tier                 Int      @default(0)
+  tierOnHold           Boolean  @default(false)
+  holdChecksPassed     Int      @default(0)
 
   submissions   Submission[]
   disputes      Dispute[]
@@ -52,6 +57,7 @@ model User {
   legacyEarningsBackfill LegacyEarningsBackfill?
   xpEvents      XpEvent[]
   dailyProgress DailyProgress[]
+  stamps        UserStamp[]
 
   @@map("users")
 }
@@ -184,6 +190,8 @@ model Campaign {
   rewardUnits             BigInt
   csvFileName           String?
   pausedAt              DateTime?
+  // #202: the lowest tier served this campaign's tasks. 0 Everyone, 1 Skilled and up, 2 Trusted and up.
+  minTier               Int      @default(0)
   createdAt             DateTime @default(now())
 
   adminUser AdminUser @relation(fields: [adminUserId], references: [id])
@@ -246,6 +254,10 @@ model Submission {
   payoutError     String?
   lastRetriedAt   DateTime?
   createdAt       DateTime  @default(now())
+  // #202: the labeler's tier when they answered, for exports; null before #202.
+  labelerTier     Int?
+  // #202: a gold check answered during retest. Kept out of the tier floors.
+  retest          Boolean   @default(false)
 
   user User @relation(fields: [userId], references: [id])
   task Task @relation(fields: [taskId], references: [id])
@@ -581,6 +593,7 @@ enum XpKind {
   QUALITY_CHECK
   DAILY_GOAL
   STREAK_MILESTONE
+  CROWD_MATCH
 }
 
 // XP ledger (#201, ADR-0010). Append-only, like BalanceLedger: never updated or
@@ -617,4 +630,15 @@ model DailyProgress {
 
   @@id([userId, dayKey])
   @@map("daily_progress")
+}
+
+// #202: a stamp is earned once. Definitions live in lib/gamification/stamps.ts.
+model UserStamp {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stampId   String
+  awardedAt DateTime @default(now())
+
+  @@id([userId, stampId])
+  @@map("user_stamps")
 }

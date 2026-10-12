@@ -23,9 +23,11 @@ import { sessionStep, type SessionMe } from "@/lib/contributor-session";
 import { waitForPayoutToSettle } from "@/lib/payout-settle-watch";
 import { GAMIFICATION_ON } from "@/lib/gamification/flag";
 import { trackProgress } from "@/lib/gamification/analytics";
-import type { Progress, ProgressSummary } from "@/lib/gamification/types";
+import type { Progress, ProgressView } from "@/lib/gamification/types";
 import AcceptedStub from "@/components/gamification/AcceptedStub";
 import TodayStrip from "@/components/gamification/TodayStrip";
+import TierUpScreen from "@/components/gamification/TierUpScreen";
+import ProgressScreen from "@/components/gamification/ProgressScreen";
 
 const MIN_LOADING_MS = 1500;
 
@@ -45,7 +47,9 @@ type Screen =
   | "quality_passed"
   | "banned"
   | "cooldown"
-  | "wallet_error";
+  | "wallet_error"
+  | "tier_up"
+  | "progress";
 
 interface TaskData {
   id: string;
@@ -57,6 +61,8 @@ interface TaskData {
   rewardSymbol?: string;
   /** #201: XP the answer earns if accepted; null in retest. */
   xp?: number | null;
+  /** #202: the tier whose band holds the task, for its chip. */
+  tier?: number;
 }
 
 interface SubmitResponseBody {
@@ -135,7 +141,9 @@ export default function Home() {
   // #201: the XP loop, behind NEXT_PUBLIC_GAMIFICATION. `progress` is undefined
   // while loading and null when unavailable; `accepted` is the last answer's
   // award, for the success and quality-check screens.
-  const [progress, setProgress] = useState<ProgressSummary | null | undefined>(undefined);
+  const [progress, setProgress] = useState<ProgressView | null | undefined>(undefined);
+  /** #202: a tier the last answer opened, shown once before the next task. */
+  const [pendingTierUp, setPendingTierUp] = useState<number | null>(null);
   const [accepted, setAccepted] = useState<{ progress: Progress; at: Date } | null>(null);
   const [demographics, setDemographics] = useState<{
     country: string | null;
@@ -190,7 +198,7 @@ export default function Home() {
     const generation = sessionGeneration.current;
     try {
       const res = await fetch("/api/me/progress");
-      const data = res.ok ? ((await res.json()) as ProgressSummary) : null;
+      const data = res.ok ? ((await res.json()) as ProgressView) : null;
       if (sessionGeneration.current === generation) setProgress(data);
     } catch {
       if (sessionGeneration.current === generation) setProgress(null);
@@ -199,7 +207,7 @@ export default function Home() {
 
   // Home and each task show today's goal and the streak as they stand.
   useEffect(() => {
-    if (screen === "landing" || screen === "task") void fetchProgress();
+    if (screen === "landing" || screen === "task" || screen === "tier_up" || screen === "progress") void fetchProgress();
   }, [screen, task?.id, fetchProgress]);
 
   // #39: the sheet shows earnings, which may have risen since the last refresh.
@@ -230,6 +238,7 @@ export default function Home() {
         rewardDisplay: data.task.rewardDisplay,
         rewardSymbol: data.task.rewardSymbol,
         xp: data.task.xp ?? null,
+        tier: typeof data.task.tier === "number" ? data.task.tier : undefined,
       });
       setScreen("task");
       track("task_presented", { task_id: data.task.id });
@@ -368,6 +377,7 @@ export default function Home() {
     setDisputeOpen(false);
     setProgress(undefined);
     setAccepted(null);
+    setPendingTierUp(null);
     setDemographics({ country: null, gender: null, ageRange: null });
     setScreen("login");
   }, []);
@@ -388,6 +398,7 @@ export default function Home() {
     setAccepted(earned ? { progress: earned, at: new Date() } : null);
     if (!earned || !GAMIFICATION_ON) return;
     trackProgress(earned);
+    if (earned.tier.tierUp !== null) setPendingTierUp(earned.tier.tierUp);
     setProgress((prev) =>
       prev
         ? {
@@ -511,6 +522,15 @@ export default function Home() {
     }
   }
 
+  /** After an answer: the tier-up screen first if the answer opened a tier, then the next task. */
+  function continueAfterAnswer() {
+    if (GAMIFICATION_ON && pendingTierUp !== null) {
+      setScreen("tier_up");
+      return;
+    }
+    void fetchTask();
+  }
+
   let body: React.ReactNode = null;
 
   if (screen === "checking") {
@@ -540,6 +560,7 @@ export default function Home() {
         submissionCount={submissionCount}
         onStart={handleStartEarning}
         progress={progress}
+        onOpenProgress={() => setScreen("progress")}
       />
     );
   } else if (screen === "task" && task) {
@@ -593,6 +614,7 @@ export default function Home() {
             reward={task.rewardDisplay}
             tokenSymbol={task.rewardSymbol}
             xp={task.xp}
+            tier={task.tier}
           />
         </main>
         <AccountSheet
@@ -648,10 +670,16 @@ export default function Home() {
             </p>
           </div>
           <div className="mt-3 w-full">
-            <AcceptedStub progress={accepted.progress} reward={reward} symbol={symbol} at={accepted.at} />
+            <AcceptedStub
+              progress={accepted.progress}
+              reward={reward}
+              symbol={symbol}
+              at={accepted.at}
+              onSeeStamp={() => setScreen("progress")}
+            />
           </div>
           <div className="w-full pt-4">
-            <SubmitButton label="Next Task" onClick={() => fetchTask()} />
+            <SubmitButton label="Next Task" onClick={continueAfterAnswer} />
           </div>
         </div>
       </div>
@@ -682,7 +710,7 @@ export default function Home() {
             Your contribution helps improve AI. Your reward is being sent to your wallet —
             follow it in your account.
           </p>
-          <SubmitButton label="Next Task" onClick={() => fetchTask()} />
+          <SubmitButton label="Next Task" onClick={continueAfterAnswer} />
         </div>
       </div>
     );
@@ -700,7 +728,7 @@ export default function Home() {
           </div>
           <h2 className="text-2xl font-headline font-bold text-on-surface">Quality check failed</h2>
           <p className="text-center font-body text-sm text-on-surface-variant">Try another task.</p>
-          <SubmitButton label="Next Task" onClick={() => fetchTask()} />
+          <SubmitButton label="Next Task" onClick={continueAfterAnswer} />
         </div>
       </div>
     );
@@ -721,7 +749,7 @@ export default function Home() {
           {GAMIFICATION_ON ? (
             <>
               <p className="text-center font-body text-sm text-on-surface-variant">
-                That was a quality-check question. It pays no USDC, but it earns XP.
+                That was a quality-check question. It pays no USDC, but it earns XP and keeps your tier open.
               </p>
               {checkXp !== undefined && (
                 <div className="flex w-full items-baseline gap-2 rounded-lg bg-surface-container-lowest px-4 py-3 font-body text-sm leading-5 shadow-[0_4px_12px_rgba(25,28,30,0.04)]">
@@ -739,7 +767,7 @@ export default function Home() {
               account in good standing.
             </p>
           )}
-          <SubmitButton label="Next Task" onClick={() => fetchTask()} />
+          <SubmitButton label="Next Task" onClick={continueAfterAnswer} />
         </div>
       </div>
     );
@@ -849,6 +877,23 @@ export default function Home() {
         </div>
       </div>
     );
+  } else if (screen === "tier_up" && pendingTierUp !== null) {
+    body = (
+      <TierUpScreen
+        tierUp={pendingTierUp}
+        summary={progress === undefined ? undefined : (progress?.tier ?? null)}
+        onSeeTasks={() => {
+          setPendingTierUp(null);
+          void fetchTask();
+        }}
+        onHome={() => {
+          setPendingTierUp(null);
+          setScreen("landing");
+        }}
+      />
+    );
+  } else if (screen === "progress") {
+    body = <ProgressScreen progress={progress} onBack={() => setScreen("landing")} />;
   // ✅ FIX 2: Add explicit handling for wallet_error state
   } else if (screen === "wallet_error") {
     body = (

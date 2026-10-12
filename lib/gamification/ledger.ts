@@ -4,6 +4,7 @@
 // or its payout job. Every award carries a unique dedupeKey, so recording the
 // same answer twice awards it once.
 
+import * as Sentry from "@sentry/nextjs";
 import prisma from "@/lib/prisma";
 import type { Prisma, XpKind } from "@/app/generated/prisma/client";
 import {
@@ -14,8 +15,16 @@ import {
   settleStreak,
   type StreakState,
 } from "./rules";
+import { updateStanding } from "./standing";
 import { manilaDayKey, manilaWeekKey, weekDayKeys, weekKeyOf } from "./time";
-import { DAILY_GOAL, type Progress, type ProgressLine, type ProgressSummary, type WeekDayStatus } from "./types";
+import {
+  DAILY_GOAL,
+  type Progress,
+  type ProgressLine,
+  type ProgressSummary,
+  type TierStatus,
+  type WeekDayStatus,
+} from "./types";
 
 export type { Progress, ProgressLine, ProgressSummary, WeekDayStatus };
 
@@ -35,6 +44,33 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 const streakSelect = { xp: true, streakDays: true, bestStreak: true, restDays: true, lastGoalDay: true } as const;
+const tierSelect = { tier: true, tierOnHold: true, holdChecksPassed: true } as const;
+
+function tierAsStored(user: { tier: number; tierOnHold: boolean; holdChecksPassed: number }): TierStatus {
+  return { tier: user.tier, onHold: user.tierOnHold, tierUp: null, holdChecksPassed: user.holdChecksPassed };
+}
+
+/**
+ * #202: the tier and stamps after this answer. Best effort, after the XP has
+ * committed: a failure leaves the tier as stored and the XP stands.
+ */
+async function withStanding(
+  progress: Omit<Progress, "tier" | "stampsAwarded">,
+  stored: TierStatus,
+  { userId, submissionId, isQualityCheck }: AcceptedAnswer,
+): Promise<Progress> {
+  try {
+    const s = await updateStanding(userId, isQualityCheck ? "check_passed" : "answer");
+    return {
+      ...progress,
+      tier: { tier: s.tier, onHold: s.onHold, tierUp: s.tierUp, holdChecksPassed: s.holdChecksPassed },
+      stampsAwarded: s.stampsAwarded,
+    };
+  } catch (err) {
+    Sentry.captureException(err, { extra: { context: "xp-standing", userId, submissionId } });
+    return { ...progress, tier: stored, stampsAwarded: [] };
+  }
+}
 
 /** Days after the last goal and before today that nothing was open for this labeler. */
 async function protectedDays(db: Db, userId: string, state: StreakState, today: string): Promise<Set<string>> {
@@ -49,20 +85,17 @@ async function protectedDays(db: Db, userId: string, state: StreakState, today: 
 /**
  * Record XP for an accepted answer or a passed quality check. Call it after the
  * answer's own write has committed. Recording the same submission again
- * awards nothing and returns the labeler's progress as it stands.
+ * awards nothing and returns the labeler's progress as it stands. #202: then
+ * evaluates the tier and stamps, once per answer.
  */
-export async function recordAccepted({
-  userId,
-  submissionId,
-  difficulty,
-  isQualityCheck,
-  at = new Date(),
-}: AcceptedAnswer): Promise<Progress> {
+export async function recordAccepted(answer: AcceptedAnswer): Promise<Progress> {
+  const { userId, submissionId, difficulty, isQualityCheck, at = new Date() } = answer;
   const dayKey = manilaDayKey(at);
   const weekKey = manilaWeekKey(at);
 
+  let recorded: { progress: Omit<Progress, "tier" | "stampsAwarded">; stored: TierStatus };
   try {
-    return await prisma.$transaction(async (tx) => {
+    recorded = await prisma.$transaction(async (tx) => {
       const lines: ProgressLine[] = [];
       const award = async (kind: XpKind, amount: number, dedupeKey: string, forSubmission: string | null) => {
         await tx.xpEvent.create({
@@ -128,27 +161,31 @@ export async function recordAccepted({
           restDays: state.restDays,
           lastGoalDay: state.lastGoalDay,
         },
-        select: { xp: true },
+        select: { xp: true, ...tierSelect },
       });
 
       return {
-        lines,
-        xpGained,
-        xpTotal: updated.xp,
-        today: { counted: day.counted, goal: DAILY_GOAL, goalMet: day.counted >= DAILY_GOAL, goalJustMet },
-        streak,
+        progress: {
+          lines,
+          xpGained,
+          xpTotal: updated.xp,
+          today: { counted: day.counted, goal: DAILY_GOAL, goalMet: day.counted >= DAILY_GOAL, goalJustMet },
+          streak,
+        },
+        stored: tierAsStored(updated),
       };
     });
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
     return currentProgress(userId, dayKey);
   }
+  return withStanding(recorded.progress, recorded.stored, answer);
 }
 
 /** Progress as it stands, with nothing gained: the answer was already recorded. */
 async function currentProgress(userId: string, dayKey: string): Promise<Progress> {
   const [user, day] = await Promise.all([
-    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: streakSelect }),
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { ...streakSelect, ...tierSelect } }),
     prisma.dailyProgress.findUnique({ where: { userId_dayKey: { userId, dayKey } } }),
   ]);
   const covered = await protectedDays(prisma, userId, user, dayKey);
@@ -160,6 +197,8 @@ async function currentProgress(userId: string, dayKey: string): Promise<Progress
     xpTotal: user.xp,
     today: { counted, goal: DAILY_GOAL, goalMet: day?.goalMet ?? false, goalJustMet: false },
     streak: { days: e.days, best: user.bestStreak, restDays: e.restDays, restEarned: false, restUsed: 0, endedAtDays: null },
+    tier: tierAsStored(user),
+    stampsAwarded: [],
   };
 }
 
