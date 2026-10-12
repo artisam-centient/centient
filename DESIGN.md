@@ -215,7 +215,7 @@ A cool off-white and white paper palette, carried by deep green for action and w
 
 ### Tertiary
 brand.md reserved indigo; the XP loop (#201) gives it one job: progress.
-- **Progress Indigo** (tertiary): XP figures and the XP card's fill, met days on the week card, the today strip's segments and streak count, the goal-met toast. Tiers and stamps join it in #202.
+- **Progress Indigo** (tertiary): XP figures and the tier card's fill, met days on the week card, the today strip's segments and streak count, the goal-met toast, the tier-up band, earned stamps and the hold card's passes (#202).
 - **Indigo Mist** (tertiary-fixed): today's and a rest day's disc fill, and secondary text on an indigo surface.
 - **Indigo Ink** (on-tertiary-fixed-variant, on-tertiary-fixed): numerals and icons on Indigo Mist.
 
@@ -234,7 +234,11 @@ brand.md reserved indigo; the XP loop (#201) gives it one job: progress.
 ### Named Rules
 **The Green Means Go Rule.** Green appears only on things you can press or on a state that has been confirmed (Selected, Confirmed). Progress indicators, rails and numbered discs are ink, not green; the XP loop's progress is indigo (below).
 
-**The Indigo Is Progress Rule.** Indigo marks the labeler's own progress: XP, the daily goal, streaks, rest days, and from #202 tiers and stamps. It never colors money (that is gold) or an action (that is green), and an XP figure is never gold. Indigo is the one tinted resting surface allowed, and only on the XP card and the goal-met toast.
+**The Indigo Is Progress Rule.** Indigo marks the labeler's own progress: XP, the daily goal, streaks, rest days, tiers and stamps. It never colors money (that is gold) or an action (that is green), and an XP figure is never gold. Indigo is the one tinted resting surface allowed, and only on the tier card, the tier-up band, the goal-met toast and the new-stamp strip (Indigo Mist).
+
+**The Tier Ramp.** The four tiers are drawn as numbered discs on the indigo ramp: a reached tier is Indigo Mist (`#e1e0ff`) with Indigo Ink numerals, the current tier is tertiary-container (`#aeb0ff`) with on-tertiary-fixed (`#07006c`) numerals and a white ring outside an indigo gap, and a tier ahead is a hairline ring at 50% white on Progress Indigo (`#494bd6`). The task chip uses the same tertiary-container fill. A held tier is never red: it pauses in indigo and says how to reopen.
+
+**The Gold On Indigo Exception.** On the tier card the line "It opens tasks that pay up to N USDC" sets the amount in secondary-fixed (`#ffdf9b`), Manrope 800. Payout Gold fails contrast on indigo; the gold family still marks it as money, and it is the only gold on an indigo surface.
 
 **The Gold Is Money Rule.** Any amount of USDC is Payout Gold in Manrope. Gold washes are one-shot highlights that fade to paper; gold is never a resting surface.
 
@@ -258,6 +262,7 @@ brand.md reserved indigo; the XP loop (#201) gives it one job: progress.
 - **Label** (600 or 700, 0.875rem): buttons, nav, receipt row names and values on stubs and the journey.
 - **Micro-label** (700, 11px, 0.2em tracking, uppercase, outline color): field names on stubs and journey panels (Paid, Prompt, Reason) and the footer domain. Never above a section heading.
 - **Mono** (400, 11px to 12px): wallet addresses, tx hashes, the footer build SHA.
+- **In-app progress steps** (#201–#202, from the gamification boards): 10px (pills: New, the task chip at 11px), 13px (secondary lines on the week, tier and hold cards), 15px (Home's Progress row), 20px (the XP figure on the tier card, the Progress heading), 26px / 28px (the tier name on Home / Progress) and 56px (the tier name on the tier-up band). They belong to the in-app cards only, never the landing.
 - **Phone screen** (exempt): the hero phone's screen is the app's own task and success screens, set in the app's own sizes at 360 by 760 CSS pixels and scaled to the frame (about 0.68 on phones, 0.77 at 1024px, 0.82 at 1280px). Its text is not part of this page's scale and follows TaskCard and app/page.tsx, not this file.
 - **Icon** (Material Symbols Outlined, weight 400, line-height 1, one em square, ligature names): every icon. Filled (`FILL 1`) for emphasized states (verified, the coin, the success check); outlined otherwise. Icons take their text color and never carry meaning alone. Size scale, by context:
   - 14px: reserved (the journey's money line uses 15px).
@@ -339,11 +344,29 @@ A numbered sequence on an ink rail. Each line: a 40px disc (ink with a Canvas nu
 The last stub, torn at both ends: wordmark over a dashed rule, headline, body, a dashed rule, then the wallet sign-in again (without the phone pairing prompt).
 
 ### Accepted Stub (in app, #201)
-The success screen's receipt, behind the gamification flag: an Answer accepted micro-label with the date and time, then Reward (gold), Payout (Pending) and XP rows on dotted leaders. The Daily goal and streak-milestone rows appear only when they happened. A dashed rule sits over Total XP, and an earned rest day adds one more dashed rule and a `bedtime` line. Every XP value is indigo. It is cut with the stub mask, so its drop-shadow sits on the wrapper. Above it, the check shrinks to 88px and the heading's amount turns gold. A passed quality check shows a single XP row on a Whisper field panel instead.
+The success screen's receipt, behind the gamification flag: an Answer accepted micro-label with the date and time, then Reward (gold), Payout (Pending) and XP rows on dotted leaders. The Daily goal and streak-milestone rows appear only when they happened. A dashed rule sits over "Toward Trusted 1,015 / 1,500 XP" while the next tier is ahead (#202), or Total XP once it is reached, and an earned rest day adds one more dashed rule and a `bedtime` line. Every XP value is indigo. It is cut with the stub mask, so its drop-shadow sits on the wrapper. Above it, the check shrinks to 88px and the heading's amount turns gold. A passed quality check shows a single XP row on a Whisper field panel instead.
+
+### Tier Card (Home and Progress, #202)
+Replaces #201's XP card, behind the flag (board 03). Progress Indigo fill and the same indigo shadow. A Tier micro-label over the tier name (Manrope 800, 26px; 28px on Progress), the four tier discs at 22px on the right, then the XP total over the next tier's threshold ("1,500 for Trusted") and an 8px bar in white on 20% white. Under it: "N XP to Trusted. It opens tasks that pay up to 1.45 USDC.", the ceiling the live pool pays in that band. Expert drops the bar. On Progress (board 07) the owl sits in a 60px Indigo Mist disc beside the name, the threshold reads "N to Trusted", and a dashed rule in 40% white leads to receipt rows in Indigo Mist and white: Quality checks, Matched the crowd, Answers, Streak ("None yet" until there is history).
+
+### Hold Card (#202)
+Board 09. A Paper card under the tier card while a tier is on hold, as a status, never an alert: a `pause_circle` in indigo beside "Trusted tasks paused", a line naming the signal that dropped and that the next 3 checks reopen it, then three 28px discs that fill indigo with a check as checks pass.
+
+### Tier-up Screen (#202)
+Board 06, shown once after the answer that opened a tier, before the next task. An indigo band with a 40px bottom radius holds the owl (116px), the tier name in Manrope 800 at 56px, "You've reached tier 2 of 4." and a four-step rail (32px discs, names under them, a 2px track filled white to the current tier). A receipt stub overlaps the band by 40px: Now open to you, then New tasks, Difficulty, They pay (gold), XP per answer (indigo), a dashed rule and Keep it open. Its drop-shadow is indigo-tinted (0 14px 24px at 16% of `#07006c`). The authored moment: the owl settles in from 0.82 and the stub prints down with a clip-path over 900ms, both on the brand ease-out; reduced motion shows them in place. See New Tasks (primary) and Back to home (inline link) close it.
+
+### Stamps (Progress, #202)
+Twelve 72px stamps in a three-column grid, earned first. An earned stamp is a 2.5px indigo ring around a dashed inner ring on Indigo Mist with an Indigo Ink icon, tilted a few degrees as if pressed by hand (the tilt is fixed per position); one earned today is filled indigo with a dashed white ring, a soft indigo shadow and a New pill. A locked stamp is a dashed Rule Line ring with a Pencil icon. Under each: the title (700 earned, 600 locked) and the date earned, or the progress ("53 / 250", "Matched 18 / 25", "4 / 6 topics"). The two #203 stamps read "Event code" and "Weekly top 3" until #203 awards them. The success stub links a new stamp through an Indigo Mist strip with a tilted indigo disc and "See your new stamp".
+
+### Task Chip (#202)
+Board 04. On a task above Starter, the prompt card's header carries a pill on tertiary-container with on-tertiary-fixed text: `lock_open` and "Skilled task" (or the task band's tier). It reads from difficulty alone, so a quality check shows the same as any task.
+
+### Admin Crowd (#202)
+Board 10. On a campaign, behind the flag: a Crowd card in the admin console's own card style, a radiogroup of Everyone, Skilled and up, Trusted and up (the chosen one filled primary) and a dashed, disabled "Expert only · later", then a table of hairline rows: labelers who qualify now (live), the CSV's optional difficulty column, tasks with no difficulty open to every tier, and the export's labeler_tier column.
 
 ### XP and Week Cards (Home, #201)
 After Total earned, behind the flag:
-- **XP card:** Progress Indigo fill with white text and an indigo-tinted shadow (0 14px 32px -10px at 55%). It shows the XP micro-label, the total in Manrope 800 with tabular numerals, and "+N this week". It has no tier name until #202.
+- **XP card:** replaced by the tier card in #202 (above).
 - **Week card:** a Paper card with seven 36px discs, Monday to Sunday in Manila time. A met day is filled indigo with a check. Today has an indigo ring on Indigo Mist and reads "n/5". A rest day has a dashed indigo ring and a `bedtime` icon. Protected, missed and future days are a Rule Line ring.
 - **Under the discs:** a five-bar tally and a line saying what today decides. An ended streak replaces that line with a plain statement, never in error red.
 
