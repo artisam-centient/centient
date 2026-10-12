@@ -1,6 +1,7 @@
 import type { Progress } from "@/lib/gamification/types";
 import { DAILY_GOAL } from "@/lib/gamification/types";
 import { STAMPS } from "@/lib/gamification/stamps";
+import { QUESTS } from "@/lib/gamification/quests";
 import { nextTier } from "@/lib/gamification/tiers";
 import { formatXp } from "./format";
 
@@ -56,6 +57,8 @@ export default function AcceptedStub({ progress, reward, symbol, at, onSeeStamp 
   const next = nextTier(progress.tier.tier);
   const toward = next && progress.xpTotal < next.xp ? next : null;
   const stamp = STAMPS.find((s) => s.id === progress.stampsAwarded[0]);
+  // #203: a row for each weekly quest this answer completed.
+  const quests = progress.lines.filter((l) => l.kind === "QUEST");
 
   return (
     <div className="flex w-full flex-col gap-3">
@@ -92,6 +95,11 @@ export default function AcceptedStub({ progress, reward, symbol, at, onSeeStamp 
               <Xp amount={milestone} />
             </Row>
           )}
+          {quests.map((l) => (
+            <Row key={l.quest} name={QUESTS.find((q) => q.id === l.quest)?.title ?? "Weekly quest"}>
+              <Xp amount={l.amount} />
+            </Row>
+          ))}
           <Rule />
           <div className="flex items-baseline justify-between font-body text-sm leading-5">
             <span className="font-semibold text-on-surface">{toward ? `Toward ${toward.name}` : "Total XP"}</span>

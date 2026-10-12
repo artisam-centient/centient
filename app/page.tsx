@@ -29,6 +29,7 @@ import TodayStrip from "@/components/gamification/TodayStrip";
 import TierUpScreen from "@/components/gamification/TierUpScreen";
 import ProgressScreen, { type ProgressTab } from "@/components/gamification/ProgressScreen";
 import { captureCodeFromUrl, clearPendingCode, pendingCode as storedCode } from "@/lib/gamification/event-link";
+import { captureInviteFromUrl } from "@/lib/gamification/invite-link";
 
 const MIN_LOADING_MS = 1500;
 
@@ -210,9 +211,11 @@ export default function Home() {
   }, []);
 
   // #203: a booth link's `?code=` waits in this tab through sign-in and
-  // onboarding, then opens Progress with the code on the Event code card.
+  // onboarding, then opens Progress with the code on the Event code card. An
+  // invite link's `?invite=` waits in a cookie for the first wallet sign-in.
   useEffect(() => {
     if (!GAMIFICATION_ON) return;
+    captureInviteFromUrl();
     captureCodeFromUrl();
     setPendingCode(storedCode());
   }, []);

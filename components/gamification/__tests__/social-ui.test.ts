@@ -1,16 +1,25 @@
-// #203 — the board, names and event-code copy, and how the board and stamps render.
+// #203 — the board, names, event-code, quest and invite copy, and how the board, stamps, quests and invite card render.
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import BoardList from "../BoardList";
 import StampGrid from "../StampGrid";
 import EventCodeCard from "../EventCodeCard";
+import InviteCard from "../InviteCard";
+import QuestCard from "../QuestCard";
 import {
+  INVITE_NOTE,
+  QUESTS_NOTE,
   boardRowLabel,
   dayRange,
   daysLeft,
   endsLine,
+  inviteCapLine,
+  inviteCount,
+  inviteLinkShown,
   nameError,
+  questLabel,
+  questValue,
   redeemError,
   tierChip,
   weekHeading,
@@ -18,7 +27,8 @@ import {
 import { stampCaption } from "../tier-format";
 import { STAMPS } from "@/lib/gamification/stamps";
 import type { BoardView } from "@/lib/gamification/types";
-import type { StampStatus } from "@/lib/gamification/types";
+import type { Progress, StampStatus } from "@/lib/gamification/types";
+import type { QuestStatus } from "@/lib/gamification/quests";
 
 const text = (html: string) =>
   html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
@@ -166,5 +176,85 @@ describe("EventCodeCard", () => {
     expect(t).toContain("From your link. Tap Add to collect it.");
     expect(html).toContain('value="WEBINAR1"');
     expect(html).toContain('placeholder="e.g. BQF2026"');
+  });
+});
+
+describe("quests (#203)", () => {
+  const quest = (over: Partial<QuestStatus> = {}): QuestStatus => ({
+    id: "health-5",
+    title: "Answer 5 health tasks",
+    icon: "stethoscope",
+    current: 3,
+    target: 5,
+    xp: 30,
+    done: false,
+    ...over,
+  });
+
+  it("reads how far along a quest is, or the XP it paid", () => {
+    expect(questValue(quest())).toBe("3 / 5");
+    expect(questValue(quest({ current: 5, done: true }))).toBe("+30 XP");
+    expect(questLabel(quest())).toBe("Answer 5 health tasks, 3 of 5");
+    expect(questLabel(quest({ done: true }))).toBe("Answer 5 health tasks, done, 30 XP earned");
+    expect(QUESTS_NOTE).toBe("30 XP each. They start over on Monday.");
+  });
+
+  it("lists each quest as a receipt row on This week", () => {
+    const quests = [quest(), quest({ id: "checks-3", title: "Pass 3 quality checks", icon: "visibility", current: 3, target: 3, done: true })];
+    const html = renderToStaticMarkup(createElement(QuestCard, { quests }));
+    expect(text(html)).toContain("This week's quests");
+    expect(html).toContain('aria-label="Answer 5 health tasks, 3 of 5"');
+    expect(html).toContain('aria-label="Pass 3 quality checks, done, 30 XP earned"');
+    expect(renderToStaticMarkup(createElement(QuestCard, { quests: [] }))).toBe("");
+  });
+
+  it("adds a row to the success stub for each quest the answer completed", async () => {
+    const { default: AcceptedStub } = await import("../AcceptedStub");
+    const progress: Progress = {
+      lines: [
+        { kind: "ANSWER", amount: 15 },
+        { kind: "QUEST", amount: 30, quest: "health-5" },
+        { kind: "QUEST", amount: 30, quest: "goal-days-4" },
+      ],
+      xpGained: 75,
+      xpTotal: 1075,
+      today: { counted: 5, goal: 5, goalMet: true, goalJustMet: false },
+      streak: { days: 6, best: 6, restDays: 0, restEarned: false, restUsed: 0, endedAtDays: null },
+      tier: { tier: 0, onHold: false, tierUp: null, holdChecksPassed: 0 },
+      stampsAwarded: [],
+    };
+    const t = text(renderToStaticMarkup(createElement(AcceptedStub, { progress, reward: "0.75", symbol: "USDC", at: new Date() })));
+    expect(t).toContain("Answer 5 health tasks +30");
+    expect(t).toContain("Meet the daily goal on 4 days +30");
+  });
+});
+
+describe("invites (#203)", () => {
+  it("says what an invite pays and how many have", () => {
+    expect(INVITE_NOTE).toBe("You both get 50 XP and a stamp when they reach Skilled.");
+    expect(inviteCount(3, 10)).toBe("3 of 10");
+    expect(inviteCount(12, 10)).toBe("10 of 10");
+    expect(inviteCapLine(9, 10)).toBeNull();
+    expect(inviteCapLine(10, 10)).toBe("You've reached 10. Friends you invite still get their 50 XP and stamp.");
+    expect(inviteLinkShown("https://centient.work/?invite=ABCD2345")).toBe("centient.work/?invite=ABCD2345");
+  });
+
+  it("shows the link and the count on the invite card", () => {
+    const html = renderToStaticMarkup(
+      createElement(InviteCard, { invite: { code: "ABCD2345", qualified: 2, cap: 10 }, origin: "https://centient.work" }),
+    );
+    expect(html).toContain('value="centient.work/?invite=ABCD2345"');
+    const t = text(html);
+    expect(t).toContain("Invite a friend");
+    expect(t).toContain("Share");
+    expect(t).toContain("Friends qualified 2 of 10");
+    expect(t).not.toContain("You've reached");
+  });
+
+  it("captions the locked invite stamps", () => {
+    const locked: StampStatus = { id: "invited-in", awardedAt: null, progress: null };
+    const now = new Date("2026-10-15T04:00:00Z");
+    expect(stampCaption("invited-in", locked, now)).toBe("Joined by invite");
+    expect(stampCaption("brought-a-friend", { ...locked, id: "brought-a-friend" }, now)).toBe("Invite a friend");
   });
 });
