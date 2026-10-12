@@ -344,6 +344,31 @@ async function processWithdrawalJob(
 }
 
 /**
+ * Write a task's majority and agreement once it has `resolveAt` settled answers.
+ * Conditional, so two workers settling the same task resolve it once (#202).
+ * Returns whether this call resolved it.
+ */
+async function resolveTask(taskId: string, resolveAt: number): Promise<boolean> {
+  const paidCount = await prisma.submission.count({
+    where: {
+      taskId,
+      isGoldCheck: false,
+      // Settled answers only: an in-flight one may still be refunded, and a
+      // resolved task is never recomputed (#37).
+      payoutStatus: { in: [...SETTLED_STATUSES] },
+    },
+  });
+  if (paidCount < resolveAt) return false;
+  const iaa = await computeIAA(taskId);
+  if (!iaa) return false;
+  const { count } = await prisma.task.updateMany({
+    where: { id: taskId, resolvedAt: null },
+    data: { majorityAnswer: iaa.majorityAnswer, agreementScore: iaa.agreementScore, resolvedAt: new Date() },
+  });
+  return count === 1;
+}
+
+/**
  * Settle one submission reward: pay the linked wallet, record the broadcast
  * tuple, then credit the submission and user bookkeeping. The tuple is persisted
  * before the bookkeeping so a bookkeeping failure cannot unwind a paid reward.
@@ -545,40 +570,35 @@ async function processSubmissionPayout(
     maybeSendCapAlert().catch(() => {});
 
     const task = submission.task;
-    // #202: a task with no target of its own or its campaign's resolves at
-    // RESOLUTION_MIN_ANSWERS. That writes the majority only; supply stays uncapped.
-    const resolveAt = task.responseTarget ?? task.campaign?.defaultResponseTarget ?? RESOLUTION_MIN_ANSWERS;
     let resolvedNow = false;
     if (!task.isGold && !task.resolvedAt) {
-      const paidCount = await prisma.submission.count({
-        where: {
-          taskId: submission.taskId,
-          isGoldCheck: false,
-          // Settled answers only: an in-flight one may still be refunded, and a
-          // resolved task is never recomputed (#37).
-          payoutStatus: { in: [...SETTLED_STATUSES] },
-        },
-      });
-      if (paidCount >= resolveAt) {
-        const iaa = await computeIAA(submission.taskId);
-        if (iaa) {
-          // Conditional: two workers settling the same task resolve it once (#202).
-          const { count } = await prisma.task.updateMany({
-            where: { id: submission.taskId, resolvedAt: null },
-            data: {
-              majorityAnswer: iaa.majorityAnswer,
-              agreementScore: iaa.agreementScore,
-              resolvedAt: new Date(),
-            },
-          });
-          resolvedNow = count === 1;
+      if (task.responseTarget != null) {
+        // A task with its own target resolves on the rail, as it always has.
+        resolvedNow = await resolveTask(submission.taskId, task.responseTarget);
+      } else {
+        // #202: any other task resolves at its campaign's target or
+        // RESOLUTION_MIN_ANSWERS, beside the rail. It writes the majority only
+        // and supply stays uncapped, so a failure here retries on the task's
+        // next payout instead of quarantining one already paid.
+        try {
+          resolvedNow = await resolveTask(
+            submission.taskId,
+            task.campaign?.defaultResponseTarget ?? RESOLUTION_MIN_ANSWERS,
+          );
+        } catch (err) {
+          Sentry.captureException(err, { extra: { context: "payout-resolve", submissionId } });
         }
       }
     }
 
+    await prisma.payoutJob.update({
+      where: { id: jobId },
+      data: { status: "done", completedAt: new Date(), workerHeartbeatAt: new Date() },
+    });
+
     // #202 (ADR-0011): crowd XP, tiers and stamps sit beside the rail, like the
-    // submit route's XP. Best effort: the payout stands and the job still
-    // reaches `done` whatever happens here.
+    // submit route's XP. Best effort, and after the job is `done`, so nothing
+    // here can hold or quarantine a payout.
     if (!task.isGold) {
       try {
         await recordCrowd({ taskId: submission.taskId, submissionId, resolvedNow });
@@ -591,11 +611,6 @@ async function processSubmissionPayout(
     } catch (err) {
       Sentry.captureException(err, { extra: { context: "payout-standing", submissionId } });
     }
-
-    await prisma.payoutJob.update({
-      where: { id: jobId },
-      data: { status: "done", completedAt: new Date(), workerHeartbeatAt: new Date() },
-    });
 
     console.log(`[payout-worker] submission job ${jobId} completed: submission ${submissionId} paid ${txHash}`);
   } catch (err) {

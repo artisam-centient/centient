@@ -54,14 +54,17 @@ its campaign's resolves at `RESOLUTION_MIN_ANSWERS` settled answers (default
 5). That writes `majorityAnswer`, `agreementScore` and `resolvedAt` only;
 supply stays uncapped, which a response target alone does. The write is
 conditional on `resolvedAt` being null, so two workers resolve a task once.
+This resolution is best effort, beside the rail: if it fails, the paid answer's
+job still reaches `done`, and the task's next payout tries again. A task with
+its own `responseTarget` resolves on the rail, as it did before.
 
 **Crowd match is +5 XP, beside the rail.** When a task resolves, each settled
 answer matching the majority earns `CROWD_MATCH` XP, keyed
 `crowd:<submissionId>`; an answer that settles on an already-resolved task is
 judged alone. A tie (`agreementScore` 0.5) earns nothing: its recorded "A" is
 only the tie-break. Like ADR-0010's XP, this runs in the payout worker after
-the payout has persisted and before the job is marked `done`, best effort: a
-failure is reported to Sentry and the job still reaches `done`.
+the job is marked `done`, best effort: a failure is reported to Sentry and
+never holds or quarantines the payout.
 
 **Retest stays out.** Gold checks answered during post-cooldown retest are
 marked `Submission.retest` and left out of the floors and stamps; retest
