@@ -31,6 +31,8 @@ const progress = (overrides: Partial<Progress> = {}): Progress => ({
   xpTotal: 1015,
   today: { counted: 2, goal: 5, goalMet: false, goalJustMet: false },
   streak: { days: 6, best: 6, restDays: 0, restEarned: false, restUsed: 0, endedAtDays: null },
+  tier: { tier: 0, onHold: false, tierUp: null, holdChecksPassed: 0 },
+  stampsAwarded: [],
   ...overrides,
 });
 

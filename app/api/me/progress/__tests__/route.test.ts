@@ -66,7 +66,8 @@ describe("GET /api/me/progress", () => {
 
     const res = await getAs(user.id);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
+    // #202 adds the tier and stamps beside these: see standing.test.ts.
+    expect(await res.json()).toMatchObject({
       xpTotal: 400,
       xpThisWeek: 40,
       today: { dayKey: "2026-10-15", counted: 3, goal: 5, goalMet: false },
