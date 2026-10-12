@@ -3,14 +3,21 @@
 import { useEffect, useState } from "react";
 import { track } from "@/lib/analytics";
 import type { BoardView } from "@/lib/gamification/types";
+import type { QuestStatus } from "@/lib/gamification/quests";
 import BoardList from "./BoardList";
 import BoardNameCard from "./BoardNameCard";
+import QuestCard from "./QuestCard";
 import { BOARD_NOTE, daysLeft, endsLine, weekHeading } from "./social-format";
 
 const TODAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" });
 
-/** #203 (board 08): Progress → This week. Loads the board and sends `board_viewed` once it shows. */
-export default function WeeklyBoard() {
+/**
+ * #203 (board 08): Progress → This week. Loads the board and sends
+ * `board_viewed` once it shows. This week's quests sit between the week
+ * heading and the board; they come with progress, so they show even when the
+ * board can't load.
+ */
+export default function WeeklyBoard({ quests = [] }: { quests?: QuestStatus[] }) {
   const [board, setBoard] = useState<BoardView | null | undefined>(undefined);
 
   useEffect(() => {
@@ -39,7 +46,12 @@ export default function WeeklyBoard() {
     );
   }
   if (board === null) {
-    return <p className="font-body text-sm text-on-surface-variant">The board couldn&apos;t load. Try again in a moment.</p>;
+    return (
+      <>
+        <QuestCard quests={quests} />
+        <p className="font-body text-sm text-on-surface-variant">The board couldn&apos;t load. Try again in a moment.</p>
+      </>
+    );
   }
 
   return (
@@ -55,6 +67,7 @@ export default function WeeklyBoard() {
           {daysLeft(board.endsDay, TODAY.format(new Date()))}
         </span>
       </div>
+      <QuestCard quests={quests} />
       <BoardList board={board} />
       <section className="flex gap-3 rounded-2xl bg-tertiary-fixed px-[18px] py-4">
         <span className="material-symbols-outlined shrink-0 text-[22px] text-tertiary" aria-hidden="true">

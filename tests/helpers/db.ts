@@ -33,6 +33,7 @@ export async function truncateAll(): Promise<void> {
   };
 
   await tryDelete(() => prisma.xpEvent.deleteMany());
+  await tryDelete(() => prisma.inviteReward.deleteMany());
   await tryDelete(() => prisma.eventRedemption.deleteMany());
   await tryDelete(() => prisma.eventCode.deleteMany());
   await tryDelete(() => prisma.weeklyResult.deleteMany());

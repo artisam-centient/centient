@@ -15,6 +15,7 @@ import {
   settleStreak,
   type StreakState,
 } from "./rules";
+import { awardQuests } from "./quest-ledger";
 import { updateStanding } from "./standing";
 import { manilaDayKey, manilaWeekKey, weekDayKeys, weekKeyOf } from "./time";
 import {
@@ -69,6 +70,25 @@ async function withStanding(
   } catch (err) {
     Sentry.captureException(err, { extra: { context: "xp-standing", userId, submissionId } });
     return { ...progress, tier: stored, stampsAwarded: [] };
+  }
+}
+
+/**
+ * #203: quests this answer completed, after its XP has committed and before
+ * its tier is weighed, so their XP can open one. Best effort, like standing.
+ */
+async function withQuests(
+  progress: Omit<Progress, "tier" | "stampsAwarded">,
+  { userId, submissionId, at = new Date() }: AcceptedAnswer,
+): Promise<Omit<Progress, "tier" | "stampsAwarded">> {
+  try {
+    const lines = await awardQuests(userId, at);
+    if (lines.length === 0) return progress;
+    const gained = lines.reduce((sum, l) => sum + l.amount, 0);
+    return { ...progress, lines: [...progress.lines, ...lines], xpGained: progress.xpGained + gained, xpTotal: progress.xpTotal + gained };
+  } catch (err) {
+    Sentry.captureException(err, { extra: { context: "xp-quests", userId, submissionId } });
+    return progress;
   }
 }
 
@@ -179,7 +199,7 @@ export async function recordAccepted(answer: AcceptedAnswer): Promise<Progress> 
     if (!isUniqueViolation(err)) throw err;
     return currentProgress(userId, dayKey);
   }
-  return withStanding(recorded.progress, recorded.stored, answer);
+  return withStanding(await withQuests(recorded.progress, answer), recorded.stored, answer);
 }
 
 /** Progress as it stands, with nothing gained: the answer was already recorded. */

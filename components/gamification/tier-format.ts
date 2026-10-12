@@ -72,6 +72,8 @@ export function stampCaption(id: string, s: StampStatus, now: Date, bestRank: nu
   }
   if (id === "event") return "Event code";
   if (id === "top-3-week") return bestRank !== null ? `Best: #${bestRank}` : "Weekly top 3";
+  if (id === "invited-in") return "Joined by invite";
+  if (id === "brought-a-friend") return "Invite a friend";
   if (!s.progress) return "";
   const of = `${s.progress.current} / ${s.progress.target}`;
   if (id === "in-step") return `Matched ${of}`;

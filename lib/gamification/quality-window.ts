@@ -16,7 +16,7 @@ type Db = Prisma.TransactionClient;
 export const countedCheck = { isGoldCheck: true, retest: false, goldPassed: { not: null } } as const;
 
 /** Every answer the labeler saw accepted: paid answers and passed checks. */
-function accepted(userId: string): Prisma.SubmissionWhereInput {
+export function accepted(userId: string): Prisma.SubmissionWhereInput {
   return {
     userId,
     OR: [

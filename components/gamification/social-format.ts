@@ -1,8 +1,10 @@
-// #203: the board, name and event-code copy, kept apart so it reads as one
-// voice and is tested on its own. Never blame, never red.
+// #203: the board, name, event-code, quest and invite copy, kept apart so it
+// reads as one voice and is tested on its own. Never blame, never red.
 import { NAME_RULES, type NameRejection } from "@/lib/gamification/names";
 import { BOARD_RULES } from "@/lib/gamification/board";
 import { TIERS } from "@/lib/gamification/tiers";
+import { QUEST_XP, type QuestStatus } from "@/lib/gamification/quests";
+import { INVITE_RULES } from "@/lib/gamification/invite-rules";
 import type { RedeemError } from "@/lib/gamification/redeem-types";
 import type { BoardRow } from "@/lib/gamification/types";
 
@@ -98,4 +100,33 @@ const NAME: Record<NameFailure, string> = {
 
 export function nameError(error: NameFailure): string {
   return NAME[error] ?? NAME.network;
+}
+
+export const QUESTS_NOTE = `${QUEST_XP} XP each. They start over on Monday.`;
+
+/** The value end of a quest's receipt row: "3 / 5", or "+30 XP" once done. */
+export function questValue(q: QuestStatus): string {
+  return q.done ? `+${q.xp} XP` : `${q.current} / ${q.target}`;
+}
+
+export function questLabel(q: QuestStatus): string {
+  return q.done ? `${q.title}, done, ${q.xp} XP earned` : `${q.title}, ${q.current} of ${q.target}`;
+}
+
+export const INVITE_NOTE = `You both get ${INVITE_RULES.xp} XP and a stamp when they reach ${TIERS[1].name}.`;
+
+export const INVITE_SHARE_TEXT = "Join me on Centient.";
+
+/** The link as it reads on the card: no scheme, so the code shows on a phone. */
+export function inviteLinkShown(link: string): string {
+  return link.replace(/^https?:\/\//, "");
+}
+
+export function inviteCount(qualified: number, cap: number): string {
+  return `${Math.min(qualified, cap)} of ${cap}`;
+}
+
+/** Past the cap the friend is still rewarded; the inviter isn't (ADR-0012). */
+export function inviteCapLine(qualified: number, cap: number): string | null {
+  return qualified >= cap ? `You've reached ${cap}. Friends you invite still get their ${INVITE_RULES.xp} XP and stamp.` : null;
 }

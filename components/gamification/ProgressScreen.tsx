@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ProgressView } from "@/lib/gamification/types";
 import EventCodeCard from "./EventCodeCard";
+import InviteCard from "./InviteCard";
 import OnHoldCard from "./OnHoldCard";
 import StampGrid from "./StampGrid";
 import TierCard from "./TierCard";
@@ -56,7 +57,8 @@ function Tabs({ tab, onTab, earned, total }: { tab: ProgressTab; onTab: (t: Prog
 
 /**
  * #202 (board 07): the tier in full and the stamps. #203 (boards 07, 08): a
- * This week tab for the weekly board, and the Event code card under the stamps.
+ * This week tab for the quests and the weekly board, and the Event code and
+ * invite cards under the stamps.
  */
 export default function ProgressScreen({ progress, onBack, initialTab = "stamps", pendingCode = null, onRedeemed }: ProgressScreenProps) {
   const [tab, setTab] = useState<ProgressTab>(initialTab);
@@ -95,13 +97,14 @@ export default function ProgressScreen({ progress, onBack, initialTab = "stamps"
               <div id="progress-panel" role="tabpanel" aria-labelledby="progress-tab-stamps" className="flex flex-col gap-3.5">
                 <StampGrid stamps={progress.stamps} bestRank={progress.board?.bestRank ?? null} />
                 <EventCodeCard initialCode={pendingCode} onRedeemed={() => onRedeemed?.()} />
+                {progress.invite && <InviteCard invite={progress.invite} />}
               </div>
             </>
           ) : (
             <>
               <Tabs tab={tab} onTab={setTab} earned={earned} total={total} />
               <div id="progress-panel" role="tabpanel" aria-labelledby="progress-tab-week" className="flex flex-col gap-3.5">
-                <WeeklyBoard />
+                <WeeklyBoard quests={progress.quests ?? []} />
               </div>
             </>
           )

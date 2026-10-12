@@ -1,13 +1,25 @@
 // Shapes the XP loop's API returns (#201). Kept free of server imports so client
 // components can use them.
 
+import type { QuestStatus } from "./quests";
+
 export const DAILY_GOAL = 5;
 
-export type XpKindName = "ANSWER" | "QUALITY_CHECK" | "DAILY_GOAL" | "STREAK_MILESTONE" | "CROWD_MATCH" | "EVENT_CODE";
+export type XpKindName =
+  | "ANSWER"
+  | "QUALITY_CHECK"
+  | "DAILY_GOAL"
+  | "STREAK_MILESTONE"
+  | "CROWD_MATCH"
+  | "EVENT_CODE"
+  | "QUEST"
+  | "INVITE";
 
 export interface ProgressLine {
   kind: XpKindName;
   amount: number;
+  /** #203: the quest a QUEST line completed. */
+  quest?: string;
 }
 
 /** The `progress` block on an accepted or quality-check-passed submit response. */
@@ -114,8 +126,16 @@ export interface BoardStanding {
   bestRank: number | null;
 }
 
+/** #203: the invite card. `qualified` counts the friends who paid the inviter off. */
+export interface InviteStanding {
+  code: string;
+  qualified: number;
+  cap: number;
+}
+
 /** What `GET /api/me/progress` returns since #203. */
-export type ProgressView = ProgressSummary & StandingSummary & { board: BoardStanding };
+export type ProgressView = ProgressSummary &
+  StandingSummary & { board: BoardStanding; quests: QuestStatus[]; invite: InviteStanding };
 
 /** #203: one row of the weekly board. No wallet, no earnings, no id. */
 export interface BoardRow {
