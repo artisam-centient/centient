@@ -13,7 +13,7 @@ import { TIER_RULES, type TierSignals } from "./tiers";
 type Db = Prisma.TransactionClient;
 
 /** Gold rows that count as a quality check toward tiers and stamps. */
-const countedCheck = { isGoldCheck: true, retest: false, goldPassed: { not: null } } as const;
+export const countedCheck = { isGoldCheck: true, retest: false, goldPassed: { not: null } } as const;
 
 /** Every answer the labeler saw accepted: paid answers and passed checks. */
 function accepted(userId: string): Prisma.SubmissionWhereInput {

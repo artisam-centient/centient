@@ -2,9 +2,10 @@
 // definitions the server awards from. A stamp is a keepsake: it never pays and
 // never opens a task.
 //
-// Two of the twelve need #203 (an event code and the weekly board). They're
-// defined here with their real criteria and stay locked until #203 adds their
-// award hooks.
+// Two of the twelve aren't counted from stats (#203): the Event slot, filled by
+// an event code, and the weekly Top 3, awarded when a week's board closes. Each
+// code also has a stamp of its own, `event:<codeId>`, held beside the slot
+// (lib/gamification/events.ts), so the count grows with every event.
 
 export const STAMP_RULES = {
   sharpEyeRun: 10,
@@ -37,7 +38,7 @@ export interface StampDef {
   /** Material Symbols name. */
   icon: string;
   criteria: string;
-  /** The stat it counts and the target; null for a #203 stamp. */
+  /** The stat it counts and the target; null for a stamp awarded by its own hook. */
   goal: { stat: keyof StampStats; target: number } | null;
   /** False until the issue that awards it lands. */
   earnable: boolean;
@@ -87,12 +88,12 @@ export const STAMPS: readonly StampDef[] = [
     STAMP_RULES.healthAnswers,
   ),
   {
-    id: "blockquest-fiesta",
-    title: "BlockQuest Fiesta",
+    id: "event",
+    title: "Event",
     icon: "festival",
-    criteria: "Enter the BlockQuest Fiesta event code.",
+    criteria: "Add a code from a Centient event.",
     goal: null,
-    earnable: false,
+    earnable: true,
   },
   {
     id: "top-3-week",
@@ -100,7 +101,7 @@ export const STAMPS: readonly StampDef[] = [
     icon: "trophy",
     criteria: "Finish a week in the top 3 of the board.",
     goal: null,
-    earnable: false,
+    earnable: true,
   },
 ];
 

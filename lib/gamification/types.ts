@@ -3,7 +3,7 @@
 
 export const DAILY_GOAL = 5;
 
-export type XpKindName = "ANSWER" | "QUALITY_CHECK" | "DAILY_GOAL" | "STREAK_MILESTONE" | "CROWD_MATCH";
+export type XpKindName = "ANSWER" | "QUALITY_CHECK" | "DAILY_GOAL" | "STREAK_MILESTONE" | "CROWD_MATCH" | "EVENT_CODE";
 
 export interface ProgressLine {
   kind: XpKindName;
@@ -93,6 +93,8 @@ export interface StampStatus {
   id: string;
   awardedAt: string | null;
   progress: { current: number; target: number } | null;
+  /** #203: an event code's own stamp, `event:<codeId>`, carries its title and icon. */
+  event?: { title: string; icon: string };
 }
 
 /** #202: added to `GET /api/me/progress`. */
@@ -101,5 +103,38 @@ export interface StandingSummary {
   stamps: StampStatus[];
 }
 
-/** What `GET /api/me/progress` returns since #202. */
-export type ProgressView = ProgressSummary & StandingSummary;
+/** #203: where the labeler stands on this week's board, for Home's "You're #N". */
+export interface BoardStanding {
+  /** Null when the labeler doesn't place this week. */
+  rank: number | null;
+  xp: number;
+  /** False when this week's quality checks are under the floor. */
+  placed: boolean;
+  /** The best place they finished a closed week. */
+  bestRank: number | null;
+}
+
+/** What `GET /api/me/progress` returns since #203. */
+export type ProgressView = ProgressSummary & StandingSummary & { board: BoardStanding };
+
+/** #203: one row of the weekly board. No wallet, no earnings, no id. */
+export interface BoardRow {
+  rank: number;
+  /** Null shows as "Hidden labeler". */
+  name: string | null;
+  tier: number;
+  xp: number;
+  you: boolean;
+}
+
+/** #203: `GET /api/leaderboard`. */
+export interface BoardView {
+  weekKey: string;
+  /** The week's Sunday; it ends at 11:59 PM Manila. */
+  endsDay: string;
+  rows: BoardRow[];
+  you: { rank: number | null; xp: number; placed: boolean; inTop: boolean; tier: number; name: string | null };
+  settings: { displayName: string | null; showOnBoard: boolean; nameHidden: boolean };
+  /** The best place the caller finished a closed week, for "Best: #6". */
+  bestRank: number | null;
+}

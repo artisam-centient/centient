@@ -11,6 +11,7 @@ import { unitsToUsdcDisplay } from "@/lib/stellar/config";
 import { readStampStats, readTierSignals } from "./quality-window";
 import { captureStanding } from "./server-analytics";
 import { answerXp } from "./rules";
+import { eventCodeIdOf, eventStampId, isEventStampId } from "./events";
 import { newlyEarned, stampProgress, STAMPS } from "./stamps";
 import { evaluateTier, nextTier, TIER_RULES, TIERS, type TierEvent } from "./tiers";
 import type { StandingSummary, TierBand } from "./types";
@@ -114,6 +115,15 @@ export async function readStanding(userId: string): Promise<StandingSummary | nu
     next ? band(next.id, userId) : Promise.resolve(null),
   ]);
   const awarded = new Map(held.map((s) => [s.stampId, s.awardedAt]));
+  // #203: each event code's own stamp, held beside the twelve, oldest first.
+  const eventHeld = held.filter((s) => isEventStampId(s.stampId)).sort((a, b) => a.awardedAt.getTime() - b.awardedAt.getTime());
+  const codes = eventHeld.length
+    ? await prisma.eventCode.findMany({
+        where: { id: { in: eventHeld.map((s) => eventCodeIdOf(s.stampId)) } },
+        select: { id: true, stampTitle: true, stampIcon: true },
+      })
+    : [];
+  const codeById = new Map(codes.map((c) => [eventStampId(c.id), c]));
 
   return {
     tier: {
@@ -131,10 +141,18 @@ export async function readStanding(userId: string): Promise<StandingSummary | nu
         ? { tier: next.id, name: next.name, xp: next.xp, xpToGo: Math.max(0, next.xp - user.xp), payUpTo: ahead?.payTo ?? null }
         : null,
     },
-    stamps: STAMPS.map((def) => ({
-      id: def.id,
-      awardedAt: awarded.get(def.id)?.toISOString() ?? null,
-      progress: stampProgress(def, stats),
-    })),
+    stamps: [
+      ...STAMPS.map((def) => ({
+        id: def.id,
+        awardedAt: awarded.get(def.id)?.toISOString() ?? null,
+        progress: stampProgress(def, stats),
+      })),
+      ...eventHeld.flatMap((s) => {
+        const code = codeById.get(s.stampId);
+        return code
+          ? [{ id: s.stampId, awardedAt: s.awardedAt.toISOString(), progress: null, event: { title: code.stampTitle, icon: code.stampIcon } }]
+          : [];
+      }),
+    ],
   };
 }

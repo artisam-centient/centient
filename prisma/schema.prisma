@@ -46,6 +46,12 @@ model User {
   tier                 Int      @default(0)
   tierOnHold           Boolean  @default(false)
   holdChecksPassed     Int      @default(0)
+  // Weekly board (#203, ADR-0012). Names are opt-in, stored lowercase, unique.
+  // An admin hide retires the name, clears it and sets displayNameHiddenAt,
+  // which asks the labeler to choose another.
+  displayName          String?  @unique
+  showOnBoard          Boolean  @default(false)
+  displayNameHiddenAt  DateTime?
 
   submissions   Submission[]
   disputes      Dispute[]
@@ -58,6 +64,8 @@ model User {
   xpEvents      XpEvent[]
   dailyProgress DailyProgress[]
   stamps        UserStamp[]
+  eventRedemptions EventRedemption[]
+  weeklyResults WeeklyResult[]
 
   @@map("users")
 }
@@ -172,6 +180,7 @@ model AdminUser {
 
   campaigns Campaign[]
   auditLogs AdminAuditLog[]
+  eventCodes EventCode[]
   uploadJobs UploadJob[]
 
   @@map("admin_users")
@@ -314,7 +323,7 @@ model WalletNonce {
 model AdminAuditLog {
   id           String   @id @default(uuid())
   adminUserId  String
-  action       String   // "campaign.create", "campaign.update", "campaign.delete", "customer.create", "customer.delete", "tasks.upload", "tasks.upload.queued", "tasks.upload.completed", "tasks.upload.failed", "tasks.upload.retry", "export.download"
+  action       String   // "eventCode.create", "displayName.hide", "campaign.create", "campaign.update", "campaign.delete", "customer.create", "customer.delete", "tasks.upload", "tasks.upload.queued", "tasks.upload.completed", "tasks.upload.failed", "tasks.upload.retry", "export.download"
   targetType   String   // "campaign", "adminUser", "submission"
   targetId     String?  // nullable for bulk actions like "tasks.upload"
   metadata     Json?    // shape depends on action; capture diff for updates, count for bulk
@@ -594,6 +603,7 @@ enum XpKind {
   DAILY_GOAL
   STREAK_MILESTONE
   CROWD_MATCH
+  EVENT_CODE
 }
 
 // XP ledger (#201, ADR-0010). Append-only, like BalanceLedger: never updated or
@@ -641,4 +651,66 @@ model UserStamp {
 
   @@id([userId, stampId])
   @@map("user_stamps")
+}
+
+// Event codes (#203, ADR-0012). Each code gives its own stamp, `event:<id>`, and
+// 25 XP, once per account, on the Manila days startsDay..endsDay inclusive.
+// `code` is stored uppercase and matched case-insensitively.
+model EventCode {
+  id               String   @id @default(uuid())
+  code             String   @unique
+  stampTitle       String
+  stampIcon        String
+  startsDay        String
+  endsDay          String
+  createdByAdminId String
+  createdBy        AdminUser @relation(fields: [createdByAdminId], references: [id])
+  createdAt        DateTime @default(now())
+
+  redemptions EventRedemption[]
+
+  @@map("event_codes")
+}
+
+// One per account per code: the key is what makes a second redemption fail.
+model EventRedemption {
+  eventCodeId String
+  eventCode   EventCode @relation(fields: [eventCodeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([eventCodeId, userId])
+  @@index([userId])
+  @@map("event_redemptions")
+}
+
+// A display name an admin hid. It can't be chosen again, by anyone.
+model RetiredDisplayName {
+  name      String   @id
+  retiredAt DateTime @default(now())
+
+  @@map("retired_display_names")
+}
+
+// A closed week of the board: its row is written once, by whichever read or
+// cron gets there first, in the same transaction as its results and stamps.
+model BoardWeek {
+  weekKey  String   @id
+  closedAt DateTime @default(now())
+
+  @@map("board_weeks")
+}
+
+// Where each placed labeler finished a closed week, for "Best: #6".
+model WeeklyResult {
+  weekKey String
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rank    Int
+  xp      Int
+
+  @@id([weekKey, userId])
+  @@index([userId])
+  @@map("weekly_results")
 }

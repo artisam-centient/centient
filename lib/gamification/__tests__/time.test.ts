@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { addDays, dayKeysBetween, manilaDayKey, manilaWeekKey, weekDayKeys } from "../time";
+import { addDays, dayKeysBetween, dayStartUtc, isDayKey, manilaDayKey, manilaWeekKey, weekDayKeys } from "../time";
 
 const ORIGINAL_TZ = process.env.GAMIFICATION_TZ;
 
@@ -67,5 +67,34 @@ describe("day arithmetic", () => {
       "2026-10-31",
       "2026-11-01",
     ]);
+  });
+});
+
+describe("dayStartUtc", () => {
+  it("is the instant a Manila day begins, 16:00Z the day before", () => {
+    expect(dayStartUtc("2026-10-12").toISOString()).toBe("2026-10-11T16:00:00.000Z");
+    expect(dayStartUtc("2027-01-01").toISOString()).toBe("2026-12-31T16:00:00.000Z");
+  });
+
+  it("reads the zone from GAMIFICATION_TZ", () => {
+    process.env.GAMIFICATION_TZ = "UTC";
+    expect(dayStartUtc("2026-10-12").toISOString()).toBe("2026-10-12T00:00:00.000Z");
+  });
+
+  it("round-trips with manilaDayKey at both edges of the day", () => {
+    const start = dayStartUtc("2026-10-15");
+    expect(manilaDayKey(start)).toBe("2026-10-15");
+    expect(manilaDayKey(new Date(start.getTime() - 1))).toBe("2026-10-14");
+  });
+});
+
+describe("isDayKey", () => {
+  it("accepts a real calendar day", () => {
+    expect(isDayKey("2026-10-15")).toBe(true);
+    expect(isDayKey("2028-02-29")).toBe(true);
+  });
+
+  it.each(["2026-02-29", "2026-13-01", "2026-10-1", "15 Oct", "", null])("refuses %j", (raw) => {
+    expect(isDayKey(raw)).toBe(false);
   });
 });

@@ -32,14 +32,19 @@ export interface StandingChange {
 
 /** Send `tier_up`, `tier_on_hold` and `stamp_awarded` for one change. Never throws. */
 export function captureStanding(userId: string, change: StandingChange): void {
+  if (change.tierUp !== null) captureServer(userId, "tier_up", { tier: change.tierUp, tier_name: TIERS[change.tierUp].name });
+  if (change.heldNow) captureServer(userId, "tier_on_hold", { tier: change.tier, tier_name: TIERS[change.tier].name });
+  for (const stamp of change.stampsAwarded) captureServer(userId, "stamp_awarded", { stamp });
+}
+
+/**
+ * #203: one server event on the labeler's person, for writes no browser sees
+ * through to the end (a code redeemed, a name set, a week's board closing).
+ * Never throws.
+ */
+export function captureServer(userId: string, event: string, properties: Record<string, unknown> = {}): void {
   try {
-    const posthog = client();
-    if (!posthog) return;
-    const send = (event: string, properties: Record<string, unknown>) =>
-      posthog.capture({ distinctId: userId, event, properties });
-    if (change.tierUp !== null) send("tier_up", { tier: change.tierUp, tier_name: TIERS[change.tierUp].name });
-    if (change.heldNow) send("tier_on_hold", { tier: change.tier, tier_name: TIERS[change.tier].name });
-    for (const stamp of change.stampsAwarded) send("stamp_awarded", { stamp });
+    client()?.capture({ distinctId: userId, event, properties });
   } catch {
     // Analytics is best-effort; the change already stands.
   }

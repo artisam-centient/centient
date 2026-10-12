@@ -27,9 +27,14 @@ describe("STAMPS", () => {
     expect(new Set(STAMPS.map((s) => s.id)).size).toBe(12);
   });
 
-  it("leaves the two #203 stamps locked: they can't be earned yet", () => {
-    const locked = STAMPS.filter((s) => !s.earnable).map((s) => s.id);
-    expect(locked.sort()).toEqual(["blockquest-fiesta", "top-3-week"]);
+  it("awards every stamp: the event and weekly ones through their own hooks (#203)", () => {
+    expect(STAMPS.every((s) => s.earnable)).toBe(true);
+    const hooked = STAMPS.filter((s) => s.goal === null).map((s) => s.id);
+    expect(hooked.sort()).toEqual(["event", "top-3-week"]);
+  });
+
+  it("keeps one generic Event slot; each code's own stamp is held beside it", () => {
+    expect(byId("event")).toMatchObject({ title: "Event", icon: "festival" });
   });
 
   it("gives every stamp a title, an icon and its real criteria", () => {
@@ -76,7 +81,7 @@ describe("newlyEarned", () => {
     expect(newlyEarned(stats({ answers: 60 }), new Set(["first-answer"]))).toEqual(["answers-50"]);
   });
 
-  it("never awards a locked stamp, however high the stats", () => {
+  it("never awards a hooked stamp from stats, however high", () => {
     const all = stats({
       answers: 1e6,
       payouts: 1e6,
@@ -88,7 +93,7 @@ describe("newlyEarned", () => {
     });
     const earned = newlyEarned(all, new Set());
     expect(earned).toHaveLength(10);
-    expect(earned).not.toContain("blockquest-fiesta");
+    expect(earned).not.toContain("event");
     expect(earned).not.toContain("top-3-week");
   });
 });
@@ -99,8 +104,8 @@ describe("stampProgress", () => {
     expect(stampProgress(byId("answers-50"), stats({ answers: 80 }))).toEqual({ current: 50, target: 50 });
   });
 
-  it("is null for a stamp #202 can't measure", () => {
-    expect(stampProgress(byId("blockquest-fiesta"), zero)).toBeNull();
+  it("is null for a stamp no stat measures", () => {
+    expect(stampProgress(byId("event"), zero)).toBeNull();
     expect(stampProgress(byId("top-3-week"), zero)).toBeNull();
   });
 });
