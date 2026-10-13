@@ -1,7 +1,8 @@
 // #202 — tiers at submit: the labeler's tier snapshot on every row, retest
 // checks marked so the floors leave them out, a failed check that holds a
-// tier, and the tier-up reported on the answer that opened it.
-import { vi, describe, it, expect, beforeEach } from "vitest";
+// tier, the tier-up reported on the answer that opened it, and gating that
+// refuses a task the labeler wouldn't be served.
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/rate-limit", async () => ({
@@ -23,7 +24,14 @@ vi.mock("@/lib/gamification/server-analytics", () => ({ captureStanding: vi.fn()
 import { POST } from "@/app/api/submit/route";
 import { signLabelerJWT } from "@/lib/labeler-auth";
 import { prisma, truncateAll } from "@/tests/helpers/db";
-import { createGoldTask, createTask, createUser, VALID_REASON } from "@/tests/helpers/factories";
+import {
+  createCampaign,
+  createCampaignBalance,
+  createGoldTask,
+  createTask,
+  createUser,
+  VALID_REASON,
+} from "@/tests/helpers/factories";
 
 beforeEach(async () => {
   await truncateAll();
@@ -135,5 +143,77 @@ describe("POST /api/submit - tier-up (#202)", () => {
 
     const next = await submit(userId, second.id, "B");
     expect(next.body.progress.tier.tierUp).toBeNull();
+  });
+});
+
+describe("POST /api/submit - tier gating (#202)", () => {
+  beforeEach(() => {
+    vi.stubEnv("GAMIFICATION_GATING", "on");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  async function nothingWritten(userId: string) {
+    expect(await prisma.submission.count({ where: { userId } })).toBe(0);
+    expect(await prisma.xpEvent.count({ where: { userId } })).toBe(0);
+  }
+
+  it("refuses a task above the labeler's band, before any write", async () => {
+    const userId = await labeler();
+    const task = await createTask({ difficulty: 9 });
+    expect(await submit(userId, task.id, "A")).toEqual({ status: 409, body: { error: "tier_locked" } });
+    await nothingWritten(userId);
+  });
+
+  it("accepts the top of the band, and a task with no difficulty", async () => {
+    const userId = await labeler();
+    const top = await createTask({ difficulty: 3 });
+    const open = await createTask({ difficulty: null });
+    expect((await submit(userId, top.id, "A")).body.status).toBe("pending");
+    expect((await submit(userId, open.id, "B")).body.status).toBe("pending");
+  });
+
+  it("holds a tier to the band below", async () => {
+    const userId = await labeler({ tier: 1, xp: 400, tierOnHold: true });
+    const skilled = await createTask({ difficulty: 5 });
+    const starter = await createTask({ difficulty: 3 });
+    expect((await submit(userId, skilled.id, "A")).body).toEqual({ error: "tier_locked" });
+    expect((await submit(userId, starter.id, "A")).body.status).toBe("pending");
+  });
+
+  it("refuses a campaign above the labeler's tier, its checks included", async () => {
+    const campaign = await createCampaign();
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { minTier: 1 } });
+    const userId = await labeler();
+    const task = await createTask({ difficulty: 1, campaignId: campaign.id });
+    const check = await createGoldTask({ goldAnswer: "A", campaignId: campaign.id, prompt: "A campaign check" });
+    expect((await submit(userId, task.id, "A")).body).toEqual({ error: "tier_locked" });
+    expect((await submit(userId, check.id, "A")).body).toEqual({ error: "tier_locked" });
+    await nothingWritten(userId);
+  });
+
+  it("accepts a campaign open to the labeler's tier", async () => {
+    vi.stubEnv("PLATFORM_FEE_UNITS", "0");
+    const campaign = await createCampaign({ rewardUnits: 500_000n });
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { minTier: 1 } });
+    await createCampaignBalance(campaign.id, 10_000_000n);
+    const userId = await labeler({ tier: 1, xp: 400 });
+    const task = await createTask({ difficulty: 4, campaignId: campaign.id });
+    expect((await submit(userId, task.id, "A")).body.status).toBe("pending");
+  });
+
+  it("leaves the global check pool open to every tier", async () => {
+    const userId = await labeler();
+    const check = await createGoldTask("A");
+    expect((await submit(userId, check.id, "A")).body).toMatchObject({ paid: false, reason: "quality_check_passed" });
+  });
+
+  it("refuses nothing with GAMIFICATION_GATING off", async () => {
+    vi.stubEnv("GAMIFICATION_GATING", "");
+    const userId = await labeler();
+    const task = await createTask({ difficulty: 9 });
+    expect((await submit(userId, task.id, "A")).body.status).toBe("pending");
   });
 });
