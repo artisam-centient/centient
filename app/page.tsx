@@ -106,6 +106,8 @@ function submitErrorMessage(status: number, code?: string): string {
       return "This task is no longer available.";
     case "response_target_reached":
       return "This task has enough submissions. Try the next one.";
+    case "tier_locked":
+      return "This task isn't open at your tier right now. Try the next one.";
     case "payout_check_unavailable":
       return "We couldn't check your wallet can receive USDC. Please try again in a moment.";
     case "payout_failed":

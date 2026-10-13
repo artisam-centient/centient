@@ -89,6 +89,10 @@ unchanged (gold has always paid the default, a separate tell).
   before. Any XP backfill (`npm run xp:repair -- --since=<date> --apply`)
   should run before gating goes on, so returning labelers don't restart at
   Starter.
+- Submit applies the same rule as serving: with gating on, an answer to a task
+  outside the labeler's band, or in a campaign above their tier, is refused
+  `tier_locked` before any write. Serving alone would let a posted task id
+  reach a harder, better-paid task.
 - More answers on pricier tasks fill the daily payout cap sooner and drain
   campaign balances faster. Watch both in the first week.
 - Exports gain `labeler_tier`, the tier when the answer was given

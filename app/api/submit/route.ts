@@ -23,6 +23,8 @@ import { accountHasUsdcTrustline } from "@/lib/stellar/client";
 import { REWARDED_STATUSES } from "@/lib/constants";
 import { recordAccepted, type AcceptedAnswer, type Progress } from "@/lib/gamification/ledger";
 import { updateStanding } from "@/lib/gamification/standing";
+import { gatingOn } from "@/lib/gamification/flag";
+import { effectiveTier, maxDifficulty } from "@/lib/gamification/tiers";
 
 function errorResponse(code: string, status: number, context: Record<string, unknown> = {}) {
   console.error(`[submit] ${code}`, context);
@@ -82,7 +84,9 @@ async function recordFailedCheck(userId: string): Promise<void> {
  *
  * #202: every row carries the labeler's tier when they answered, a retest check
  * is marked so the tier floors leave it out, and a failed check outside retest
- * can put the tier on hold.
+ * can put the tier on hold. With gating on, a task outside the labeler's band,
+ * or in a campaign above their tier, is refused `tier_locked` before any write:
+ * the same rule `/api/task` serves by, so a posted task id can't skip it.
  */
 export async function POST(req: NextRequest) {
   // ST-5d: identity is the session (userId), not a `0x` wallet in the body. #30:
@@ -175,7 +179,7 @@ export async function POST(req: NextRequest) {
     const task = await prisma.task.findUnique({
       where: { id: taskId },
       include: {
-        campaign: { select: { defaultResponseTarget: true, rewardUnits: true } },
+        campaign: { select: { defaultResponseTarget: true, rewardUnits: true, minTier: true } },
         _count: { select: { submissions: { where: { payoutStatus: { in: [...REWARDED_STATUSES] }, isGoldCheck: false } } } },
       },
     });
@@ -187,6 +191,17 @@ export async function POST(req: NextRequest) {
       const responseTarget = task.responseTarget ?? task.campaign?.defaultResponseTarget ?? null;
       if (responseTarget !== null && task._count.submissions >= responseTarget) {
         return errorResponse("response_target_reached", 409, { userId, taskId, responseTarget, paid: task._count.submissions });
+      }
+    }
+
+    // #202: only what /api/task would serve this labeler. The global check pool
+    // is open to every tier; any other task needs a difficulty in the band and
+    // a campaign open to the tier, the band below while a hold lasts.
+    if (gatingOn() && !(task.isGold && task.campaignId === null)) {
+      const tierOpen = effectiveTier(user.tier, user.tierOnHold);
+      const band = maxDifficulty(user.tier, user.tierOnHold);
+      if ((task.difficulty !== null && task.difficulty > band) || (task.campaign?.minTier ?? 0) > tierOpen) {
+        return errorResponse("tier_locked", 409, { userId, taskId, tier: user.tier, onHold: user.tierOnHold });
       }
     }
 
