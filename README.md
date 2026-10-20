@@ -97,15 +97,17 @@ Choosing classic Horizon payments over a Soroban contract means:
   its *issuer account*, not a contract we deployed), so there is nothing for us to
   mint or manage.
 - **Smaller attack surface + faster to ship.** Fewer moving parts, cheaper per-tx,
-  and a mainnet cutover that is a config-only network swap.
+  and a mainnet cutover with no contract to deploy: configuration, plus the
+  co-signer's move to its own account ([Going to mainnet](#going-to-mainnet)).
 
 The one Stellar-native constraint we *do* handle is **trustlines**: a recipient must
 hold a USDC trustline before they can be paid (a payment to an untrusted account
 fails with `op_no_trust`). Payout setup establishes it when a wallet is bound, and we
 optionally platform-sponsor the trustline reserve (see `lib/sponsored-trustline.ts`).
 
-> **Network:** everything runs on Stellar **testnet** by default and flips to
-> **mainnet** by changing `STELLAR_NETWORK` + the USDC issuer env — no code change.
+> **Network:** everything runs on Stellar **testnet**. **Mainnet** needs no code
+> change: `STELLAR_NETWORK` and the USDC issuer env, plus the co-signer on its own
+> account ([Going to mainnet](#going-to-mainnet)).
 
 ---
 
@@ -450,13 +452,20 @@ as the previous contributor.
 ### Going to mainnet
 
 Not part of the current work: the deployment and every deliverable run on testnet
-only. This records how the cutover would go.
+only. This records what the cutover would take. It needs no code change, but it is
+more than a config flip, because the payout path refuses to sign on the public
+network while the co-signer shares the web service's workspace
+([ADR-0001](docs/adr/0001-simulated-cosigner-isolation.md)):
 
-The cutover is config-only: set `STELLAR_NETWORK=public` (and
-`NEXT_PUBLIC_STELLAR_NETWORK=public`), point `STELLAR_USDC_ISSUER`
-at Circle's mainnet USDC issuer, fund the platform account with real XLM (reserves +
-fees) and USDC, add its trustline, then run one small smoke-test payout and verify it
-on [stellar.expert](https://stellar.expert).
+1. Provision the policy co-signer in a separate Railway account with its own owner,
+   move its signing key into that account's secret store, set
+   `COSIGNER_ISOLATION_LEVEL=separate-account`, and confirm the payout account's
+   signers and weights are unchanged.
+2. Set `STELLAR_NETWORK=public` (and `NEXT_PUBLIC_STELLAR_NETWORK=public`) and point
+   `STELLAR_USDC_ISSUER` at Circle's mainnet USDC issuer.
+3. Fund the platform account with real XLM (reserves + fees) and USDC, add its
+   trustline, then run one small smoke-test payout and verify it on
+   [stellar.expert](https://stellar.expert).
 
 ---
 
