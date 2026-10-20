@@ -2,7 +2,7 @@
 // an email/password session, by signing a one-time server challenge.
 //
 // The signed format and its bindings were settled on the real Freighter
-// extension by #24 (docs/superpowers/specs/2026-09-14-freighter-wallet-signing-design.md).
+// extension by #24 (docs/design/specs/2026-09-14-freighter-wallet-signing-design.md).
 // This module is that proof made durable: the harness kept challenges in
 // process memory, but `web` can run more than one process and restarts lose
 // memory, so production keeps them in `wallet_nonces`, tagged with

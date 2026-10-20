@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Next.js 16 route handlers, `@stellar/stellar-sdk` 16, Vitest 4, Horizon REST, existing cron bearer authentication.
 
-**Spec:** `docs/superpowers/specs/2026-09-07-hot-cold-reserve-refill-design.md`
+**Spec:** `docs/design/specs/2026-09-07-hot-cold-reserve-refill-design.md`
 
 ## Global Constraints
 

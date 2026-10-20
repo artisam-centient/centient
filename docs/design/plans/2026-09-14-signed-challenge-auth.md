@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js route handlers (`NextRequest` / `NextResponse`), Prisma 7 with `@prisma/adapter-pg` on Postgres, `@stellar/stellar-sdk` (SEP-53 via `lib/stellar/signature.ts`), `jose` sessions via `lib/labeler-auth.ts`, Vitest against a real test database.
 
-**Spec:** [`docs/superpowers/specs/2026-09-14-signed-challenge-auth-design.md`](../specs/2026-09-14-signed-challenge-auth-design.md). It builds on [`2026-09-14-freighter-wallet-signing-design.md`](../specs/2026-09-14-freighter-wallet-signing-design.md).
+**Spec:** [`docs/design/specs/2026-09-14-signed-challenge-auth-design.md`](../specs/2026-09-14-signed-challenge-auth-design.md). It builds on [`2026-09-14-freighter-wallet-signing-design.md`](../specs/2026-09-14-freighter-wallet-signing-design.md).
 
 ## Global Constraints
 
@@ -863,7 +863,7 @@ Create `lib/stellar/auth-challenge.ts`:
 // an email/password session, by signing a one-time server challenge.
 //
 // The signed format and its bindings were settled on the real Freighter
-// extension by #24 (docs/superpowers/specs/2026-09-14-freighter-wallet-signing-design.md).
+// extension by #24 (docs/design/specs/2026-09-14-freighter-wallet-signing-design.md).
 // This module is that proof made durable: the harness kept challenges in
 // process memory, but `web` can run more than one process and restarts lose
 // memory, so production keeps them in `wallet_nonces`, tagged with

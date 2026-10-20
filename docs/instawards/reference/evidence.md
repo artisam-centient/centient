@@ -87,7 +87,7 @@ The instant path made 80 payments from 21 to 24 September. The [metrics page](me
 
 ## Deliverable 4 evidence
 
-The **volume proof** (#49) reconciles **122 payouts across 25 unique wallets, 0 duplicate, 0 unreconciled**, over 22–28 September — every payout listed by hash in the [D4 volume proof](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-28-d4-volume-proof.md). Both multisig accounts were re-verified on-chain at 2 / 2 / 2 with no drift ([D4 multisig re-verification](https://github.com/artisam-centient/centient/blob/develop/docs/d4-multisig-reverify.md)), and the four named failures were each injected and passed ([payout failure matrix](https://github.com/artisam-centient/centient/blob/develop/docs/payout-failure-matrix.md)).
+The **volume proof** (#49) reconciles **122 payouts across 25 unique wallets, 0 duplicate, 0 unreconciled**, over 22–28 September — every payout listed by hash in the [D4 volume proof](https://github.com/artisam-centient/centient/blob/develop/docs/design/specs/2026-09-28-d4-volume-proof.md). Both multisig accounts were re-verified on-chain at 2 / 2 / 2 with no drift ([D4 multisig re-verification](https://github.com/artisam-centient/centient/blob/develop/docs/d4-multisig-reverify.md)), and the four named failures were each injected and passed ([payout failure matrix](https://github.com/artisam-centient/centient/blob/develop/docs/payout-failure-matrix.md)).
 
 The **[D4 demo video](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3yWfejjQuOElUD9)** (3:58, captioned for a non-technical viewer) runs the whole path live on beta.centient.work at build `15bcbe8`, recorded 30 September: create a Freighter wallet → connect → rank → validate → instant USDC → reconciler → stellar.expert. Its payment is below; it was checked on Horizon on 1 October.
 
@@ -100,11 +100,11 @@ The **[D4 demo video](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3
 | File | Issue | Contents |
 | --- | --- | --- |
 | [`payments-lane-evidence.md`](https://github.com/artisam-centient/centient/blob/develop/docs/payments-lane-evidence.md) | #12 | The no-single-key guard, the Definition-of-Done mapping and residual risks |
-| [`2026-09-14-freighter-wallet-signing-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-14-freighter-wallet-signing-evidence.json) | #24 | Freighter connect, challenge, replay, decline and sponsorship signing |
-| [`2026-09-14-sponsored-account-creation-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-14-sponsored-account-creation-evidence.json) | #27 | Never-funded address → sponsored account, decline, duplicate submit |
-| [`2026-09-14-sponsored-trustline-fee-bump-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-14-sponsored-trustline-fee-bump-evidence.json) | #28 | Six forged-envelope refusals, fee bump, minimum inner fee |
-| [`2026-09-14-sponsored-reserve-reclaim-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-14-sponsored-reserve-reclaim-evidence.json) | #29 | 19/19 reclaim checks |
-| [`2026-09-15-first-connect-onboarding-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-15-first-connect-onboarding-evidence.json) | #30 | Definition of Done → named tests |
+| [`2026-09-14-freighter-wallet-signing-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/design/specs/2026-09-14-freighter-wallet-signing-evidence.json) | #24 | Freighter connect, challenge, replay, decline and sponsorship signing |
+| [`2026-09-14-sponsored-account-creation-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/design/specs/2026-09-14-sponsored-account-creation-evidence.json) | #27 | Never-funded address → sponsored account, decline, duplicate submit |
+| [`2026-09-14-sponsored-trustline-fee-bump-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/design/specs/2026-09-14-sponsored-trustline-fee-bump-evidence.json) | #28 | Six forged-envelope refusals, fee bump, minimum inner fee |
+| [`2026-09-14-sponsored-reserve-reclaim-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/design/specs/2026-09-14-sponsored-reserve-reclaim-evidence.json) | #29 | 19/19 reclaim checks |
+| [`2026-09-15-first-connect-onboarding-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/design/specs/2026-09-15-first-connect-onboarding-evidence.json) | #30 | Definition of Done → named tests |
 
 ## Builds
 

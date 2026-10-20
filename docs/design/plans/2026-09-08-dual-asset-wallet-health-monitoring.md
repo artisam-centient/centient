@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 16.2 App Router, TypeScript, Prisma/PostgreSQL, Stellar SDK/Horizon, ioredis, Discord webhooks, Vitest, React server rendering
 
-**Spec:** `docs/superpowers/specs/2026-09-08-dual-asset-wallet-health-monitoring-design.md`
+**Spec:** `docs/design/specs/2026-09-08-dual-asset-wallet-health-monitoring-design.md`
 
 ## Global Constraints
 

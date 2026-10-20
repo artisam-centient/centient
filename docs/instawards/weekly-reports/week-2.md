@@ -80,7 +80,7 @@ All seven implementation issues merged on **Monday and Tuesday**, and the develo
 
 ## Evidence added
 
-* Freighter spike: connect, SEP-53 challenge, 7/7 signature checks, replay refused (`401`), sponsorship signed from the extension → [`2026-09-14-freighter-wallet-signing-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/superpowers/specs/2026-09-14-freighter-wallet-signing-evidence.json)
+* Freighter spike: connect, SEP-53 challenge, 7/7 signature checks, replay refused (`401`), sponsorship signed from the extension → [`2026-09-14-freighter-wallet-signing-evidence.json`](https://github.com/artisam-centient/centient/blob/develop/docs/design/specs/2026-09-14-freighter-wallet-signing-evidence.json)
 * Sponsored account creation for a never-funded address: [`b1ef0d3a…`](https://stellar.expert/explorer/testnet/tx/b1ef0d3aa2d3f74f7b86c3cbff840205718e76164b70e3774b5263a3051a435b)
 * Sponsored trustline + fee bump, with six forged-envelope refusals: [`776cdee0…`](https://stellar.expert/explorer/testnet/tx/776cdee005e9e46ec990d877f87a024751700e1d5bac5dc83663919a033e4c54)
 * Reserve reclaim: 19/19 checks, two revocations on testnet, a second run that sends nothing

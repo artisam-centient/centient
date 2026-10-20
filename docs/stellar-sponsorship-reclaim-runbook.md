@@ -10,7 +10,7 @@ is that liability on the sponsor account.
 
 Checked on testnet on 2026-09-14, before the rules below were written. The
 probe's transactions are in
-`docs/superpowers/specs/2026-09-14-sponsored-reserve-reclaim-evidence.json`.
+`docs/design/specs/2026-09-14-sponsored-reserve-reclaim-evidence.json`.
 
 | Situation | Sponsor-only `revokeSponsorship` | What happens to the reserve |
 |---|---|---|
