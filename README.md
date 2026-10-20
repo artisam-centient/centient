@@ -1,6 +1,6 @@
 # Centient — Train AI, cent by cent.
 
-[![CI](https://github.com/webnxt-2030/t2p/actions/workflows/ci.yml/badge.svg)](https://github.com/webnxt-2030/t2p/actions/workflows/ci.yml)
+[![CI](https://github.com/artisam-centient/centient/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/artisam-centient/centient/actions/workflows/ci.yml?query=branch%3Adevelop)
 
 Centient is a **data labeling platform** where people earn **USDC on Stellar** by
 ranking AI-generated response pairs. AI developers upload output pairs to be judged
@@ -11,6 +11,48 @@ payout (see [ADR-0005](docs/adr/0005-submit-enqueues-worker-pays.md)).
 
 **Goal:** Make AI alignment through human feedback accessible and instantly
 rewarding for anyone with an internet connection — no bank account required.
+
+| | |
+|---|---|
+| **Live app** | [beta.centient.work](https://beta.centient.work), built from the `staging` branch. [`/api/version`](https://beta.centient.work/api/version) names the deployed commit in this repository |
+| **Docs** | [centient.gitbook.io/centient-docs](https://centient.gitbook.io/centient-docs/): weekly reports, a page per deliverable, every transaction. The source is [`docs/instawards/`](docs/instawards/README.md) |
+| **Network** | Stellar **testnet** only. Every account and transaction in this project holds no real value |
+| **Funding** | Stellar Development Foundation Instawards, Philippines chapter. Month 1 ran 7 September – 6 October 2026 |
+
+---
+
+## Proof of work
+
+Month 1 shipped four deliverables. Each passed an independent QA gate on a named
+build, and every link below is public: commits in this repository, accounts and
+transactions on stellar.expert, and evidence files under `docs/`.
+
+| Deliverable | What shipped | QA verdict | Evidence |
+|---|---|---|---|
+| **D1** Instant USDC reward rail | A 2-of-3 multisig payout account, an independent policy co-signer, a daily cap at both signers and a hot/cold reserve | Passed 28/28 at [`263be4c`](https://github.com/artisam-centient/centient/commit/263be4cd5ab06103d965044c6a8bd3c40678f308) | [D1 page](docs/instawards/deliverables/d1.md) · [a two-signature, fee-bumped payout](https://stellar.expert/explorer/testnet/tx/5083dd72a16bfa749c6b302c293e931939acd70cc52f63586443921d60698206) |
+| **D2** Wallet-native onboarding | Freighter sign-in by signed challenge (SEP-53), plus a sponsored account and USDC trustline for wallets with no XLM | Passed at [`8f660cc`](https://github.com/artisam-centient/centient/commit/8f660cc632f1c868a41618434a1c169dc0edabcc): 38 of 40 executed, 2 accepted as residual | [D2 page](docs/instawards/deliverables/d2.md) · [evidence files](docs/instawards/reference/evidence.md#evidence-files) |
+| **D3** End-to-end contributor loop | Connect, rank, validate, co-sign, pay and reconcile, with no custodial balance | Passed at [`1fde77d`](https://github.com/artisam-centient/centient/commit/1fde77d539ca040bb12c07df0c82dad5c8cf3a58) | [D3 page](docs/instawards/deliverables/d3.md) · [reconcile report](docs/design/specs/2026-09-24-d3-reconcile-report.md) |
+| **D4** Reconciliation and public release | Failure-injection tests, the volume proof and a demo | Passed 35/36 at [`e9c28ad`](https://github.com/artisam-centient/centient/commit/e9c28ad9537e2e72d0dd33d374c7338a9094aaec) | [D4 page](docs/instawards/deliverables/d4.md) · [volume proof](docs/design/specs/2026-09-28-d4-volume-proof.md) · [demo video](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3yWfejjQuOElUD9) |
+
+The [volume proof](docs/design/specs/2026-09-28-d4-volume-proof.md) reconciles
+**122 testnet USDC payouts to 25 unique wallets** (22–28 September). Every one
+carries two signatures inside a fee bump, with **0 unreconciled and 0
+duplicates**. The [evidence index](docs/instawards/reference/evidence.md) lists
+every account and transaction in one place, with full hashes.
+
+Work continued after Month 1. XP, daily streaks, tiers and a weekly board shipped
+on 12 October ([ADR-0010](docs/adr/0010-xp-is-never-money.md),
+[ADR-0011](docs/adr/0011-tiers-gate-access-never-pay.md),
+[ADR-0012](docs/adr/0012-weekly-board-and-event-codes.md)), and contributors can
+sign in with the [Lantern](docs/lantern-integration.md) Android wallet.
+
+### Testnet accounts
+
+| Account | Role |
+|---|---|
+| [`GCP34RITQIVSLHS5T4XZRENIBUS3T7FHL3VSR24GK7HPMHGAAKWK4BUO`](https://stellar.expert/explorer/testnet/account/GCP34RITQIVSLHS5T4XZRENIBUS3T7FHL3VSR24GK7HPMHGAAKWK4BUO) | Payout account (hot wallet). 2-of-3 multisig, thresholds 2/2/2. Every reward is paid from here |
+| [`GC5UOKLU6J2EROZYYP2I23ZEF4YF42TGGRNQMMTGOJGJ7NOCH3TTR4A6`](https://stellar.expert/explorer/testnet/account/GC5UOKLU6J2EROZYYP2I23ZEF4YF42TGGRNQMMTGOJGJ7NOCH3TTR4A6) | Cold reserve. 2-of-3 multisig that refills the payout account |
+| [`GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`](https://stellar.expert/explorer/testnet/account/GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5) | USDC issuer on testnet (Circle) |
 
 ---
 
@@ -24,10 +66,10 @@ rewarding for anyone with an internet connection — no bank account required.
 | Database | PostgreSQL + Prisma 7 |
 | **Settlement** | **Stellar** classic (Horizon) payments via `@stellar/stellar-sdk` 16 |
 | **Asset** | **USDC** — Circle's Stellar-issued asset (7-decimal units) |
-| Wallet | Freighter — extension via `@stellar/freighter-api`, mobile app via WalletConnect v2. Albedo descoped, see ADR-0003 |
+| Wallet | Freighter — extension via `@stellar/freighter-api`, mobile app via WalletConnect v2. [Lantern](docs/lantern-integration.md) on Android. Albedo descoped, see ADR-0003 |
 | Rate limiting | Redis (`ioredis`) |
 | Email | Resend |
-| Observability | Sentry |
+| Observability | Sentry, PostHog |
 | Deploy | Railway |
 
 ---
@@ -76,10 +118,18 @@ Redis, with two long-lived background loops — the **payout worker** and the
 with `FOR UPDATE SKIP LOCKED`, so the loops stay correct even when the app is scaled
 horizontally.
 
+No single key or server can move money. A payout needs two of the payout account's
+three signatures: the web process holds one, and the **policy co-signer**
+(`services/cosigner`, its own Railway service with its own database role) holds
+another. The co-signer re-derives each payment's amount and destination from the
+task ledger and checks its own daily cap before it signs. The
+[payout rail](docs/instawards/architecture/payout-rail.md) walks through one payout
+step by step.
+
 ```mermaid
 flowchart TB
     subgraph clients [Clients]
-        L[Labeler<br/>email + password]
+        L[Labeler<br/>Stellar wallet]
         C[Customer<br/>campaign owner]
         A[Admin<br/>SUPER_ADMIN]
     end
@@ -90,9 +140,11 @@ flowchart TB
     end
 
     subgraph workers [In-process background loops]
-        PW[Payout Worker<br/>claims PayoutJobs]
+        PW[Payout Worker<br/>claims PayoutJobs, first signature]
         RC[Reconciler<br/>confirms tx receipts]
     end
+
+    CS[Policy co-signer<br/>separate service, second signature]
 
     subgraph data [State]
         PG[(PostgreSQL<br/>Prisma 7)]
@@ -101,7 +153,7 @@ flowchart TB
 
     subgraph stellar [Stellar Network]
         HZ[Horizon API]
-        HW[Platform hot wallet<br/>funded USDC account]
+        HW[Payout account<br/>2-of-3 multisig, USDC]
         LW[Labeler wallet<br/>G... address]
     end
 
@@ -113,7 +165,9 @@ flowchart TB
     API --> RD
     PW --> PG
     RC --> PG
-    PW -->|payment op| HZ
+    PW -->|envelope to co-sign| CS
+    CS -->|re-checks the task ledger| PG
+    PW -->|payment op, two signatures| HZ
     RC -->|tx lookup| HZ
     HZ --> HW
     HW -->|USDC| LW
@@ -127,8 +181,11 @@ flowchart TB
 
 The core design splits two things that used to be the same object:
 
-- **Identity** — a labeler is a `User.id` (UUID), logged in with **email + password**
-  (bcrypt). No wallet is needed to sign up or to earn.
+- **Identity** — a labeler is a `User.id` (UUID). They sign in by connecting a Stellar
+  wallet and signing a one-time challenge (SEP-53); the session is keyed to
+  `User.id`, never to the address. Accounts made with email before wallet sign-in
+  log in with email + password, then claim a wallet (#30) and sign in with it from
+  then on.
 - **Payout target** — the Stellar `G…` address the account proved at wallet sign-in or
   claim (#30). Every payout goes there; none is typed at payout time.
 
@@ -154,40 +211,40 @@ floating point.
 
 ## Sequence Diagrams
 
-### 1. Labeler auth (email + password)
+### 1. Labeler sign-in (Stellar wallet, signed challenge)
 
 ```mermaid
 sequenceDiagram
     actor L as Labeler
+    participant W as Wallet (Freighter)
     participant UI as Web UI
-    participant API as /api/auth/login
-    participant RL as Redis (rate limit)
+    participant CH as /api/auth/wallet/challenge
+    participant V as /api/auth/wallet/verify
     participant DB as PostgreSQL
 
-    L->>UI: enter email + password
-    UI->>API: POST { email, password }
-    API->>RL: check login attempts (by IP)
-    alt too many failures
-        RL-->>API: rate limited
-        API-->>UI: 429 rate_limited
+    L->>UI: connect wallet
+    UI->>W: request the address
+    W-->>UI: G... address
+    UI->>CH: POST { address }
+    alt over the per-IP or per-address throttle
+        CH-->>UI: 429 rate_limited
     else allowed
-        API->>DB: find user by email
-        API->>API: bcrypt.compare(password, hash)
-        alt invalid
-            API->>RL: record failure
-            API-->>UI: 401 invalid_credentials
-        else valid
-            API->>RL: reset failures
-            API->>API: signLabelerJWT(sub = userId)
-            API-->>UI: Set-Cookie session (userId-keyed)
-            alt account has a bound Stellar wallet
-                UI-->>L: payout setup (sponsored USDC trustline if needed), then start labeling
-            else email-only account (legacy, #30)
-                UI-->>L: claim a wallet — connect Freighter, prove and bind it (/api/me/wallet)
-                Note over UI,L: then payout setup; from then on the account signs in<br/>with that wallet. Email registration is retired (410).
-            end
+        CH->>DB: store a one-time nonce (valid five minutes)
+        CH-->>UI: { nonce, message }
+        UI->>W: signMessage(message), SEP-53, moves no funds
+        L->>W: approve the prompt
+        W-->>UI: signature
+        UI->>V: POST { address, nonce, signature }
+        V->>DB: check the nonce, verify the signature for the address
+        alt refused (wrong signer, bad signature, expired or already used)
+            V-->>UI: 401
+        else accepted
+            V->>DB: consume the nonce, find the labeler for this address or create one
+            V-->>UI: Set-Cookie labeler_session (userId-keyed)
+            UI-->>L: payout setup (sponsored account + USDC trustline if needed), then start labeling
         end
     end
+    Note over UI,DB: Email accounts from before wallet sign-in log in at /api/auth/login,<br/>then claim a wallet (/api/me/wallet). Email registration is retired (410).
 ```
 
 ### 2. Earning — submit an answer (paid on-chain, instantly)
@@ -286,14 +343,17 @@ sequenceDiagram
 ### Setup
 
 ```bash
-git clone https://github.com/webnxt-2030/t2p.git
-cd t2p
+git clone https://github.com/artisam-centient/centient.git
+cd centient
 pnpm install
-pnpm setup     # generates .env.local, starts Postgres, migrates + seeds
+pnpm run setup   # generates .env.local, starts Postgres, migrates + seeds
 pnpm dev
 ```
 
-`pnpm setup` produces a bootable `.env.local` — every required key is generated or
+Use `pnpm run setup`, not `pnpm setup`: the short form runs pnpm's own built-in
+`setup` command, which edits your shell profile instead of running this script.
+
+`pnpm run setup` produces a bootable `.env.local` — every required key is generated or
 stubbed so no route 500s on a missing value. It's **idempotent and non-destructive**:
 re-running never overwrites a real secret you've already set. It then starts the `db`
 container, applies migrations, and seeds test data.
@@ -389,6 +449,9 @@ as the previous contributor.
 
 ### Going to mainnet
 
+Not part of the current work: the deployment and every deliverable run on testnet
+only. This records how the cutover would go.
+
 The cutover is config-only: set `STELLAR_NETWORK=public` (and
 `NEXT_PUBLIC_STELLAR_NETWORK=public`), point `STELLAR_USDC_ISSUER`
 at Circle's mainnet USDC issuer, fund the platform account with real XLM (reserves +
@@ -401,7 +464,7 @@ on [stellar.expert](https://stellar.expert).
 
 | Command | Description |
 |---------|-------------|
-| `pnpm setup` | One-command dev setup: env + Postgres + migrate + seed |
+| `pnpm run setup` | One-command dev setup: env + Postgres + migrate + seed |
 | `pnpm setup:env` | Generate/repair `.env.local` only (idempotent) |
 | `pnpm dev` | Start development server (workers run in-process) |
 | `pnpm build` | Generate Prisma client and build for production |
@@ -425,27 +488,54 @@ on [stellar.expert](https://stellar.expert).
 ├── app/                    # Next.js App Router pages + API routes
 │   ├── api/submit          #   earn: validate answer -> enqueue its on-chain payout
 │   ├── api/me/withdraw     #   legacy: withdraw a pre-#39 balance as one lump sum
-│   ├── api/auth            #   labeler email+password login/register
+│   ├── api/auth            #   wallet sign-in (signed challenge), legacy email login
 │   └── admin               #   SUPER_ADMIN dashboard (campaigns, users, ops)
 ├── components/             # React components
 ├── lib/
 │   ├── stellar/            #   config, client (payUsdc), balance, signature, wallet
+│   ├── gamification/       #   XP, streaks, tiers, weekly board (never money)
 │   ├── payout-worker.ts    #   claims PayoutJobs, submits payments, retries + refunds
 │   ├── reconciler.ts       #   confirms tx receipts (sent -> confirmed)
 │   ├── user-balance.ts     #   legacy off-chain balance (withdraw / reversal)
 │   ├── campaign-balance.ts #   prepaid customer balance debit/credit/refund
 │   ├── sponsored-trustline.ts  # platform-sponsored USDC trustlines (bounded)
 │   └── ...                 #   quality, rate-limit, anti-fraud, withdrawal-eligibility
+├── services/cosigner/      # independent policy co-signer (the second payout signature)
 ├── prisma/                 # Schema, migrations, seed scripts
+├── scripts/                # Stellar account setup, reserve refill, reclaim, reconcile report
+├── tests/                  # test helpers and the payments-lane suite
+├── D2-QA-UNBLOCK/          # D2 QA reproduction kit and its evidence (Month 1)
 ├── instrumentation.ts      # boots in-process payout worker + reconciler
-└── docs/                   # Feature + migration design specs
+└── docs/
+    ├── instawards/         #   sprint reports, deliverables, evidence index (the GitBook source)
+    ├── adr/                #   architecture decision records
+    ├── design/             #   design specs, implementation plans, evidence files
+    └── *.md                #   runbooks, payout API, feature list
 ```
+
+## Documentation
+
+- **[Sprint book](docs/instawards/README.md)**, published at
+  [centient.gitbook.io/centient-docs](https://centient.gitbook.io/centient-docs/):
+  weekly reports, the four deliverables, [metrics](docs/instawards/reference/metrics.md),
+  the [evidence index](docs/instawards/reference/evidence.md) and
+  [open risks](docs/instawards/reference/risks.md).
+- **Architecture:** the [payout rail](docs/instawards/architecture/payout-rail.md),
+  [wallet identity](docs/instawards/architecture/wallet-identity.md) and the
+  [decision records](docs/adr) (ADR-0001 to ADR-0012).
+- **Operations:** runbooks for the [multisig accounts](docs/stellar-multisig-runbook.md),
+  [payout failures](docs/stellar-payout-failure-runbook.md), the
+  [cold reserve](docs/stellar-cold-reserve-runbook.md) and the
+  [co-signer deployment](docs/cosigner-deployment.md), plus the
+  [payout API](docs/payout-api.md).
+- **Design specs:** [`docs/design/specs`](docs/design/specs), one per feature, with the
+  Month-1 evidence files beside them.
 
 ## Supporting Links
 
-DEMO VIDEO - https://drive.google.com/drive/folders/1vpdG9uDyfMjMibSOdVLZG1SMn10hgl6j?usp=sharing
-
-PITCH DECK -  https://drive.google.com/drive/folders/1fum1zUZkCSWnntNUm6weRn_5XIyK-ovE?usp=sharing
+- **Demo video:** [Drive folder](https://drive.google.com/drive/folders/1vpdG9uDyfMjMibSOdVLZG1SMn10hgl6j?usp=sharing).
+  The captioned D4 demo (3:58) is in the [D4 folder](https://drive.google.com/drive/folders/11SiPEsUuHDKGgJcfm3yWfejjQuOElUD9)
+- **Pitch deck:** [Drive folder](https://drive.google.com/drive/folders/1fum1zUZkCSWnntNUm6weRn_5XIyK-ovE?usp=sharing)
 
 ## License
 
