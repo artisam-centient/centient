@@ -80,6 +80,12 @@ jobs:
       - name: Prisma generate
         run: npx prisma generate
 
+      # `next build` only type-checks what it compiles, so errors in tests,
+      # scripts and services/cosigner/** would otherwise reach develop (#219).
+      # After `prisma generate`: the generated client supplies the model types.
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Run migrations
         run: npx prisma migrate deploy
 
