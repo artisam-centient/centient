@@ -168,6 +168,10 @@ openssl rand -hex 32
    # directory would leave it running stale decision logic.
    railway environment edit --service-config cosigner build.watchPatterns \
      '["services/cosigner/**","lib/stellar/**","prisma/**","package.json"]'
+   # Railpack installs the exact Node version in .node-version. Nixpacks cannot:
+   # it maps any 22.x request to its own stale nixpkgs build (22.14.0), so a
+   # service left on it runs a different runtime from the app and from CI (#214).
+   railway environment edit --service-config cosigner build.builder "RAILPACK"
    ```
 
    **Do not add a `railway.json` for this service.** Railway deprecated Config as
@@ -196,7 +200,8 @@ openssl rand -hex 32
 
 4. **Settings → Networking → Generate Domain.** Note the URL.
 5. Deploy, then confirm: `curl https://<domain>/health` returns
-   `{"status":"ok","isolation":"same-workspace"}`.
+   `{"status":"ok","isolation":"same-workspace"}`, and the build log's
+   Packages table lists `node` at the version in `.node-version` (22.23.4).
 
 ## 4. Point the application at it, and take the key away
 
