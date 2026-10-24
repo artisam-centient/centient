@@ -64,8 +64,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: ".node-version"
           cache: "npm"
+
+      # Fails if setup-node is ever pointed somewhere other than .node-version,
+      # which Railway builds from too (#214).
+      - name: Node version
+        run: |
+          node --version
+          test "$(node --version)" = "v$(cat .node-version)"
 
       - name: Install dependencies
         run: npm ci
@@ -146,8 +153,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: ".node-version"
           cache: "npm"
+
+      # Fails if setup-node is ever pointed somewhere other than .node-version,
+      # which Railway builds from too (#214).
+      - name: Node version
+        run: |
+          node --version
+          test "$(node --version)" = "v$(cat .node-version)"
 
       - name: Install dependencies
         run: npm ci
