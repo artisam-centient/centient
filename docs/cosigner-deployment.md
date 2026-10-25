@@ -197,7 +197,7 @@ openssl rand -hex 32
    | --- | --- |
    | `STELLAR_POLICY_SIGNER_SECRET` | the policy seed (`S…`) |
    | `COSIGNER_SHARED_SECRET` | the `openssl rand -hex 32` output |
-   | `COSIGNER_DATABASE_URL` | `postgresql://centient_cosigner:…@PUBLIC_HOST:PORT/railway?sslmode=require` |
+   | `COSIGNER_DATABASE_URL` | `postgresql://centient_cosigner:…@postgres.railway.internal:5432/railway` |
    | `COSIGNER_DAILY_CAP_UNITS` | e.g. `1000000000` (100 USDC) — set it independently of the app's cap and at or below the hot-float target; see the [daily-cap runbook](stellar-daily-payout-cap-runbook.md) |
    | `COSIGNER_ISOLATION_LEVEL` | `same-workspace` |
    | `STELLAR_NETWORK` | `testnet` |
@@ -249,7 +249,7 @@ submission, and the #12 suite regression-guards it).
 | App crash-loops: "configured with both COSIGNER_URL and STELLAR_POLICY_SIGNER_SECRET" | The policy seed is still in the app project. Delete it there. |
 | Every payout refused 401 | `COSIGNER_SHARED_SECRET` differs between the two projects. |
 | Every payout refused 409 "no ledger row" | `COSIGNER_DATABASE_URL` points at the wrong database. |
-| Co-signer hangs or times out reaching Postgres | `COSIGNER_DATABASE_URL` uses `postgres.railway.internal`. Private networking is per-project; use the public host. |
+| Co-signer hangs or times out reaching Postgres | The co-signer isn't in the same Railway project as Postgres, or `COSIGNER_DATABASE_URL` doesn't use `postgres.railway.internal`. Private networking is per-project, and Postgres has no public TCP proxy since #217. Keep both in `centient-work` on the internal host. |
 | Refused 409 "already carries broadcast hash" | Working as intended — that payout settled already. Do not retry it; reconcile. |
 | Refused 503 "same-workspace is never permitted on the public network" | `STELLAR_NETWORK=public` under the MVP topology. This is the mainnet gate; see the ADR's exit criteria. |
 | Co-signer exits at boot | A required variable is missing. There are no fallbacks by design; the log names the one. |
