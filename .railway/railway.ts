@@ -9,7 +9,12 @@ import { defineRailway, github, image, postgres, preserve, project, redis, servi
 
 export default defineRailway(() => {
   const Postgres = postgres("Postgres", { region: "asia-southeast1-eqsg3a" });
-  Postgres.networking = { privateNetworkEndpoint: "postgres", tcpProxies: { "5432": {} } };
+  // No public TCP proxy (#217): every service reaches Postgres on the private
+  // network. Leaving `tcpProxies` out doesn't delete a proxy (the plan ignores it),
+  // so the old one was removed with Railway's delete-tcp-proxy. For operator
+  // access, add `tcpProxies: { "5432": {} }`, plan and apply, do the work, then
+  // delete that proxy again and drop the line. Its host and port change each time.
+  Postgres.networking = { privateNetworkEndpoint: "postgres" };
   const Redis = redis("Redis", { region: "asia-southeast1-eqsg3a" });
   Redis.deploy = { startCommand: "/bin/sh -c \"rm -rf $RAILWAY_VOLUME_MOUNT_PATH/lost+found/ && exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD --save 60 1 --dir $RAILWAY_VOLUME_MOUNT_PATH\"" };
   Redis.networking = { privateNetworkEndpoint: "redis" };

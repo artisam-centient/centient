@@ -117,9 +117,14 @@ certify nothing. If either allowed read fails, any write succeeds, or the
 The transactions make every probe safe even if a grant is accidentally too
 broad.
 
-Build `COSIGNER_DATABASE_URL` from the Postgres service's **public** connection
-details (`DATABASE_PUBLIC_URL`, or the host and port on its Connect tab), with
-your new user and password substituted in.
+Build `COSIGNER_DATABASE_URL` from the Postgres service's private connection
+details (its `DATABASE_URL`), with your new user and password substituted in.
+Postgres has no public TCP proxy since #217, so running the SQL above from a
+laptop needs a temporary one: add `tcpProxies: { "5432": {} }` to `Postgres` in
+`.railway/railway.ts`, plan and apply, use the `DATABASE_PUBLIC_URL` it creates,
+then delete the proxy (dashboard → Postgres → Networking, or Railway's
+`delete-tcp-proxy`) and drop the line. Omitting `tcpProxies` alone doesn't
+delete a proxy.
 
 **Use the internal host: `postgres.railway.internal`.** Railway's private
 networking carries service-to-service traffic within a project, and under the
