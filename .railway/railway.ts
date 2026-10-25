@@ -46,12 +46,13 @@ export default defineRailway(() => {
   });
   // Cron callers for the authenticated /api/cron/* routes (#222). Railway cron
   // runs at most every 5 minutes, so each wallet-health run calls the route five
-  // times a minute apart: the runbook asks for at least one check per minute. All
+  // times, starting each call 60 s after the last one started (the sleep runs
+  // alongside the request): the runbook asks for at least one check per minute. All
   // of them read web's CRON_SECRET, so rotating it means changing only web.
   const cronSecret = web.env.CRON_SECRET;
   const walletHealthCron = service("wallet-health-cron", {
     source: image("alpine:3.21"),
-    start: "sh -c 'fail=0; for i in 1 2 3 4 5; do wget -q -T 20 -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/wallet-health\" || fail=1; echo; [ $i -lt 5 ] && sleep 60; done; exit $fail'",
+    start: "sh -c 'fail=0; for i in 1 2 3 4 5; do [ $i -lt 5 ] && { sleep 60 & tick=$!; }; wget -q -T 20 -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/wallet-health\" || fail=1; echo; [ $i -lt 5 ] && wait $tick; done; exit $fail'",
     replicas: { "asia-southeast1-eqsg3a": 1 },
     deploy: { cronSchedule: "*/5 * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: cronSecret, WEB_DOMAIN: preserve() },
