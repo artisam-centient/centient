@@ -15,13 +15,6 @@ export default defineRailway(() => {
   Redis.networking = { privateNetworkEndpoint: "redis" };
   const redisVolume = volume("redis-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "asia-southeast1-eqsg3a", sizeMB: 50000 });
   const postgresVolume = volume("postgres-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "asia-southeast1-eqsg3a", sizeMB: 50000 });
-  const walletHealthCron = service("wallet-health-cron", {
-    source: image("alpine:3.21"),
-    start: "sh -c 'wget -q -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/wallet-health\"'",
-    replicas: { "asia-southeast1-eqsg3a": 1 },
-    deploy: { cronSchedule: "*/5 * * * *", restartPolicyType: "NEVER" },
-    env: { CRON_SECRET: preserve(), WEB_DOMAIN: preserve() },
-  });
   // No preDeploy: the co-signer must never run migrations (ADR-0001,
   // docs/cosigner-deployment.md).
   const cosigner = service("cosigner", {
@@ -51,15 +44,45 @@ export default defineRailway(() => {
     domains: ["beta.centient.work", "centient.work"],
     env: { ADMIN_JWT_SECRET: preserve(), ADMIN_SESSION_PASSWORD: preserve(), COSIGNER_ISOLATION_LEVEL: preserve(), COSIGNER_SHARED_SECRET: preserve(), COSIGNER_URL: preserve(), CRON_SECRET: preserve(), DAILY_PAYOUT_CAP_UNITS: preserve(), DATABASE_URL: preserve(), DISCORD_WEBHOOK_URL: preserve(), HEALTH_ALERT_COOLDOWN_MS: preserve(), NEXT_PUBLIC_APP_URL: preserve(), NEXT_PUBLIC_EXPLORER_URL: preserve(), NEXT_PUBLIC_GAMIFICATION: preserve(), NEXT_PUBLIC_LANTERN_ORIGINS: preserve(), NEXT_PUBLIC_POSTHOG_KEY: preserve(), NEXT_PUBLIC_REWARD_AMOUNT: preserve(), NEXT_PUBLIC_REWARD_TOKEN_DECIMALS: preserve(), NEXT_PUBLIC_REWARD_TOKEN_SYMBOL: preserve(), NEXT_PUBLIC_STELLAR_NETWORK: preserve(), NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: preserve(), REDIS_URL: preserve(), RESEND_API_KEY: preserve(), RESEND_EMAIL_FROM: preserve(), SEED_ON_DEPLOY: preserve(), STELLAR_COLD_MIN_RETAIN_UNITS: preserve(), STELLAR_COLD_OPS_SIGNER_PUBLIC: preserve(), STELLAR_COLD_POLICY_SIGNER_PUBLIC: preserve(), STELLAR_COLD_RESERVE_ACCOUNT: preserve(), STELLAR_HOT_FLOAT_TARGET_UNITS: preserve(), STELLAR_HOT_FLOAT_TRIGGER_UNITS: preserve(), STELLAR_NETWORK: preserve(), STELLAR_OPS_SIGNER_SECRET: preserve(), STELLAR_PLATFORM_ACCOUNT: preserve(), STELLAR_POLICY_SIGNER_PUBLIC: preserve(), STELLAR_SPONSOR_SECRET: preserve(), STELLAR_USDC_CODE: preserve(), STELLAR_USDC_ISSUER: preserve() },
   });
+  // Cron callers for the authenticated /api/cron/* routes (#222). Railway cron
+  // runs at most every 5 minutes, so each wallet-health run calls the route five
+  // times a minute apart: the runbook asks for at least one check per minute. All
+  // of them read web's CRON_SECRET, so rotating it means changing only web.
+  const cronSecret = web.env.CRON_SECRET;
+  const walletHealthCron = service("wallet-health-cron", {
+    source: image("alpine:3.21"),
+    start: "sh -c 'fail=0; for i in 1 2 3 4 5; do wget -q -T 20 -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/wallet-health\" || fail=1; echo; [ $i -lt 5 ] && sleep 60; done; exit $fail'",
+    replicas: { "asia-southeast1-eqsg3a": 1 },
+    deploy: { cronSchedule: "*/5 * * * *", restartPolicyType: "NEVER" },
+    env: { CRON_SECRET: cronSecret, WEB_DOMAIN: preserve() },
+  });
   const payoutRetryCron = service("payout-retry-cron", {
     source: image("alpine:3.21"),
     start: "sh -c 'wget -q -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/payout-retry\"'",
     replicas: { "asia-southeast1-eqsg3a": 1 },
     deploy: { cronSchedule: "*/5 * * * *", restartPolicyType: "NEVER" },
-    env: { CRON_SECRET: preserve(), WEB_DOMAIN: preserve() },
+    env: { CRON_SECRET: cronSecret, WEB_DOMAIN: preserve() },
+  });
+  // Hourly, as the cold-reserve runbook suggests. The route only reports a refill
+  // plan and never moves funds; a 503 or 500 fails the run in Railway.
+  const reserveRefillCron = service("reserve-refill-cron", {
+    source: image("alpine:3.21"),
+    start: "sh -c 'wget -q -T 30 -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/reserve-refill\"'",
+    replicas: { "asia-southeast1-eqsg3a": 1 },
+    deploy: { cronSchedule: "0 * * * *", restartPolicyType: "NEVER" },
+    env: { CRON_SECRET: cronSecret, WEB_DOMAIN: "centient.work" },
+  });
+  // Monday 00:05 Asia/Manila (Sunday 16:05 UTC), just after a board week ends.
+  // A backstop: the first board read of a new week closes the old one anyway.
+  const weeklyBoardCron = service("weekly-board-cron", {
+    source: image("alpine:3.21"),
+    start: "sh -c 'wget -q -T 30 -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/weekly-board\"'",
+    replicas: { "asia-southeast1-eqsg3a": 1 },
+    deploy: { cronSchedule: "5 16 * * 0", restartPolicyType: "NEVER" },
+    env: { CRON_SECRET: cronSecret, WEB_DOMAIN: "centient.work" },
   });
 
   return project("centient-work", {
-    resources: [walletHealthCron, Postgres, Redis, cosigner, payoutReconcileCron, web, payoutRetryCron, redisVolume, postgresVolume],
+    resources: [walletHealthCron, Postgres, Redis, cosigner, payoutReconcileCron, web, payoutRetryCron, reserveRefillCron, weeklyBoardCron, redisVolume, postgresVolume],
   });
 });

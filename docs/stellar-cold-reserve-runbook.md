@@ -168,14 +168,25 @@ unattended scheduler must not create competing stale envelopes.
 
 Wallet health is checked by the authenticated `POST /api/cron/wallet-health`
 endpoint. **The app never schedules it itself** — the web service's pre-deploy
-only runs migrations, and the same is true of `/api/cron/payout-retry` and
-`/api/cron/reserve-refill`. In `centient-work`, `.railway/railway.ts` declares
-`wallet-health-cron` and `payout-retry-cron`, which call the first two every
-five minutes — slower than the one-minute cadence below — and nothing calls
-`/api/cron/reserve-refill`. Provision a scheduler outside the app (a Railway
-cron service or equivalent) with `CRON_SECRET` in its own secret store and
-invoke it at least once per minute in production so short-lived balance and
-activity breaches are observed promptly:
+only runs migrations, and the same is true of `/api/cron/payout-retry`,
+`/api/cron/reserve-refill` and `/api/cron/weekly-board`. Invoke wallet-health at
+least once per minute in production so short-lived balance and activity
+breaches are observed promptly. In `centient-work`, `.railway/railway.ts`
+declares one cron service per route (#222):
+
+| Service | Route | Schedule (UTC) |
+| --- | --- | --- |
+| `wallet-health-cron` | `/api/cron/wallet-health` | `*/5 * * * *`, calling the route 5 times a minute apart |
+| `payout-retry-cron` | `/api/cron/payout-retry` | `*/5 * * * *` |
+| `reserve-refill-cron` | `/api/cron/reserve-refill` | `0 * * * *` (hourly) |
+| `weekly-board-cron` | `/api/cron/weekly-board` | `5 16 * * 0` (Monday 00:05 Asia/Manila) |
+
+Railway cron runs at most every 5 minutes, which is why wallet-health loops
+inside each run. Every cron service reads `CRON_SECRET` as a reference to web's
+(`${{web.CRON_SECRET}}`), so rotating it means changing only web. A non-2xx
+response (for example reserve-refill's `503 insufficient_reserve`) fails that
+cron run in Railway. Change a schedule only by editing `.railway/railway.ts`,
+then running `railway config plan` and `railway config apply`. A manual call:
 
 ```bash
 curl -X POST https://APP_HOST/api/cron/wallet-health \
