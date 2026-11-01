@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Image from "next/image";
-import TaskCard from "@/components/TaskCard";
+import TaskWorkspace, { type AnsweredInPlace } from "@/components/TaskWorkspace";
 import EarningsBadge from "@/components/EarningsBadge";
-import WalletChip from "@/components/WalletChip";
 import SubmitButton from "@/components/SubmitButton";
 import LandingSkeleton from "@/components/LandingSkeleton";
 import ScreenLoader from "@/components/ScreenLoader";
@@ -25,11 +23,11 @@ import { GAMIFICATION_ON } from "@/lib/gamification/flag";
 import { trackProgress } from "@/lib/gamification/analytics";
 import type { Progress, ProgressView } from "@/lib/gamification/types";
 import AcceptedStub from "@/components/gamification/AcceptedStub";
-import TodayStrip from "@/components/gamification/TodayStrip";
 import TierUpScreen from "@/components/gamification/TierUpScreen";
 import ProgressScreen, { type ProgressTab } from "@/components/gamification/ProgressScreen";
 import { captureCodeFromUrl, clearPendingCode, pendingCode as storedCode } from "@/lib/gamification/event-link";
 import { captureInviteFromUrl } from "@/lib/gamification/invite-link";
+import { DESKTOP_QUERY } from "@/lib/use-media-query";
 
 const MIN_LOADING_MS = 1500;
 
@@ -43,6 +41,7 @@ type Screen =
   | "onboarding"
   | "landing"
   | "task"
+  | "task_loading"
   | "no_tasks"
   | "success"
   | "quality_failed"
@@ -149,6 +148,8 @@ export default function Home() {
   /** #202: a tier the last answer opened, shown once before the next task. */
   const [pendingTierUp, setPendingTierUp] = useState<number | null>(null);
   const [accepted, setAccepted] = useState<{ progress: Progress; at: Date } | null>(null);
+  /** Board 03: from 1024px an accepted answer stays on the task screen instead of the success screen. */
+  const [answered, setAnswered] = useState<AnsweredInPlace | null>(null);
   /** #203: which Progress tab opens, and a booth code waiting to be added. */
   const [progressTab, setProgressTab] = useState<ProgressTab>("stamps");
   const [pendingCode, setPendingCode] = useState<string | null>(null);
@@ -249,13 +250,25 @@ export default function Home() {
    * previous task's submit error; with none left, shows no_tasks.
    */
   const fetchTask = useCallback(async () => {
-    const res = await fetch("/api/task");
-    // #30: an account without a bound wallet is served no work until it claims one.
-    if (res.status === 409) {
-      setScreen("claim_wallet");
+    // Board 08: the workspace holds its shape while the next task loads.
+    setScreen("task_loading");
+    let data: { task?: TaskData & { xp?: number | null; tier?: unknown } };
+    try {
+      const res = await fetch("/api/task");
+      // #30: an account without a bound wallet is served no work until it claims one.
+      if (res.status === 409) {
+        setScreen("claim_wallet");
+        return;
+      }
+      if (!res.ok) throw new Error(String(res.status));
+      data = await res.json();
+    } catch (err) {
+      console.error("[task] could not load the next task", err);
+      setToast({ id: Date.now(), message: "We couldn't load the next task. Please try again.", kind: "error" });
+      setScreen("landing");
       return;
     }
-    const data = await res.json();
+    setAnswered(null);
     if (data.task) {
       setSubmitError(null);
       setTask({
@@ -382,8 +395,7 @@ export default function Home() {
   }, [unbannedAt, screen]);
 
   const handleStartEarning = useCallback(() => {
-    setScreen("loading");
-    fetchTask();
+    void fetchTask();
   }, [fetchTask]);
 
   /**
@@ -406,6 +418,7 @@ export default function Home() {
     setDisputeOpen(false);
     setProgress(undefined);
     setAccepted(null);
+    setAnswered(null);
     setPendingTierUp(null);
     clearPendingCode();
     setPendingCode(null);
@@ -530,7 +543,16 @@ export default function Home() {
         await fetchUserData();
         if (loggedOutSince()) return;
         applyProgress(data.progress);
-        setScreen("success");
+        // Board 03: from 1024px the answer is confirmed on the task screen itself.
+        if (window.matchMedia(DESKTOP_QUERY).matches) {
+          setAnswered({
+            submissionId: typeof data.submissionId === "string" ? data.submissionId : null,
+            at: new Date(),
+            xpGained: data.progress?.xpGained ?? null,
+          });
+        } else {
+          setScreen("success");
+        }
         // #39: earnings rise only once the worker has paid, after this returns.
         // Refresh them when it has, so the last answer of a session is counted.
         if (typeof data.submissionId === "string") {
@@ -597,60 +619,24 @@ export default function Home() {
         }}
       />
     );
-  } else if (screen === "task" && task) {
+  } else if ((screen === "task" && task) || screen === "task_loading") {
+    // One tree for both, so the workspace (its answers, an open sheet) stays
+    // mounted while the next task loads.
     body = (
-      <div className="min-h-screen bg-surface">
-        <header className="sticky top-0 z-40 w-full bg-surface-container-low">
-          <div className={`flex w-full items-center justify-between px-4 ${GAMIFICATION_ON ? "pb-2.5 pt-4" : "py-4"}`}>
-            <div className="flex items-center gap-2">
-              <Image
-                src="/logo.png"
-                alt=""
-                width={32}
-                height={32}
-                priority
-                className="select-none"
-              />
-              <span className="text-xl font-headline font-extrabold tracking-tighter text-primary">
-                Centient
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setAccountOpen(true)}
-                aria-label="View account"
-                className="rounded-full transition-transform duration-200 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-              >
-                <WalletChip address={wallet} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setAccountOpen(true)}
-                aria-label="View account"
-                className="rounded-full transition-transform duration-200 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-              >
-                <EarningsBadge totalEarned={totalEarned} />
-              </button>
-            </div>
-          </div>
-          {GAMIFICATION_ON && progress && (
-            <TodayStrip counted={progress.today.counted} streakDays={progress.streak.days} />
-          )}
-        </header>
-        <main className="mx-auto max-w-lg px-4 py-6">
-          <TaskCard
-            key={task.id}
-            task={task}
-            onSubmit={handleSubmit}
-            loading={submitting}
-            error={submitError}
-            reward={task.rewardDisplay}
-            tokenSymbol={task.rewardSymbol}
-            xp={task.xp}
-            tier={task.tier}
-          />
-        </main>
+      <>
+        <TaskWorkspace
+          task={screen === "task" ? task : null}
+          wallet={wallet}
+          totalEarned={totalEarned}
+          progress={progress}
+          submitting={submitting}
+          submitError={submitError}
+          onSubmit={handleSubmit}
+          answered={answered}
+          onNext={continueAfterAnswer}
+          onOpenAccount={() => setAccountOpen(true)}
+          explorerUrl={EXPLORER_URL}
+        />
         <AccountSheet
           open={accountOpen}
           onClose={() => setAccountOpen(false)}
@@ -669,7 +655,7 @@ export default function Home() {
           }
           onLoggedOut={handleLogout}
         />
-      </div>
+      </>
     );
   } else if (screen === "success" && GAMIFICATION_ON && accepted) {
     // #201 (board 05): the accepted answer as a receipt stub, USDC in gold and

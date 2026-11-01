@@ -330,6 +330,67 @@ html:has([data-sticky-submit]) {
   scroll-padding-bottom: 10rem;
 }
 
+/* ─── Task workspace (components/TaskCard.tsx, components/TaskWorkspace.tsx) ─── */
+
+/* The Selected chip settles in; the reason card rises into place. Both start
+   from a visible frame, and reduced motion skips them (motion-safe). */
+@keyframes task-pop {
+  from {
+    opacity: 0;
+    scale: 0.8;
+  }
+}
+
+@keyframes task-rise {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+}
+
+/* The phone's session sheet slides up from the bottom edge. */
+@keyframes task-sheet-up {
+  from {
+    translate: 0 100%;
+  }
+}
+
+/* An answer just accepted in place: a gold wash that fades to paper once.
+   Reduced motion shows the row in place with no wash. */
+@media (prefers-reduced-motion: no-preference) {
+  .task-fresh {
+    animation: task-wash 1.8s cubic-bezier(0.16, 1, 0.3, 1) 1;
+  }
+}
+
+@keyframes task-wash {
+  from {
+    background-color: color-mix(in srgb, var(--color-secondary-fixed) 50%, transparent);
+  }
+}
+
+.task-rail {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-outline-variant) transparent;
+}
+
+/* The sheet's scrim fades in with it. */
+.task-sheet[open]::backdrop {
+  animation: task-scrim-in 240ms ease-out;
+}
+
+@keyframes task-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-sheet[open]::backdrop {
+    animation: none;
+  }
+}
+
 /* ─── Lantern wallet button (components/LanternButton.tsx) ─── */
 
 /* The still, finished frame: Lantern's navy, lit by a warm halo. This is all
