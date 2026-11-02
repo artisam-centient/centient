@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TaskCardView, choiceForKey } from "@/components/TaskCard";
+import { TaskCardView, choiceForKey, sideForSwipe } from "@/components/TaskCard";
 
 const task = {
   id: "task-1",
@@ -205,5 +205,69 @@ describe("TaskCardView — errors and submission progress", () => {
     expect(tagWith(render({ choice: "A", reason: reasonOk }), 'id="submit-ranking"')).not.toMatch(
       /disabled=""/,
     );
+  });
+});
+
+describe("TaskCardView — one response at a time on a phone (flip)", () => {
+  it("shows the pair as tabs, with only A's panel visible at first", () => {
+    const html = render({ layout: "flip" });
+    expect(attrOf(html, 'role="tablist"', "aria-label")).toBe("Responses");
+    expect(attrOf(html, 'id="tab-A"', "aria-selected")).toBe("true");
+    expect(attrOf(html, 'id="tab-B"', "aria-selected")).toBe("false");
+    expect(tagWith(html, 'id="panel-A"')).not.toContain("hidden");
+    expect(tagWith(html, 'id="panel-B"')).toContain("hidden");
+  });
+
+  it("keeps both texts in the page, so each choice is described by its response", () => {
+    const html = render({ layout: "flip" });
+    expect(textOf(html, "choice-A-text")).toBe(task.responseA);
+    expect(textOf(html, "choice-B-text")).toBe(task.responseB);
+    expect(attrOf(html, 'id="choice-B"', "aria-describedby")).toBe("choice-B-text");
+  });
+
+  it("makes the choice a separate radiogroup of two buttons, in a roving tab order", () => {
+    const html = render({ layout: "flip" });
+    expect(attrOf(html, 'role="radiogroup"', "aria-label")).toBe("Which response is better?");
+    expect(tagWith(html, 'id="choice-A"')).toMatch(/^<button/);
+    expect(attrOf(html, 'id="choice-A"', "tabindex")).toBe("0");
+    expect(attrOf(html, 'id="choice-B"', "tabindex")).toBe("-1");
+  });
+
+  it("offers the reason and submit only after a choice, as in the pair", () => {
+    expect(render({ layout: "flip" })).not.toContain("<textarea");
+    const html = render({ layout: "flip", choice: "B", reason: reasonOk });
+    expect(attrOf(html, 'id="choice-B"', "aria-checked")).toBe("true");
+    expect(html.indexOf('id="choice-B"')).toBeLessThan(html.indexOf('id="reason"'));
+    expect(html.indexOf('id="reason"')).toBeLessThan(html.indexOf("Submit &amp; Get Paid"));
+  });
+});
+
+describe("sideForSwipe — flipping by swipe", () => {
+  it.each([
+    [-80, 5, "A", "B"],
+    [80, -5, "B", "A"],
+  ] as const)("a %ipx swipe from %s shows the other response", (dx, dy, from, to) => {
+    expect(sideForSwipe(dx, dy, from)).toBe(to);
+  });
+
+  it.each([
+    [-30, 0, "A"],
+    [-80, 70, "A"],
+    [80, 0, "A"],
+    [-80, 0, "B"],
+  ] as const)("ignores %ipx by %ipx from %s: too short, too vertical, or already at the end", (dx, dy, from) => {
+    expect(sideForSwipe(dx, dy, from)).toBeNull();
+  });
+});
+
+describe("TaskCardView — accepted in place", () => {
+  it("shows the answered task read-only: no choices, reason field or submit", () => {
+    const html = render({ answered: true, choice: "A", reason: reasonOk });
+    expect(html).toMatch(/<div inert=""/);
+    expect(html).not.toContain('role="radio"');
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain("Submit &amp; Get Paid");
+    expect(html).toContain("Your pick");
+    expect(html).toContain(reasonOk);
   });
 });

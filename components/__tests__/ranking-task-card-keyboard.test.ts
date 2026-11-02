@@ -71,7 +71,7 @@ describe("TaskCard — keyboard operation", () => {
     const { a } = renderCard();
     expect(screen.queryByRole("textbox")).toBeNull();
     fireEvent.keyDown(a, { key: "Enter" });
-    expect(screen.getByRole("textbox", { name: /Why\?/ })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: /Why is A better\?/ })).toBeTruthy();
   });
 });
 
