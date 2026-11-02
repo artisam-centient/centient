@@ -563,7 +563,10 @@ export function TaskCardView({
         <div
           data-testid="submit-bar"
           data-sticky-submit
-          className="sticky bottom-0 z-30 -mx-4 bg-gradient-to-t from-surface via-surface/95 to-transparent px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-6 md:mx-0 md:px-0"
+          // On a phone the bar fades the content into the screen's edge. From md it
+          // floats as its own Paper card above the window's foot, so it never
+          // reads as a slab of ground cut out of the tinted page.
+          className="sticky bottom-0 z-30 -mx-4 bg-gradient-to-t from-surface via-surface/95 to-transparent px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-6 md:bottom-6 md:mx-0 md:rounded-[1.75rem] md:bg-none md:bg-surface-container-lowest md:px-6 md:py-4 md:shadow-[0_16px_40px_-12px_rgba(25,28,30,0.18),0_4px_12px_rgba(25,28,30,0.04)]"
         >
           {/* Mounted before anything goes wrong, so a later message is announced. */}
           <p
