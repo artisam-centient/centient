@@ -117,9 +117,14 @@ certify nothing. If either allowed read fails, any write succeeds, or the
 The transactions make every probe safe even if a grant is accidentally too
 broad.
 
-Build `COSIGNER_DATABASE_URL` from the Postgres service's **public** connection
-details (`DATABASE_PUBLIC_URL`, or the host and port on its Connect tab), with
-your new user and password substituted in.
+Build `COSIGNER_DATABASE_URL` from the Postgres service's private connection
+details (its `DATABASE_URL`), with your new user and password substituted in.
+Postgres has no public TCP proxy since #217, so running the SQL above from a
+laptop needs a temporary one: add `tcpProxies: { "5432": {} }` to `Postgres` in
+`.railway/railway.ts`, plan and apply, use the `DATABASE_PUBLIC_URL` it creates,
+then delete the proxy (dashboard → Postgres → Networking, or Railway's
+`delete-tcp-proxy`) and drop the line. Omitting `tcpProxies` alone doesn't
+delete a proxy.
 
 **Use the internal host: `postgres.railway.internal`.** Railway's private
 networking carries service-to-service traffic within a project, and under the
@@ -158,8 +163,8 @@ openssl rand -hex 32
    railway environment edit --service-config cosigner deploy.startCommand "npm run cosign"
    railway environment edit --service-config cosigner deploy.healthcheckPath "/health"
    railway environment edit --service-config cosigner deploy.restartPolicyType "ON_FAILURE"
-   # Explicitly empty. The repo-root railway.json runs `prisma migrate deploy`
-   # before every deploy, which the co-signer must never do: it holds a read-only
+   # Explicitly empty. The web service's pre-deploy (.railway/railway.ts) runs
+   # `prisma migrate deploy`, which the co-signer must never do: it holds a read-only
    # credential and no DATABASE_URL, so the deploy fails — and "fixing" that by
    # adding DATABASE_URL would hand this service the application's read-write
    # connection and dissolve the separation it exists to provide.
@@ -168,18 +173,23 @@ openssl rand -hex 32
    # directory would leave it running stale decision logic.
    railway environment edit --service-config cosigner build.watchPatterns \
      '["services/cosigner/**","lib/stellar/**","prisma/**","package.json"]'
+   # Railpack installs the exact Node version in .node-version. Nixpacks cannot:
+   # it maps any 22.x request to its own stale nixpkgs build (22.14.0), so a
+   # service left on it runs a different runtime from the app and from CI (#214).
+   railway environment edit --service-config cosigner build.builder "RAILPACK"
    ```
 
-   **Do not add a `railway.json` for this service.** Railway deprecated Config as
-   Code on 2026-09-08: existing files are read until 2026-12-01, but **new
-   services cannot opt into it**, so a config file committed here would simply
-   never be read. Its successor is Infrastructure as Code
-   (`.railway/railway.ts`, applied with `railway config plan` /
-   `railway config apply`), which suits this project well later precisely
-   because it contains exactly one service. Before reaching for it, note that
-   apply is **omit-means-delete** and the authoring file must describe the whole
-   environment — pointing a partial file at the main `centient` project would
-   propose deleting everything it does not mention.
+   **Do not add a `railway.json` for this service.** Config as Code is deprecated:
+   new services cannot opt into it, and Railway stops reading existing files on
+   2026-12-01. The repo removed its own `railway.json` in #218. Its successor,
+   Infrastructure as Code, already lives in this repo: `.railway/railway.ts`
+   describes the **whole `centient-work` project** and is applied only by
+   `railway config plan` / `railway config apply`, never during deploys. Apply is
+   **omit-means-delete**, so do not point that file at `centient-cosigner`, and do
+   not apply it while a cosigner service exists in `centient-work` without that
+   service listed in it. Moving the co-signer into its own project means removing
+   it from `.railway/railway.ts` in the same change and reviewing the plan's
+   delete line before applying.
 
 3. **Variables** — these belong here and in no other project:
 
@@ -187,7 +197,7 @@ openssl rand -hex 32
    | --- | --- |
    | `STELLAR_POLICY_SIGNER_SECRET` | the policy seed (`S…`) |
    | `COSIGNER_SHARED_SECRET` | the `openssl rand -hex 32` output |
-   | `COSIGNER_DATABASE_URL` | `postgresql://centient_cosigner:…@PUBLIC_HOST:PORT/railway?sslmode=require` |
+   | `COSIGNER_DATABASE_URL` | `postgresql://centient_cosigner:…@postgres.railway.internal:5432/railway` |
    | `COSIGNER_DAILY_CAP_UNITS` | e.g. `1000000000` (100 USDC) — set it independently of the app's cap and at or below the hot-float target; see the [daily-cap runbook](stellar-daily-payout-cap-runbook.md) |
    | `COSIGNER_ISOLATION_LEVEL` | `same-workspace` |
    | `STELLAR_NETWORK` | `testnet` |
@@ -196,7 +206,8 @@ openssl rand -hex 32
 
 4. **Settings → Networking → Generate Domain.** Note the URL.
 5. Deploy, then confirm: `curl https://<domain>/health` returns
-   `{"status":"ok","isolation":"same-workspace"}`.
+   `{"status":"ok","isolation":"same-workspace"}`, and the build log's
+   Packages table lists `node` at the version in `.node-version` (22.23.4).
 
 ## 4. Point the application at it, and take the key away
 
@@ -238,11 +249,11 @@ submission, and the #12 suite regression-guards it).
 | App crash-loops: "configured with both COSIGNER_URL and STELLAR_POLICY_SIGNER_SECRET" | The policy seed is still in the app project. Delete it there. |
 | Every payout refused 401 | `COSIGNER_SHARED_SECRET` differs between the two projects. |
 | Every payout refused 409 "no ledger row" | `COSIGNER_DATABASE_URL` points at the wrong database. |
-| Co-signer hangs or times out reaching Postgres | `COSIGNER_DATABASE_URL` uses `postgres.railway.internal`. Private networking is per-project; use the public host. |
+| Co-signer hangs or times out reaching Postgres | The co-signer isn't in the same Railway project as Postgres, or `COSIGNER_DATABASE_URL` doesn't use `postgres.railway.internal`. Private networking is per-project, and Postgres has no public TCP proxy since #217. Keep both in `centient-work` on the internal host. |
 | Refused 409 "already carries broadcast hash" | Working as intended — that payout settled already. Do not retry it; reconcile. |
 | Refused 503 "same-workspace is never permitted on the public network" | `STELLAR_NETWORK=public` under the MVP topology. This is the mainnet gate; see the ADR's exit criteria. |
 | Co-signer exits at boot | A required variable is missing. There are no fallbacks by design; the log names the one. |
-| Deploy fails in a pre-deploy step running `prisma migrate deploy` | The service picked up the repo-root `railway.json`. Clear the Pre-Deploy Command in the service's Settings. Do not add `DATABASE_URL` to make it pass. |
+| Deploy fails in a pre-deploy step running `prisma migrate deploy` | The service has the web service's pre-deploy command (it once came from the repo-root `railway.json`; since #218 it is set only on `web` in `.railway/railway.ts`). Clear the Pre-Deploy Command in the service's Settings. Do not add `DATABASE_URL` to make it pass. |
 | Payout fails "co-signature is not the configured co-signer" | `STELLAR_POLICY_SIGNER_PUBLIC` in the app does not match the seed the co-signer holds. |
 
 ## Operating notes

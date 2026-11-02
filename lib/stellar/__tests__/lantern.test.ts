@@ -11,7 +11,8 @@ import {
   walletCopy,
 } from "@/lib/stellar/lantern";
 
-const LANTERN = "https://localhost";
+const LANTERN = "https://android.golantern.xyz";
+const EXTENSION = "chrome-extension://iflpkjgolcbleombhldiibhojohjpnmd";
 const ANDROID_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/128.0 Mobile Safari/537.36";
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
 
@@ -53,8 +54,8 @@ afterEach(() => {
 
 describe("parseLanternOrigins", () => {
   it("splits on commas and spaces and drops trailing slashes", () => {
-    expect(parseLanternOrigins("https://localhost/, http://localhost:5199  capacitor://x")).toEqual([
-      "https://localhost",
+    expect(parseLanternOrigins("https://android.golantern.xyz/, http://localhost:5199  capacitor://x")).toEqual([
+      "https://android.golantern.xyz",
       "http://localhost:5199",
     ]);
   });
@@ -65,6 +66,26 @@ describe("parseLanternOrigins", () => {
 
   it("is empty when unset", () => {
     expect(parseLanternOrigins(undefined)).toEqual([]);
+  });
+
+  it("keeps the Chrome extension's pinned origin", () => {
+    expect(parseLanternOrigins(`${LANTERN} ${EXTENSION}/`)).toEqual([LANTERN, EXTENSION]);
+  });
+
+  it("refuses the bare extension scheme, a malformed id, or a path, so no other extension can frame us", () => {
+    expect(
+      parseLanternOrigins(
+        [
+          "chrome-extension:",
+          "chrome-extension://",
+          "chrome-extension://*",
+          "chrome-extension://iflpkjgolcbleombhldiibhojohjpn",
+          "chrome-extension://IFLPKJGOLCBLEOMBHLDIIBHOJOHJPNMD",
+          "chrome-extension://zflpkjgolcbleombhldiibhojohjpnmd",
+          `${EXTENSION}/popup.html`,
+        ].join(" "),
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -86,6 +107,23 @@ describe("isInLantern", () => {
     expect(isInLantern()).toBe(false);
   });
 
+  it("is true when framed by Lantern's Chrome extension, on any platform", () => {
+    process.env.NEXT_PUBLIC_LANTERN_ORIGINS = `${LANTERN} ${EXTENSION}`;
+    framedBy(EXTENSION);
+    expect(isInLantern()).toBe(true);
+  });
+
+  it("is false when framed by any other extension", () => {
+    process.env.NEXT_PUBLIC_LANTERN_ORIGINS = `${LANTERN} ${EXTENSION}`;
+    framedBy("chrome-extension://abcdefghijklmnopabcdefghijklmnop");
+    expect(isInLantern()).toBe(false);
+  });
+
+  it("is false when framed by https://localhost, which every Capacitor app shares", () => {
+    framedBy("https://localhost");
+    expect(isInLantern()).toBe(false);
+  });
+
   it("is false at the top level", () => {
     topLevel();
     expect(isInLantern()).toBe(false);
@@ -93,7 +131,7 @@ describe("isInLantern", () => {
 
   it("falls back to the referrer when the browser has no ancestorOrigins", () => {
     vi.stubGlobal("window", { self: {}, top: {}, location: {} });
-    vi.stubGlobal("document", { referrer: "https://localhost/apps" });
+    vi.stubGlobal("document", { referrer: "https://android.golantern.xyz/apps" });
     expect(isInLantern()).toBe(true);
   });
 });

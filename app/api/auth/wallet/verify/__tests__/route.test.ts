@@ -353,3 +353,44 @@ describe("POST /api/auth/wallet/verify — Lantern", () => {
     expect(await prisma.walletNonce.count({ where: { nonce: body.nonce } })).toBe(1);
   });
 });
+
+describe("POST /api/auth/wallet/verify - invites (#203)", () => {
+  async function inviterCode() {
+    const { inviteCodeFor } = await import("@/lib/gamification/invites");
+    const inviter = await prisma.user.create({ data: { walletAddress: Keypair.random().publicKey() } });
+    return { inviter, code: await inviteCodeFor(inviter.id) };
+  }
+
+  async function signIn(cookie?: string) {
+    const kp = Keypair.random();
+    const challenge = await issueSignInChallenge(kp.publicKey());
+    const body = { address: kp.publicKey(), nonce: challenge.nonce, signature: sign(kp, challenge.message), signerAddress: kp.publicKey() };
+    return { kp, res: await POST(makeReq(body, cookie)) };
+  }
+
+  it("records the inviter when the invite link's cookie rides on a first sign-in, then clears it", async () => {
+    const { inviter, code } = await inviterCode();
+    const { kp, res } = await signIn(`centient_invite=${code}`);
+    expect(res.status).toBe(200);
+    const created = await prisma.user.findUniqueOrThrow({ where: { walletAddress: kp.publicKey() } });
+    expect(created.invitedById).toBe(inviter.id);
+    expect(res.headers.getSetCookie().some((c) => c.startsWith("centient_invite=;") || /centient_invite=.*Max-Age=0/.test(c))).toBe(true);
+  });
+
+  it("never attaches an inviter to an account that already existed", async () => {
+    const { code } = await inviterCode();
+    const kp = Keypair.random();
+    const existing = await prisma.user.create({ data: { walletAddress: kp.publicKey() } });
+    const challenge = await issueSignInChallenge(kp.publicKey());
+    const body = { address: kp.publicKey(), nonce: challenge.nonce, signature: sign(kp, challenge.message), signerAddress: kp.publicKey() };
+    const res = await POST(makeReq(body, `centient_invite=${code}`));
+    expect(res.status).toBe(200);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: existing.id } })).invitedById).toBeNull();
+  });
+
+  it("signs in as usual with a bad invite cookie", async () => {
+    const { kp, res } = await signIn("centient_invite=NOTACODE!!");
+    expect(res.status).toBe(200);
+    expect((await prisma.user.findUniqueOrThrow({ where: { walletAddress: kp.publicKey() } })).invitedById).toBeNull();
+  });
+});

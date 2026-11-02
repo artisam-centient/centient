@@ -1,6 +1,6 @@
 // Lantern's postMessage bridge (wallet-lantern.ts), against a stand-in for the
-// framing Lantern window. Replies are the shapes Lantern 0.5.1 posts, plus the
-// proposed `lantern:signXdr`.
+// framing Lantern window. Replies are the shapes Lantern 0.5.1 posts, plus
+// `lantern:signXdr` from 0.6.0.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Account, Asset, Keypair, Networks, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 import { lanternMessageBytes } from "@/lib/stellar/signature";
@@ -13,7 +13,7 @@ import {
 } from "@/lib/stellar/wallet-lantern";
 import { WalletError } from "@/lib/stellar/wallet-errors";
 
-const LANTERN = "https://localhost";
+const LANTERN = "https://android.golantern.xyz";
 const kp = Keypair.random();
 const ADDR = kp.publicKey();
 
@@ -135,7 +135,7 @@ describe("signOwnership", () => {
   });
 });
 
-describe("signTransaction (proposed lantern:signXdr)", () => {
+describe("signTransaction (lantern:signXdr)", () => {
   function envelope(): string {
     const tx = new TransactionBuilder(new Account(Keypair.random().publicKey(), "1"), {
       fee: "100",

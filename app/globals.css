@@ -22,7 +22,7 @@
   --color-on-secondary-fixed: #251a00;
   --color-on-secondary-fixed-variant: #5a4300;
 
-  /* Tertiary — indigo (reserved, not used in v1 core flows) */
+  /* Tertiary — indigo: progress only (XP, goal, streaks; DESIGN.md "Indigo Is Progress") */
   --color-tertiary: #494bd6;
   --color-on-tertiary: #ffffff;
   --color-tertiary-container: #aeb0ff;
@@ -142,6 +142,22 @@ details > summary {
 }
 
 /* The in-app loader shows up only once a wait has lasted long enough to notice. */
+/* #202: a new tier. The owl settles in and the receipt prints down from the band. */
+@keyframes tier-owl {
+  from {
+    transform: scale(0.82) translateY(6px);
+  }
+}
+/* Negative insets leave room for the stub's drop-shadow once it has printed. */
+@keyframes tier-print {
+  from {
+    clip-path: inset(-48px -48px 100% -48px);
+  }
+  to {
+    clip-path: inset(-48px);
+  }
+}
+
 @keyframes screen-loader-in {
   from {
     opacity: 0;
@@ -312,6 +328,67 @@ details > summary {
    hidden behind it. */
 html:has([data-sticky-submit]) {
   scroll-padding-bottom: 10rem;
+}
+
+/* ─── Task workspace (components/TaskCard.tsx, components/TaskWorkspace.tsx) ─── */
+
+/* The Selected chip settles in; the reason card rises into place. Both start
+   from a visible frame, and reduced motion skips them (motion-safe). */
+@keyframes task-pop {
+  from {
+    opacity: 0;
+    scale: 0.8;
+  }
+}
+
+@keyframes task-rise {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+}
+
+/* The phone's session sheet slides up from the bottom edge. */
+@keyframes task-sheet-up {
+  from {
+    translate: 0 100%;
+  }
+}
+
+/* An answer just accepted in place: a gold wash that fades to paper once.
+   Reduced motion shows the row in place with no wash. */
+@media (prefers-reduced-motion: no-preference) {
+  .task-fresh {
+    animation: task-wash 1.8s cubic-bezier(0.16, 1, 0.3, 1) 1;
+  }
+}
+
+@keyframes task-wash {
+  from {
+    background-color: color-mix(in srgb, var(--color-secondary-fixed) 50%, transparent);
+  }
+}
+
+.task-rail {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-outline-variant) transparent;
+}
+
+/* The sheet's scrim fades in with it. */
+.task-sheet[open]::backdrop {
+  animation: task-scrim-in 240ms ease-out;
+}
+
+@keyframes task-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-sheet[open]::backdrop {
+    animation: none;
+  }
 }
 
 /* ─── Lantern wallet button (components/LanternButton.tsx) ─── */

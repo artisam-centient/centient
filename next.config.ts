@@ -21,8 +21,8 @@ const walletConnect = [
   "https://pulse.walletconnect.org",
 ];
 
-// Lantern (lib/stellar/lantern.ts) runs dApps in a frame inside its Android app, so
-// its webview origins have to be allowed to frame this one. Empty unless
+// Lantern (lib/stellar/lantern.ts) runs dApps in a frame inside its Android app and
+// its Chrome extension, so those origins have to be allowed to frame this one. Empty unless
 // NEXT_PUBLIC_LANTERN_ORIGINS is set, which leaves the app framing only itself.
 const lanternFrameAncestors = parseLanternOrigins(process.env.NEXT_PUBLIC_LANTERN_ORIGINS);
 
