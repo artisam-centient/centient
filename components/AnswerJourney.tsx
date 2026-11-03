@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FEATURED_SAMPLE as SAMPLE } from "./LandingPhone";
+import Icon from "./LandingIcon";
+import { PAPER } from "./LandingWidgets";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 
 type Tone = "ink" | "money" | "confirmed";
@@ -64,6 +66,123 @@ const LINES: Line[] = [
   },
 ];
 
+const HEAD = "flex items-center justify-between gap-2 font-label text-xs font-semibold text-on-surface-variant";
+
+/** The answer as a widget, one per line, in the line's order. */
+const CARDS: { label: string; icon: string; body: ReactNode }[] = [
+  {
+    label: "The prompt",
+    icon: "chat",
+    body: (
+      <>
+        <p className="mt-2 font-headline text-lg font-bold leading-snug text-on-surface">{SAMPLE.prompt}</p>
+        <p className="mt-3 flex gap-2">
+          {["Response A", "Response B"].map((r) => (
+            <span key={r} className="rounded-full bg-surface-container-high px-2.5 py-1 font-label text-xs font-semibold text-on-surface-variant">
+              {r}
+            </span>
+          ))}
+        </p>
+      </>
+    ),
+  },
+  {
+    label: "Your pick",
+    icon: "touch_app",
+    body: (
+      <>
+        <p className="mt-2 flex items-center gap-2 font-headline text-lg font-extrabold tracking-[-0.02em] text-on-surface">
+          Response {CHOSEN}
+          <span className="flex items-center gap-0.5 rounded-full bg-primary px-2 py-0.5 font-label text-xs font-bold text-on-primary">
+            <Icon name="check" size={14} />
+            Selected
+          </span>
+        </p>
+        <p className="mt-2 font-body text-sm leading-relaxed text-on-surface-variant">&ldquo;{SAMPLE.reason}&rdquo;</p>
+      </>
+    ),
+  },
+  {
+    label: "Reward",
+    icon: "payments",
+    body: (
+      <p className="mt-2 flex items-baseline gap-1 text-secondary">
+        <span className="font-headline text-3xl font-extrabold tracking-[-0.03em] tabular-nums">+{REWARD_AMOUNT}</span>
+        <span className="font-headline text-sm font-bold">{REWARD_TOKEN_SYMBOL}</span>
+        <span className="ml-1 font-label text-xs font-semibold text-on-surface-variant">to your wallet</span>
+      </p>
+    ),
+  },
+  {
+    label: "Payout account",
+    icon: "key",
+    body: (
+      <p className="mt-3 flex items-center justify-between">
+        <span className="flex gap-1.5">
+          {[true, true, false].map((signed, i) => (
+            <span
+              key={i}
+              className={`grid h-9 w-9 place-items-center rounded-full ${
+                signed ? "bg-on-surface text-surface" : "bg-surface-container-high text-outline"
+              }`}
+            >
+              <Icon name="key" size={18} />
+            </span>
+          ))}
+        </span>
+        <span className="font-label text-sm font-semibold text-on-surface">2 of 3 signed</span>
+      </p>
+    ),
+  },
+  {
+    label: "On the ledger",
+    icon: "travel_explore",
+    body: (
+      <p className="mt-2 flex items-center justify-between gap-3">
+        <span className="font-label text-sm text-on-surface-variant">
+          Tx <span className="text-on-surface">{SAMPLE.tx}</span>
+        </span>
+        <span className="flex items-center gap-1 font-label text-sm font-semibold text-primary">
+          <Icon name="verified" size={16} filled />
+          Confirmed
+        </span>
+      </p>
+    ),
+  },
+];
+
+/**
+ * From 1024px, beside the lines: the answer as a stack of widgets. Each line
+ * the reader reaches deals its widget onto the front, and the ones before it
+ * step back behind. Unreached widgets wait below, out of sight.
+ */
+function WidgetStack({ reached }: { reached: number }) {
+  return (
+    <div aria-hidden="true" className="relative mt-14 hidden h-[17rem] lg:block">
+      {CARDS.map((card, i) => {
+        const back = reached - i;
+        const dealt = back >= 0;
+        const style = dealt
+          ? { transform: `translateY(${-back * 1.1}rem) scale(${1 - back * 0.05})`, opacity: back > 2 ? 0 : 1, zIndex: 10 - back }
+          : { transform: "translateY(2.5rem) rotate(2deg) scale(0.96)", opacity: 0, zIndex: 0 };
+        return (
+          <div
+            key={card.label}
+            className={`absolute inset-x-0 bottom-0 origin-top transition-[transform,opacity] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${PAPER} p-5`}
+            style={style}
+          >
+            <p className={HEAD}>
+              {card.label}
+              <Icon name={card.icon} size={16} />
+            </p>
+            {card.body}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const VALUE_TONE: Record<Tone, string> = {
   ink: "text-on-surface",
   money: "font-headline font-bold text-secondary",
@@ -73,8 +192,9 @@ const VALUE_TONE: Record<Tone, string> = {
 /**
  * What happens to one answer: the hero's sample, itemized. Each line lights up
  * in ink as it reaches the middle of the screen and its receipt fields print
- * in, while the rail beside the list fills to that line. Green is kept for the
- * one confirmation at the end.
+ * in, while the rail beside the list fills to that line. From 1024px the fields
+ * are dealt instead as a stack of widgets beside the heading. Green is kept for
+ * the one confirmation at the end.
  */
 export default function AnswerJourney() {
   const listRef = useRef<HTMLOListElement>(null);
@@ -124,6 +244,7 @@ export default function AnswerJourney() {
         <p className="mt-4 max-w-[34ch] font-body text-base leading-relaxed text-on-surface-variant sm:text-lg">
           Every task follows the same path, from the prompt to your wallet.
         </p>
+        <WidgetStack reached={Math.max(0, reached)} />
       </div>
 
       <ol ref={listRef} className="relative">
@@ -150,7 +271,7 @@ export default function AnswerJourney() {
                 {i + 1}
               </span>
               <div
-                className={`pt-1 transition-opacity duration-500 ${on || !tracking ? "opacity-100" : "opacity-40"}`}
+                className={`pt-1 transition-opacity duration-500 ${on || !tracking ? "opacity-100" : "opacity-55"}`}
               >
                 <h3 className="flex items-center gap-2.5 font-headline text-xl font-bold text-on-surface sm:text-2xl">
                   <span
@@ -164,8 +285,9 @@ export default function AnswerJourney() {
                 <p className="mt-2 max-w-[46ch] font-body text-base leading-relaxed text-on-surface-variant">
                   {line.body}
                 </p>
+                {/* Phones read the receipt fields inline; wider screens deal them as the stack. */}
                 <div
-                  className={`mt-4 flex max-w-[30rem] flex-col gap-1.5 rounded-lg bg-surface-container-lowest px-3.5 py-2.5 font-label text-sm shadow-[0_4px_12px_rgba(25,28,30,0.04)] ${
+                  className={`mt-4 flex max-w-[30rem] flex-col lg:hidden gap-1.5 rounded-lg bg-surface-container-lowest px-3.5 py-2.5 font-label text-sm shadow-[0_4px_12px_rgba(25,28,30,0.04)] ${
                     on && tracking ? "motion-safe:animate-[landing-print_600ms_steps(14)_both]" : ""
                   } ${on || !tracking ? "" : "invisible"}`}
                 >

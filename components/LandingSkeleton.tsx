@@ -43,30 +43,33 @@ export default function LandingSkeleton() {
           </div>
         </div>
 
-        <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-5 pb-20 pt-6 sm:px-8 lg:min-h-[calc(100dvh-4.5rem)] lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-10 xl:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:pb-14 lg:pt-2">
-          <div className="flex flex-col items-start">
-            <div className={`h-12 w-[62%] rounded-2xl sm:h-[4.5rem] lg:h-[4.25rem] xl:h-20 ${BLOCK}`} />
-            <div className={`mt-3 h-12 w-[88%] rounded-2xl sm:h-[4.5rem] lg:h-[4.25rem] xl:h-20 ${BLOCK}`} />
-            <div className="mt-7 flex w-full max-w-[30rem] flex-col gap-3">
-              <div className={`h-4 w-full rounded-full ${BLOCK}`} />
-              <div className={`h-4 w-2/3 rounded-full ${BLOCK}`} />
-            </div>
-            <div className={`mt-9 h-14 w-full rounded-full sm:max-w-xs ${BLOCK}`} />
-            <div className={`mt-4 h-4 w-72 max-w-full rounded-full ${BLOCK}`} />
-          </div>
-          {/* The hero phone, with the owl at its lower left; LandingPhone's placement. */}
-          <div className="mx-auto w-full max-w-[34rem]">
-            <div className="flex justify-center">
-              <div className="relative sm:translate-x-12 lg:translate-x-14">
-                <div
-                  className={`aspect-[360/760] w-[16.5rem] rounded-[2.6rem] sm:w-[18rem] lg:w-[18.5rem] lg:rounded-[2.9rem] xl:w-[19.5rem] ${BLOCK}`}
-                />
-                <div
-                  className={`absolute -bottom-3 right-full -mr-10 h-20 w-20 rounded-full sm:-mr-11 sm:h-36 sm:w-36 lg:-mr-12 lg:h-40 lg:w-40 ${BLOCK}`}
-                />
+        {/* The hero card, in neutral blocks: LoginScreen's placement without its color. */}
+        <div className="mx-auto max-w-[90rem] px-3 pb-20 pt-3 sm:px-6 lg:pb-16 lg:pt-4">
+          <div className="grid grid-cols-1 items-center gap-12 rounded-[2rem] bg-surface-container-low px-5 pb-12 pt-10 sm:px-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-10 lg:rounded-[2.75rem] lg:px-14 lg:py-14 xl:grid-cols-[minmax(0,1fr)_minmax(0,38rem)] xl:gap-16 xl:px-20">
+            <div className="flex flex-col items-start">
+              <div className={`h-12 w-[62%] rounded-2xl sm:h-[4.5rem] lg:h-[4.25rem] xl:h-20 ${BLOCK}`} />
+              <div className={`mt-3 h-12 w-[88%] rounded-2xl sm:h-[4.5rem] lg:h-[4.25rem] xl:h-20 ${BLOCK}`} />
+              <div className="mt-7 flex w-full max-w-[30rem] flex-col gap-3">
+                <div className={`h-4 w-full rounded-full ${BLOCK}`} />
+                <div className={`h-4 w-2/3 rounded-full ${BLOCK}`} />
               </div>
+              <div className={`mt-9 h-14 w-full rounded-full sm:max-w-xs ${BLOCK}`} />
+              <div className={`mt-4 h-4 w-72 max-w-full rounded-full ${BLOCK}`} />
             </div>
-            <div className={`mx-auto mt-6 h-4 w-[16.5rem] max-w-full rounded-full sm:w-72 ${BLOCK}`} />
+            {/* The hero phone, with the owl at its lower left; LandingPhone's placement. */}
+            <div className="mx-auto w-full max-w-[34rem]">
+              <div className="flex justify-center">
+                <div className="relative sm:translate-x-12 lg:translate-x-6 xl:translate-x-14">
+                  <div
+                    className={`aspect-[360/760] w-[16.5rem] rounded-[2.6rem] sm:w-[18rem] lg:w-[18.5rem] lg:rounded-[2.9rem] xl:w-[19.5rem] ${BLOCK}`}
+                  />
+                  <div
+                    className={`absolute -bottom-3 right-full -mr-10 h-20 w-20 rounded-full sm:-mr-11 sm:h-36 sm:w-36 lg:-mr-12 lg:h-40 lg:w-40 ${BLOCK}`}
+                  />
+                </div>
+              </div>
+              <div className={`mx-auto mt-6 h-4 w-[16.5rem] max-w-full rounded-full sm:w-72 ${BLOCK}`} />
+            </div>
           </div>
         </div>
       </div>
