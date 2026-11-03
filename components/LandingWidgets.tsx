@@ -279,22 +279,23 @@ export function ProgressWidget({ answered, round }: { answered: number; round: n
 }
 
 /**
- * The stage: a cent. A Ledger Green disc behind the phone, its milled edge
- * turning once a minute (DESIGN.md, The Stage Disc).
+ * The stage: a cent. A Signal Green disc on the hero's Ledger Green field,
+ * behind the phone, its milled edge turning once a minute (DESIGN.md, The
+ * Green Stage Exception).
  */
 export function CoinDisc() {
   return (
-    <div className="absolute left-1/2 top-1/2 aspect-square w-[21rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary sm:w-[32rem] sm:-translate-x-[56%] lg:w-[30rem] xl:w-[34rem]">
+    <div className="absolute left-1/2 top-1/2 aspect-square w-[21rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-container sm:w-[32rem] sm:-translate-x-[56%] lg:w-[30rem] xl:w-[34rem]">
       <svg viewBox="0 0 100 100" className="landing-coin-edge absolute inset-0 h-full w-full" aria-hidden="true">
-        <circle cx="50" cy="50" r="47" fill="none" stroke="rgb(255 255 255 / 0.26)" strokeWidth="1.6" strokeDasharray="0.9 1.55" />
-        <circle cx="50" cy="50" r="42.5" fill="none" stroke="rgb(255 255 255 / 0.1)" strokeWidth="0.4" />
+        <circle cx="50" cy="50" r="47" fill="none" stroke="rgb(0 84 45 / 0.4)" strokeWidth="1.6" strokeDasharray="0.9 1.55" />
+        <circle cx="50" cy="50" r="42.5" fill="none" stroke="rgb(0 84 45 / 0.18)" strokeWidth="0.4" />
       </svg>
     </div>
   );
 }
 
 /**
- * A hand-drawn chalk line across the coin, from the pick, behind the phone, to
+ * A hand-drawn ink line across the coin, from the pick, behind the phone, to
  * the payout. It
  * draws itself once a response is chosen and is gone again for the next task.
  */
@@ -311,7 +312,7 @@ export function InkLine({ drawn, round }: { drawn: boolean; round: number }) {
         pathLength={1}
         d="M58 92 C 10 130, 2 200, 30 250 C 50 285, 78 262, 64 236 C 50 210, 20 238, 24 290 C 28 360, 70 420, 200 440 C 280 452, 330 470, 352 482"
         fill="none"
-        className={`landing-ink stroke-on-primary/80 ${drawn ? "landing-ink-on" : ""}`}
+        className={`landing-ink stroke-on-primary-fixed/70 ${drawn ? "landing-ink-on" : ""}`}
         strokeWidth={2.2}
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"

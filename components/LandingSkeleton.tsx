@@ -53,7 +53,8 @@ export default function LandingSkeleton() {
                 <div className={`h-4 w-full rounded-full ${BLOCK}`} />
                 <div className={`h-4 w-2/3 rounded-full ${BLOCK}`} />
               </div>
-              <div className={`mt-9 h-36 w-full max-w-[26rem] rounded-[1.5rem] ${BLOCK}`} />
+              <div className={`mt-9 h-14 w-full rounded-full sm:max-w-xs ${BLOCK}`} />
+              <div className={`mt-4 h-4 w-72 max-w-full rounded-full ${BLOCK}`} />
             </div>
             {/* The hero phone, with the owl at its lower left; LandingPhone's placement. */}
             <div className="mx-auto w-full max-w-[34rem]">

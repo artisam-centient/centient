@@ -111,24 +111,24 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
       </header>
 
       <main id="top" className="scroll-mt-20">
-        {/* The hero is one big widget: a wide Signal Green field holding the
+        {/* The hero is one big widget: a wide Ledger Green field holding the
             pitch and the stage, with the phone's widgets breaking out over its
             edges (DESIGN.md, The Green Stage). */}
         <section className="mx-auto max-w-[90rem] px-3 pb-20 pt-3 sm:px-6 lg:pb-16 lg:pt-4">
-          <div className="grid grid-cols-1 items-center gap-12 rounded-[2rem] bg-primary-container px-5 pb-12 pt-10 shadow-[0_48px_96px_-40px_rgba(0,84,45,0.45),0_8px_24px_rgba(25,28,30,0.06)] sm:px-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-10 lg:rounded-[2.75rem] lg:px-14 lg:py-14 xl:grid-cols-[minmax(0,1fr)_minmax(0,38rem)] xl:gap-16 xl:px-20">
+          <div className="grid grid-cols-1 items-center gap-12 rounded-[2rem] bg-primary px-5 pb-12 pt-10 shadow-[0_48px_96px_-40px_rgba(0,84,45,0.55),0_8px_24px_rgba(25,28,30,0.06)] sm:px-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-10 lg:rounded-[2.75rem] lg:px-14 lg:py-14 xl:grid-cols-[minmax(0,1fr)_minmax(0,38rem)] xl:gap-16 xl:px-20">
             <div className="flex flex-col items-start">
-              <h1 className="font-headline text-[min(3.25rem,13.5vw)] font-extrabold leading-[0.95] tracking-[-0.04em] text-on-primary-fixed sm:text-[5rem] lg:text-[3.5rem] xl:text-[5.75rem]">
+              <h1 className="font-headline text-[min(3.25rem,13.5vw)] font-extrabold leading-[0.95] tracking-[-0.04em] text-on-primary sm:text-[5rem] lg:text-[3.5rem] xl:text-[5.75rem]">
                 <span className="block overflow-clip pb-[0.04em]">
                   <span className={LINE_UP}>Train AI,</span>
                 </span>
                 <span className="-mb-[0.1em] block overflow-clip pb-[0.14em]">
-                  <span className={`${LINE_UP} whitespace-nowrap text-on-secondary-fixed-variant [animation-delay:120ms]`}>
+                  <span className={`${LINE_UP} whitespace-nowrap text-secondary-container [animation-delay:120ms]`}>
                     cent by cent.
                   </span>
                 </span>
               </h1>
 
-              <p className="mt-7 max-w-[30rem] font-body text-lg leading-relaxed text-on-primary-fixed sm:text-xl">
+              <p className="mt-7 max-w-[30rem] font-body text-lg leading-relaxed text-on-primary/90 sm:text-xl">
                 Pick the better of two AI responses and say why. Each approved answer pays {REWARD_TOKEN_SYMBOL}{" "}
                 straight to your wallet.
               </p>
@@ -139,18 +139,16 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
                 </p>
               )}
 
-              {/* The sign-in sits on its own paper widget, so every state of it
-                  (waiting, declined, errors, Get Freighter) reads as designed. */}
-              <div className="mt-9 flex w-full max-w-[26rem] flex-col items-start gap-4 rounded-[1.5rem] bg-surface-container-lowest p-5 shadow-[0_18px_40px_-12px_rgba(0,84,45,0.35),0_4px_10px_rgba(25,28,30,0.06)] sm:p-6">
-                {/* PRIMARY (#26): wallet-first */}
-                <WalletSignIn onSignedIn={() => onWalletSignedIn()} />
+              <div className="mt-9 flex w-full flex-col items-start gap-4">
+                {/* PRIMARY (#26): wallet-first. On the field it is a solid paper pill. */}
+                <WalletSignIn onSignedIn={() => onWalletSignedIn()} tone="field" />
 
-                <p className="font-body text-sm text-on-surface-variant">
+                <p className="font-body text-sm text-on-primary/90">
                   Signed up with email before?{" "}
                   <button
                     type="button"
                     onClick={onEmailSignIn}
-                    className={`font-semibold text-primary underline-offset-2 hover:underline ${FOCUS_RING}`}
+                    className="rounded-md font-semibold text-on-primary underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-container-lowest focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
                   >
                     Sign in with email
                   </button>{" "}

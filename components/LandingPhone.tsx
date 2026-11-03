@@ -586,9 +586,9 @@ export default function LandingPhone() {
 
       <figcaption
         id={captionId}
-        className="mx-auto mt-6 flex w-fit max-w-[16.5rem] items-start sm:max-w-none gap-1.5 font-body text-[13px] leading-snug text-on-primary-fixed"
+        className="mx-auto mt-6 flex w-fit max-w-[16.5rem] items-start sm:max-w-none gap-1.5 font-body text-[13px] leading-snug text-on-primary/90"
       >
-        <Icon name="replay" size={16} className="mt-px text-on-primary-fixed" />
+        <Icon name="replay" size={16} className="mt-px text-on-primary/90" />
         Sample task on Stellar testnet, replayed automatically.
       </figcaption>
     </figure>
