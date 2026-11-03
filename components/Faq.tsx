@@ -46,9 +46,10 @@ export default function Faq({ showLabel = true }: FaqProps) {
             key={q}
             className={i === ITEMS.length - 1 ? "" : "border-b border-outline-variant/30"}
           >
-            <details className="group px-4 py-4">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-                <span className="font-headline text-sm font-bold text-on-surface">
+            <details className="group">
+              {/* The whole row is the target, at least 56px tall. */}
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-4 transition-colors hover:bg-surface-container-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                <span className="font-headline text-base font-bold text-on-surface">
                   {q}
                 </span>
                 <span
@@ -58,7 +59,7 @@ export default function Faq({ showLabel = true }: FaqProps) {
                   expand_more
                 </span>
               </summary>
-              <p className="mt-3 font-body text-sm leading-relaxed text-on-surface-variant">
+              <p className="px-4 pb-5 font-body text-base leading-relaxed text-on-surface-variant">
                 {a}
               </p>
             </details>

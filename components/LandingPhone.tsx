@@ -2,8 +2,11 @@
 
 import { useEffect, useId, useLayoutEffect, useReducer, useRef, useState } from "react";
 import Image from "next/image";
+import Icon from "./LandingIcon";
 import LandingMascot, { type OwlPose } from "./LandingMascot";
+import { CoinDisc, InkLine, Layer, PayoutWidget, PickWidget, ProgressWidget } from "./LandingWidgets";
 import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
+import { useScrollCamera } from "@/lib/use-scroll-camera";
 
 interface SampleTask {
   prompt: string;
@@ -122,23 +125,6 @@ function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/**
- * A Material Symbol at a set size. The size is inline because the icon font's
- * own stylesheet sets 24px outside any cascade layer, which beats a Tailwind
- * `text-[…]` utility.
- */
-function Icon({ name, size, className = "", filled = false }: { name: string; size: number; className?: string; filled?: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`material-symbols-outlined ${className}`}
-      style={{ fontSize: size, ...(filled ? { fontVariationSettings: "'FILL' 1" } : {}) }}
-    >
-      {name}
-    </span>
-  );
-}
-
 /** A fingertip landing on a control: it presses in, then lifts and fades. */
 function Touch() {
   return (
@@ -159,6 +145,12 @@ const POP = "motion-safe:animate-[landing-pop_320ms_cubic-bezier(0.16,1,0.3,1)_b
  * earnings in the header have gone up by one reward. The owl beside the phone
  * changes pose with each stage.
  *
+ * The phone stands on a stage: a green coin disc behind it, and live widgets
+ * around it that follow the same task (the pick and its reason, the payout's
+ * statuses, XP toward the first tier). A camera moves the stage: a push-in on
+ * load, depth parallax with the pointer, and a pull-back as the hero scrolls
+ * away (lib/use-scroll-camera.ts and the landing-rig rules in globals.css).
+ *
  * The screen is a miniature of TaskCard and the success screen in app/page.tsx,
  * laid out at 360 by 760 CSS pixels and scaled to fit the frame, so it keeps the
  * app's real proportions at every size.
@@ -178,7 +170,7 @@ export default function LandingPhone() {
   );
 
   const figureRef = useRef<HTMLElement>(null);
-  const tiltRef = useRef<HTMLDivElement>(null);
+  const rigRef = useRef<HTMLDivElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -282,11 +274,15 @@ export default function LandingPhone() {
     };
   }, [stage, round]);
 
-  // A light tilt toward the pointer, on devices that have one.
+  // The camera pulls back and tilts as the hero scrolls away.
+  useScrollCamera(figureRef, "exit");
+
+  // The camera swings toward the pointer, on devices that have one; each layer
+  // of the stage shifts by its depth.
   useEffect(() => {
     const figure = figureRef.current;
-    const tilt = tiltRef.current;
-    if (!figure || !tilt || reduced || !window.matchMedia("(pointer: fine)").matches) return;
+    const rig = rigRef.current;
+    if (!figure || !rig || reduced || !window.matchMedia("(pointer: fine)").matches) return;
     let raf = 0;
     const onMove = (e: PointerEvent) => {
       const r = figure.getBoundingClientRect();
@@ -294,12 +290,14 @@ export default function LandingPhone() {
       const y = (e.clientY - r.top) / r.height - 0.5;
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        tilt.style.transform = `rotateX(${(-y * 6).toFixed(2)}deg) rotateY(${(x * 9).toFixed(2)}deg)`;
+        rig.style.setProperty("--mx", x.toFixed(3));
+        rig.style.setProperty("--my", y.toFixed(3));
       });
     };
     const onLeave = () => {
       cancelAnimationFrame(raf);
-      tilt.style.transform = "";
+      rig.style.removeProperty("--mx");
+      rig.style.removeProperty("--my");
     };
     figure.addEventListener("pointermove", onMove);
     figure.addEventListener("pointerleave", onLeave);
@@ -316,6 +314,11 @@ export default function LandingPhone() {
   const canSubmit = shownReason.length >= MIN_REASON;
   const paid = stage >= S.Paid;
   const first = SAMPLES[0];
+  // The stage's widgets follow the same task; with reduced motion they hold
+  // their finished state beside the still phone.
+  const picking = reduced || (chosen && stage < S.Next);
+  const paying = reduced || (stage >= S.Sending && stage < S.Next);
+  const answered = reduced ? 1 : round + (paid ? 1 : 0);
 
   return (
     <figure ref={figureRef} aria-labelledby={captionId} className="relative mx-auto w-full max-w-[34rem]">
@@ -324,12 +327,19 @@ export default function LandingPhone() {
         ({first.reason}), and submits. The app confirms {reward} {REWARD_TOKEN_SYMBOL} is on its way to their wallet.
       </p>
 
-      <div aria-hidden="true" className="flex justify-center [perspective:1600px]">
+      <div aria-hidden="true" className="landing-dolly flex justify-center">
         {/* From sm up, nudged right so the owl and the phone, together, sit
             centered. A phone column has no room for that, so there the phone
             centers on its own and the owl tucks into the gutter beside it. */}
-        <div className="relative sm:translate-x-12 lg:translate-x-14">
-          <div ref={tiltRef} className="transition-transform duration-500 ease-out">
+        <div ref={rigRef} className="landing-rig relative sm:translate-x-12 lg:translate-x-6 xl:translate-x-14">
+          <Layer depth={-0.4}>
+            <CoinDisc />
+          </Layer>
+          <Layer depth={-0.15}>
+            <InkLine drawn={picking} round={round} />
+          </Layer>
+
+          <div className="relative">
             {/* The handset: a dark frame with side keys, and the screen inside it. */}
             <div className="relative w-[16.5rem] rounded-[2.6rem] bg-inverse-surface p-[0.55rem] shadow-[0_32px_64px_-20px_rgba(25,28,30,0.38),0_14px_28px_rgba(25,28,30,0.10),inset_0_0_0_1.5px_rgba(255,255,255,0.10)] sm:w-[18rem] lg:w-[18.5rem] lg:rounded-[2.9rem] xl:w-[19.5rem]">
               <span className="absolute -left-[3px] top-[18%] h-[5%] w-[3px] rounded-l-sm bg-inverse-surface" />
@@ -544,23 +554,41 @@ export default function LandingPhone() {
             </div>
           </div>
 
-          {/* The owl stands at the phone's lower left, in front of the frame. */}
-          <div className="absolute -bottom-3 right-full z-10 -mr-10 w-20 sm:-mr-11 sm:w-36 lg:-mr-12 lg:w-40">
-            <LandingMascot
-              pose={poseFor(stage)}
-              decorative
-              sizes="(min-width: 1024px) 160px, (min-width: 640px) 144px, 80px"
-              className="w-full"
+          <Layer depth={1.1}>
+            <PickWidget
+              shown={picking}
+              side={task.chosen ? "B" : "A"}
+              typed={shownReason.length}
+              total={task.reason.length}
+              minimum={MIN_REASON}
             />
-          </div>
+          </Layer>
+          <Layer depth={0.8}>
+            <ProgressWidget answered={answered} round={round} />
+          </Layer>
+          <Layer depth={1.4}>
+            <PayoutWidget shown={paying} paid={reduced || paid} round={round} reward={reward} reduced={reduced} />
+          </Layer>
+
+          {/* The owl stands at the phone's lower left, in front of the frame. */}
+          <Layer depth={0.6}>
+            <div className="absolute -bottom-3 right-full -mr-10 w-20 sm:-mr-11 sm:w-36 lg:-mr-12 lg:w-40">
+              <LandingMascot
+                pose={poseFor(stage)}
+                decorative
+                sizes="(min-width: 1024px) 160px, (min-width: 640px) 144px, 80px"
+                className="w-full"
+              />
+            </div>
+          </Layer>
         </div>
       </div>
 
       <figcaption
         id={captionId}
-        className="mx-auto mt-6 flex w-fit max-w-[16.5rem] items-start sm:max-w-none gap-1.5 font-body text-[13px] leading-snug text-on-surface-variant"
+        className="mx-auto mt-6 flex w-fit max-w-[16.5rem] items-start sm:max-w-none gap-1.5 font-body text-[13px] leading-snug text-on-primary/90"
       >
-        <Icon name="replay" size={16} className="mt-px text-outline" />
+        <Icon name="replay" size={16} className="mt-px text-on-primary/90" />
         Sample task on Stellar testnet, replayed automatically.
       </figcaption>
     </figure>
