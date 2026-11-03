@@ -113,10 +113,10 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
       <main id="top" className="scroll-mt-20">
         {/* The hero is one big widget: a paper card holding the pitch and the
             stage, with the phone's widgets breaking out over its edges. */}
-        <section className="mx-auto max-w-6xl px-3 pb-20 pt-3 sm:px-8 lg:pb-16 lg:pt-4">
-          <div className="grid grid-cols-1 items-center gap-12 rounded-[2rem] bg-surface-container-lowest px-5 pb-12 pt-10 shadow-[0_48px_96px_-40px_rgba(25,28,30,0.22),0_8px_24px_rgba(25,28,30,0.05)] sm:px-10 lg:min-h-[calc(100dvh-7rem)] lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-8 lg:rounded-[2.75rem] lg:px-14 lg:py-12">
+        <section className="mx-auto max-w-7xl px-3 pb-20 pt-3 sm:px-8 lg:pb-16 lg:pt-4">
+          <div className="grid grid-cols-1 items-center gap-12 rounded-[2rem] bg-surface-container-lowest px-5 pb-12 pt-10 shadow-[0_48px_96px_-40px_rgba(25,28,30,0.22),0_8px_24px_rgba(25,28,30,0.05)] sm:px-10 lg:min-h-[calc(100dvh-7rem)] lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:gap-10 lg:rounded-[2.75rem] lg:px-14 lg:py-12 xl:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] xl:gap-16 xl:px-16">
             <div className="flex flex-col items-start">
-              <h1 className="font-headline text-[min(3.25rem,13.5vw)] font-extrabold leading-[0.95] tracking-[-0.04em] text-on-surface sm:text-[5rem] lg:text-[3.5rem] xl:text-[4.75rem]">
+              <h1 className="font-headline text-[min(3.25rem,13.5vw)] font-extrabold leading-[0.95] tracking-[-0.04em] text-on-surface sm:text-[5rem] lg:text-[3.5rem] xl:text-[5.25rem]">
                 <span className="block overflow-clip pb-[0.04em]">
                   <span className={LINE_UP}>Train AI,</span>
                 </span>

@@ -331,7 +331,7 @@ export default function LandingPhone() {
         {/* From sm up, nudged right so the owl and the phone, together, sit
             centered. A phone column has no room for that, so there the phone
             centers on its own and the owl tucks into the gutter beside it. */}
-        <div ref={rigRef} className="landing-rig relative sm:translate-x-12 lg:translate-x-14">
+        <div ref={rigRef} className="landing-rig relative sm:translate-x-12 lg:translate-x-6 xl:translate-x-14">
           <Layer depth={-0.4}>
             <CoinDisc />
           </Layer>

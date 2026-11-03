@@ -4,17 +4,14 @@ import { useState } from "react";
 import Image from "next/image";
 import Icon from "./LandingIcon";
 import { Drift, PAPER } from "./LandingWidgets";
-import { REWARD_AMOUNT, REWARD_TOKEN_SYMBOL } from "@/lib/constants";
 
 /** The Centient promo video on the Artisam Labs YouTube channel. */
 const PROMO_VIDEO_ID = "uxjxu33TOuM";
 
-/** The video's four chapters, floated around its frame. */
+/** The video's first and last chapters, floated just outside its frame. */
 const CHAPTERS = [
-  { label: "Connect", icon: "account_balance_wallet", place: "-left-6 top-[40%]", period: 5.4, delay: 0 },
-  { label: "Pick", icon: "touch_app", place: "-right-6 top-[8%]", period: 6.1, delay: -2 },
-  { label: "Get paid", icon: "payments", place: "-left-10 -bottom-5", period: 5.8, delay: -1 },
-  { label: "In your wallet", icon: "verified", place: "-right-8 bottom-[12%]", period: 6.6, delay: -3 },
+  { label: "Connect your wallet", icon: "account_balance_wallet", place: "-left-10 top-[44%]", period: 5.6, delay: 0 },
+  { label: "Get paid in USDC", icon: "payments", place: "-right-10 top-[14%]", period: 6.3, delay: -2 },
 ];
 
 /**
@@ -72,36 +69,6 @@ export default function LandingVideo() {
                     Quick explainer · Artisam Labs
                   </span>
                 </span>
-                {/* A still of the hero's widgets: the answer picked and paid. */}
-                <span aria-hidden="true" className="absolute right-[6%] top-1/2 hidden w-[30%] -translate-y-1/2 flex-col gap-3 md:flex">
-                  <span className={`${PAPER} rotate-[2deg] p-4`}>
-                    <span className="flex items-center justify-between font-label text-xs font-semibold text-on-surface-variant">
-                      Your pick
-                      <Icon name="touch_app" size={16} />
-                    </span>
-                    <span className="mt-2 flex items-center gap-2 font-headline text-lg font-extrabold tracking-[-0.02em] text-on-surface">
-                      Response B
-                      <span className="flex items-center gap-0.5 rounded-full bg-primary px-2 py-0.5 font-label text-xs font-bold text-on-primary">
-                        <Icon name="check" size={14} />
-                        Selected
-                      </span>
-                    </span>
-                  </span>
-                  <span className={`${PAPER} -rotate-[1.5deg] translate-x-[-12%] p-4`}>
-                    <span className="flex items-center justify-between font-label text-xs font-semibold text-on-surface-variant">
-                      Payout
-                      <Icon name="account_balance_wallet" size={16} />
-                    </span>
-                    <span className="mt-2 flex items-baseline gap-1 text-secondary">
-                      <span className="font-headline text-3xl font-extrabold leading-none tracking-[-0.03em] tabular-nums">+{REWARD_AMOUNT}</span>
-                      <span className="font-headline text-sm font-bold">{REWARD_TOKEN_SYMBOL}</span>
-                    </span>
-                    <span className="mt-2 flex items-center gap-1 font-label text-xs font-semibold text-primary">
-                      <Icon name="verified" size={14} filled />
-                      Confirmed
-                    </span>
-                  </span>
-                </span>
                 <span
                   aria-hidden="true"
                   className="grid h-16 w-16 place-items-center rounded-full bg-surface-container-lowest text-primary shadow-[0_18px_40px_-12px_rgba(0,0,0,0.5)] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-110 group-active:scale-95 sm:h-24 sm:w-24"
@@ -116,9 +83,9 @@ export default function LandingVideo() {
             )}
           </div>
 
-          {/* The chapters drift around the frame, from 640px. */}
+          {/* Two chapters drift at the frame's edges, from 1024px. */}
           {CHAPTERS.map((c) => (
-            <div key={c.label} aria-hidden="true" className={`pointer-events-none absolute hidden sm:block ${c.place}`}>
+            <div key={c.label} aria-hidden="true" className={`pointer-events-none absolute hidden lg:block ${c.place}`}>
               <Drift period={c.period} delay={c.delay}>
                 <span className={`${PAPER} flex items-center gap-2 px-4 py-3 font-label text-sm font-semibold text-on-surface`}>
                   <Icon name={c.icon} size={18} className="text-on-surface-variant" />

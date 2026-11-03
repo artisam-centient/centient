@@ -126,7 +126,7 @@ export function PickWidget({
   minimum: number;
 }) {
   return (
-    <Slot place="right-full top-[12%] -mr-16 hidden sm:block lg:-mr-20" shown={shown} period={5.2} delay={0} tilt={-1.5}>
+    <Slot place="right-full top-[3%] -mr-10 hidden sm:block lg:-mr-12" shown={shown} period={5.2} delay={0} tilt={-1.5}>
       <div className={`${PAPER} w-[14.5rem]`}>
         <p className={HEAD}>
           Your pick
@@ -190,7 +190,7 @@ export function PayoutWidget({
   const confirmed = status === 2;
   return (
     <Slot
-      place="bottom-[9%] left-full -ml-[8.5rem] sm:-ml-16 lg:-ml-14"
+      place="bottom-[9%] left-full -ml-[8.5rem] sm:-ml-16 lg:-ml-24 xl:-ml-14"
       shown={shown}
       period={6.4}
       delay={-3}
@@ -237,7 +237,7 @@ export function ProgressWidget({ answered, round }: { answered: number; round: n
   const today = Math.min(answered, DAILY_GOAL);
   return (
     <Slot
-      place="right-full top-[7%] -mr-[8.25rem] sm:right-auto sm:left-full sm:top-[5%] sm:mr-0 sm:-ml-14 lg:-ml-12"
+      place="right-full top-[7%] -mr-[8.25rem] sm:right-auto sm:left-full sm:top-[5%] sm:mr-0 sm:-ml-14 lg:-ml-20 xl:-ml-12"
       shown
       period={5.8}
       delay={-1}
