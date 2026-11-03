@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { RecentPayout, RecentPayoutsResult } from "@/lib/recent-payouts";
 import { REWARD_TOKEN_SYMBOL } from "@/lib/constants";
+import { useScrollCamera } from "@/lib/use-scroll-camera";
 
 const POLL_MS = 30_000;
+
+/** Fewer stubs than this would leave gaps on the belt, so they stay in the grid. */
+const BELT_MIN = 5;
+/** The belt moves one stub's width every this many seconds. */
+const BELT_S_PER_STUB = 6;
 
 type Feed =
   | { status: "loading" }
@@ -33,20 +39,65 @@ function ago(iso: string, now: number): string {
   return "just now";
 }
 
+/** "just now", "12 seconds ago", "2 minutes ago". */
+function sinceCheck(at: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return rtf.format(-seconds, "second");
+  return rtf.format(-Math.round(seconds / 60), "minute");
+}
+
+/**
+ * When the feed last read the ledger, counting up while it waits for the next
+ * check. It updates every second, so it is not announced.
+ */
+function LastCheck({ at }: { at: number }) {
+  const [now, setNow] = useState(at);
+  useEffect(() => {
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [at]);
+  return (
+    <p className="flex items-center gap-2 font-label text-sm text-on-surface-variant">
+      <span key={at} className="relative flex h-2.5 w-2.5" aria-hidden="true">
+        <span className="absolute inset-0 rounded-full bg-on-surface/30 motion-safe:animate-[landing-ping_1200ms_cubic-bezier(0.16,1,0.3,1)_both]" />
+        <span className="relative h-2.5 w-2.5 rounded-full bg-on-surface" />
+      </span>
+      Checked the ledger {sinceCheck(at, now)}
+    </p>
+  );
+}
+
 function Leader() {
   return <span className="mx-2 h-px flex-1 translate-y-1 border-b border-dotted border-outline-variant" />;
 }
 
 /** One payout as a torn-off receipt stub. */
-function Stub({ payout, fresh, now }: { payout: RecentPayout; fresh: boolean; now: number }) {
+function Stub({
+  payout,
+  fresh,
+  now,
+  column,
+  copy = false,
+}: {
+  payout: RecentPayout;
+  fresh: boolean;
+  now: number;
+  column: number;
+  /** The belt's second pass: out of the tab order, under an aria-hidden list. */
+  copy?: boolean;
+}) {
   return (
     <li
+      style={{ "--i": column } as CSSProperties}
       className={`w-[15.5rem] shrink-0 snap-start lg:w-auto ${
         fresh ? "motion-safe:animate-[landing-stub-in_700ms_cubic-bezier(0.16,1,0.3,1)_both]" : ""
       }`}
     >
       <a
         href={payout.txUrl}
+        tabIndex={copy ? -1 : undefined}
         target="_blank"
         rel="noopener noreferrer"
         className={`group block h-full rounded-sm transition-[translate,filter] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] drop-shadow-[0_8px_18px_rgba(25,28,30,0.08)] hover:-translate-y-1 hover:drop-shadow-[0_16px_28px_rgba(25,28,30,0.12)] ${FOCUS}`}
@@ -113,12 +164,18 @@ function Stub({ payout, fresh, now }: { payout: RecentPayout; fresh: boolean; no
  * ledger through `/api/payouts/recent`. Each stub opens its transaction on
  * stellar.expert. The feed checks for new payouts every 30 seconds while it is
  * on screen, and a payout it had not shown before slides in at the front, its
- * paper briefly gold.
+ * paper briefly gold. A line under the heading says how long ago it last read
+ * the ledger. On wide screens the board comes up tilted away, as if seen from
+ * above, settles flat as the section arrives, and its stubs drift past on a
+ * belt that stops for the pointer or keyboard focus.
  */
 export default function PayoutFeed() {
   const [feed, setFeed] = useState<Feed>({ status: "loading" });
   const [now, setNow] = useState(() => Date.now());
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
+  const planeRef = useRef<HTMLDivElement>(null);
+  useScrollCamera(planeRef, "enter");
   const seen = useRef<Set<string> | null>(null);
 
   useEffect(() => {
@@ -138,6 +195,7 @@ export default function PayoutFeed() {
         const fresh = new Set(seen.current ? data.payouts.filter((p) => !seen.current!.has(p.id)).map((p) => p.id) : []);
         seen.current = new Set(data.payouts.map((p) => p.id));
         setFeed({ status: "ready", data, fresh });
+        setCheckedAt(Date.now());
       } catch {
         if (!cancelled) setFeed((prev) => (prev.status === "ready" ? prev : { status: "error" }));
       }
@@ -191,6 +249,11 @@ export default function PayoutFeed() {
               Every USDC payment sent from Centient&apos;s payout account on Stellar testnet, newest first. Test USDC
               has no cash value. Open any stub to see its transaction.
             </p>
+            {checkedAt !== null && (
+              <div className="mt-4">
+                <LastCheck at={checkedAt} />
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-5">
             {accountUrl && (
@@ -210,7 +273,7 @@ export default function PayoutFeed() {
           </div>
         </div>
 
-        <div aria-live="polite" aria-busy={feed.status === "loading"} className="mt-10">
+        <div ref={planeRef} aria-live="polite" aria-busy={feed.status === "loading"} className="landing-plane mt-10">
           {feed.status === "loading" && (
             <ul className="-mx-5 flex gap-4 overflow-hidden px-5 sm:-mx-8 sm:px-8 lg:mx-0 lg:grid lg:grid-cols-4 lg:px-0">
               {[0, 1, 2, 3].map((i) => (
@@ -220,11 +283,29 @@ export default function PayoutFeed() {
           )}
 
           {feed.status === "ready" && feed.data.payouts.length > 0 && (
-            <ol className="-mx-5 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-px-5 px-5 pb-4 pt-2 [scrollbar-width:thin] sm:-mx-8 sm:scroll-px-8 sm:px-8 lg:mx-0 lg:grid lg:grid-cols-4 lg:overflow-visible lg:px-0 lg:pb-0">
-              {feed.data.payouts.map((p) => (
-                <Stub key={p.id} payout={p} fresh={feed.fresh.has(p.id)} now={now} />
-              ))}
-            </ol>
+            // From 1024px, with five or more stubs, the stubs ride a belt that
+            // drifts past and stops under the pointer or focus; a second, hidden
+            // pass of the same stubs closes the loop. Otherwise, and with
+            // reduced motion, they sit in the grid (globals.css, landing-belt).
+            <div className={feed.data.payouts.length >= BELT_MIN ? "landing-belt-window" : ""}>
+              <div
+                className={feed.data.payouts.length >= BELT_MIN ? "landing-belt" : ""}
+                style={{ "--belt-t": `${feed.data.payouts.length * BELT_S_PER_STUB}s` } as CSSProperties}
+              >
+                <ol className="-mx-5 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-px-5 px-5 pb-4 pt-2 [scrollbar-width:thin] sm:-mx-8 sm:scroll-px-8 sm:px-8 lg:mx-0 lg:grid lg:grid-cols-4 lg:overflow-visible lg:px-0 lg:pb-0">
+                  {feed.data.payouts.map((p, i) => (
+                    <Stub key={p.id} payout={p} fresh={feed.fresh.has(p.id)} now={now} column={i % 4} />
+                  ))}
+                </ol>
+                {feed.data.payouts.length >= BELT_MIN && (
+                  <ol aria-hidden="true" className="landing-belt-copy hidden">
+                    {feed.data.payouts.map((p, i) => (
+                      <Stub key={p.id} payout={p} fresh={false} now={now} column={i % 4} copy />
+                    ))}
+                  </ol>
+                )}
+              </div>
+            </div>
           )}
 
           {feed.status === "ready" && feed.data.payouts.length === 0 && (

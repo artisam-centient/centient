@@ -18,6 +18,33 @@ const FREIGHTER_INSTALL_URL = "https://www.freighter.app/";
 
 export type WalletSignInPhase = "idle" | "connecting" | "failed";
 
+/**
+ * What the control sits on. "paper" is a light surface; "field" is the
+ * landing hero's Ledger Green field, where the button turns to solid paper and
+ * the notes under it to white, and an error keeps its red on a paper chip.
+ */
+export type WalletSignInTone = "paper" | "field";
+
+const BUTTON_SHAPE =
+  "flex h-14 w-full items-center justify-center gap-2 rounded-full font-label text-lg font-bold transition-[translate,scale,box-shadow] duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60 disabled:hover:translate-y-0";
+
+const TONE = {
+  paper: {
+    button:
+      "bg-gradient-to-br from-primary to-primary-container text-white shadow-[0_8px_24px_rgba(0,109,61,0.2)] hover:shadow-[0_12px_32px_rgba(0,109,61,0.3)] focus-visible:ring-primary focus-visible:ring-offset-surface",
+    quiet: "text-on-surface-variant",
+    error: "text-error",
+    link: "text-primary",
+  },
+  field: {
+    button:
+      "bg-surface-container-lowest text-primary shadow-[0_12px_32px_-8px_rgba(0,33,15,0.45)] hover:shadow-[0_18px_40px_-8px_rgba(0,33,15,0.55)] focus-visible:ring-surface-container-lowest focus-visible:ring-offset-primary",
+    quiet: "text-on-primary",
+    error: "inline-block rounded-xl bg-surface-container-lowest px-3 py-2 text-error",
+    link: "text-on-primary underline",
+  },
+} as const;
+
 interface WalletSignInViewProps {
   phase: WalletSignInPhase;
   /** Set when `phase` is "failed". */
@@ -34,6 +61,7 @@ interface WalletSignInViewProps {
   lanternHref?: string | null;
   /** Put Freighter back in front of a Lantern offer. */
   onUseFreighter?: () => void;
+  tone?: WalletSignInTone;
 }
 
 /**
@@ -56,7 +84,9 @@ export function WalletSignInView({
   onCancel,
   lanternHref,
   onUseFreighter,
+  tone = "paper",
 }: WalletSignInViewProps) {
+  const t = TONE[tone];
   const connecting = phase === "connecting";
   const failure = phase === "failed" ? (reason ?? "failed") : null;
   const mobile = transport === "walletconnect";
@@ -84,7 +114,7 @@ export function WalletSignInView({
         <button
           type="button"
           onClick={onUseFreighter}
-          className="font-label text-sm font-semibold text-on-surface-variant underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          className={`font-label text-sm font-semibold ${t.quiet} underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}
         >
           Use Freighter instead
         </button>
@@ -104,7 +134,7 @@ export function WalletSignInView({
           onClick={onConnect}
           disabled={connecting}
           aria-busy={connecting}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-br from-primary to-primary-container font-label text-lg font-bold text-white shadow-[0_8px_24px_rgba(0,109,61,0.2)] transition-[translate,scale,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(0,109,61,0.3)] active:translate-y-0 active:scale-[0.97] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60 disabled:hover:translate-y-0"
+          className={`${BUTTON_SHAPE} ${t.button}`}
         >
           <span className="material-symbols-outlined text-[22px]" aria-hidden="true">
             account_balance_wallet
@@ -113,14 +143,14 @@ export function WalletSignInView({
         </button>
       )}
 
-      {connecting && (mobile || inLantern) && onCancel && <CancelWalletWait onCancel={onCancel} />}
+      {connecting && (mobile || inLantern) && onCancel && <CancelWalletWait onCancel={onCancel} tone={tone} />}
 
       <div role="status" aria-live="polite" className="w-full text-center">
         {failure && (
           <p
             data-failure={failure}
             className={`font-body text-sm ${
-              failure === "rejected" || failure === "cancelled" ? "text-on-surface-variant" : "text-error"
+              failure === "rejected" || failure === "cancelled" ? t.quiet : t.error
             }`}
           >
             {walletCopy(WALLET_SIGN_IN_MESSAGES[failure], transport)}
@@ -131,7 +161,7 @@ export function WalletSignInView({
             href={FREIGHTER_INSTALL_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-1 inline-block font-label text-sm font-semibold text-primary underline-offset-2 hover:underline"
+            className={`mt-1 inline-block font-label text-sm font-semibold ${t.link} underline-offset-2 hover:underline`}
           >
             Get Freighter
           </a>
@@ -151,10 +181,16 @@ interface WalletSignInProps {
    * the page, so a page with two sign-in buttons mounts it once.
    */
   pairing?: boolean;
+  tone?: WalletSignInTone;
 }
 
 /** Freighter sign-in: connect, sign the one-time challenge, get a session. */
-export default function WalletSignIn({ onSignedIn, signIn = signInWithWallet, pairing = true }: WalletSignInProps) {
+export default function WalletSignIn({
+  onSignedIn,
+  signIn = signInWithWallet,
+  pairing = true,
+  tone = "paper",
+}: WalletSignInProps) {
   const [phase, setPhase] = useState<WalletSignInPhase>("idle");
   const [reason, setReason] = useState<WalletSignInFailure | undefined>();
   const [transport, setTransport] = useState<WalletTransport | null>(null);
@@ -204,6 +240,7 @@ export default function WalletSignIn({ onSignedIn, signIn = signInWithWallet, pa
         onCancel={() => void cancelWalletRequest()}
         lanternHref={lanternHref}
         onUseFreighter={() => setLanternHref(null)}
+        tone={tone}
       />
       {pairing && <FreighterPairing />}
     </>
