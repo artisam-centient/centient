@@ -7,6 +7,11 @@ import { useScrollCamera } from "@/lib/use-scroll-camera";
 
 const POLL_MS = 30_000;
 
+/** Fewer stubs than this would leave gaps on the belt, so they stay in the grid. */
+const BELT_MIN = 5;
+/** The belt moves one stub's width every this many seconds. */
+const BELT_S_PER_STUB = 6;
+
 type Feed =
   | { status: "loading" }
   | { status: "error" }
@@ -69,7 +74,20 @@ function Leader() {
 }
 
 /** One payout as a torn-off receipt stub. */
-function Stub({ payout, fresh, now, column }: { payout: RecentPayout; fresh: boolean; now: number; column: number }) {
+function Stub({
+  payout,
+  fresh,
+  now,
+  column,
+  copy = false,
+}: {
+  payout: RecentPayout;
+  fresh: boolean;
+  now: number;
+  column: number;
+  /** The belt's second pass: out of the tab order, under an aria-hidden list. */
+  copy?: boolean;
+}) {
   return (
     <li
       style={{ "--i": column } as CSSProperties}
@@ -79,6 +97,7 @@ function Stub({ payout, fresh, now, column }: { payout: RecentPayout; fresh: boo
     >
       <a
         href={payout.txUrl}
+        tabIndex={copy ? -1 : undefined}
         target="_blank"
         rel="noopener noreferrer"
         className={`group block h-full rounded-sm transition-[translate,filter] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] drop-shadow-[0_8px_18px_rgba(25,28,30,0.08)] hover:-translate-y-1 hover:drop-shadow-[0_16px_28px_rgba(25,28,30,0.12)] ${FOCUS}`}
@@ -147,7 +166,8 @@ function Stub({ payout, fresh, now, column }: { payout: RecentPayout; fresh: boo
  * on screen, and a payout it had not shown before slides in at the front, its
  * paper briefly gold. A line under the heading says how long ago it last read
  * the ledger. On wide screens the board comes up tilted away, as if seen from
- * above, and settles flat as the section arrives.
+ * above, settles flat as the section arrives, and its stubs drift past on a
+ * belt that stops for the pointer or keyboard focus.
  */
 export default function PayoutFeed() {
   const [feed, setFeed] = useState<Feed>({ status: "loading" });
@@ -263,11 +283,29 @@ export default function PayoutFeed() {
           )}
 
           {feed.status === "ready" && feed.data.payouts.length > 0 && (
-            <ol className="-mx-5 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-px-5 px-5 pb-4 pt-2 [scrollbar-width:thin] sm:-mx-8 sm:scroll-px-8 sm:px-8 lg:mx-0 lg:grid lg:grid-cols-4 lg:overflow-visible lg:px-0 lg:pb-0">
-              {feed.data.payouts.map((p, i) => (
-                <Stub key={p.id} payout={p} fresh={feed.fresh.has(p.id)} now={now} column={i % 4} />
-              ))}
-            </ol>
+            // From 1024px, with five or more stubs, the stubs ride a belt that
+            // drifts past and stops under the pointer or focus; a second, hidden
+            // pass of the same stubs closes the loop. Otherwise, and with
+            // reduced motion, they sit in the grid (globals.css, landing-belt).
+            <div className={feed.data.payouts.length >= BELT_MIN ? "landing-belt-window" : ""}>
+              <div
+                className={feed.data.payouts.length >= BELT_MIN ? "landing-belt" : ""}
+                style={{ "--belt-t": `${feed.data.payouts.length * BELT_S_PER_STUB}s` } as CSSProperties}
+              >
+                <ol className="-mx-5 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-px-5 px-5 pb-4 pt-2 [scrollbar-width:thin] sm:-mx-8 sm:scroll-px-8 sm:px-8 lg:mx-0 lg:grid lg:grid-cols-4 lg:overflow-visible lg:px-0 lg:pb-0">
+                  {feed.data.payouts.map((p, i) => (
+                    <Stub key={p.id} payout={p} fresh={feed.fresh.has(p.id)} now={now} column={i % 4} />
+                  ))}
+                </ol>
+                {feed.data.payouts.length >= BELT_MIN && (
+                  <ol aria-hidden="true" className="landing-belt-copy hidden">
+                    {feed.data.payouts.map((p, i) => (
+                      <Stub key={p.id} payout={p} fresh={false} now={now} column={i % 4} copy />
+                    ))}
+                  </ol>
+                )}
+              </div>
+            </div>
           )}
 
           {feed.status === "ready" && feed.data.payouts.length === 0 && (

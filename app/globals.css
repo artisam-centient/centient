@@ -342,6 +342,52 @@ details > summary {
   .landing-plane li {
     translate: 0 calc((1 - var(--cam, 1)) * var(--i, 0) * 1rem);
   }
+
+  /* The stubs' belt: two passes of the same stubs, moved by exactly one pass. */
+  .landing-belt-window {
+    overflow: hidden;
+    margin-block: -1.5rem;
+    padding-block: 1.5rem;
+    mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+  }
+  .landing-belt {
+    display: flex;
+    width: max-content;
+    animation: landing-belt var(--belt-t, 48s) linear infinite;
+  }
+  .landing-belt:hover,
+  .landing-belt:focus-within {
+    animation-play-state: paused;
+  }
+  .landing-belt > ol {
+    display: flex;
+    gap: 1rem;
+    margin: 0;
+    padding: 0 1rem 0 0;
+    overflow: visible;
+  }
+  .landing-belt > ol > li {
+    width: 15.5rem;
+  }
+}
+
+/*
+ * The closing stub is handed up: tilted away and lower while its section
+ * enters (--cam 0), flat and in place once it has arrived (--cam 1, also the
+ * resting value without script).
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .landing-handoff {
+    transform-origin: 50% 100%;
+    transform: perspective(1400px) translateY(calc((1 - var(--cam, 1)) * 4rem))
+      rotateX(calc((1 - var(--cam, 1)) * 18deg)) rotate(calc((1 - var(--cam, 1)) * -3deg));
+  }
+}
+
+@keyframes landing-belt {
+  to {
+    transform: translateX(-50%);
+  }
 }
 
 /* The sticky header earns a hairline once the page has scrolled. */

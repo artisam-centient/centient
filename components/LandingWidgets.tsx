@@ -18,7 +18,7 @@ const XP_PER_ANSWER = answerXp(null);
 /** The tier a new labeler works toward first. */
 const NEXT_TIER = TIERS[1];
 
-const PAPER =
+export const PAPER =
   "rounded-[1.125rem] bg-surface-container-lowest p-4 shadow-[0_18px_40px_-12px_rgba(25,28,30,0.24),0_4px_10px_rgba(25,28,30,0.06)]";
 const HEAD = "flex items-center justify-between gap-2 font-label text-xs font-semibold text-on-surface-variant";
 const POP = "motion-safe:animate-[landing-pop_320ms_cubic-bezier(0.16,1,0.3,1)_both]";
@@ -57,10 +57,7 @@ function Slot({
 }) {
   return (
     <div className={`absolute ${place}`}>
-      <div
-        className="landing-float"
-        style={{ "--float-t": `${period}s`, "--float-delay": `${delay}s`, "--float-r": `${tilt}deg` } as CSSProperties}
-      >
+      <Drift period={period} delay={delay} tilt={tilt}>
         <div
           className={`transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
             shown ? "opacity-100" : "translate-y-3.5 scale-[0.94] opacity-0"
@@ -68,7 +65,34 @@ function Slot({
         >
           {children}
         </div>
-      </div>
+      </Drift>
+    </div>
+  );
+}
+
+/**
+ * Something that drifts on its own rhythm, out of step with its neighbours.
+ * With reduced motion it stays still.
+ */
+export function Drift({
+  period,
+  delay = 0,
+  tilt = 0,
+  className = "",
+  children,
+}: {
+  period: number;
+  delay?: number;
+  tilt?: number;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`landing-float ${className}`}
+      style={{ "--float-t": `${period}s`, "--float-delay": `${delay}s`, "--float-r": `${tilt}deg` } as CSSProperties}
+    >
+      {children}
     </div>
   );
 }
@@ -260,7 +284,7 @@ export function ProgressWidget({ answered, round }: { answered: number; round: n
  */
 export function CoinDisc() {
   return (
-    <div className="absolute left-1/2 top-1/2 aspect-square w-[21rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary sm:w-[32rem] sm:-translate-x-[56%] lg:w-[34rem] xl:w-[38rem]">
+    <div className="absolute left-1/2 top-1/2 aspect-square w-[21rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary sm:w-[32rem] sm:-translate-x-[56%] lg:w-[30rem] xl:w-[34rem]">
       <svg viewBox="0 0 100 100" className="landing-coin-edge absolute inset-0 h-full w-full" aria-hidden="true">
         <circle cx="50" cy="50" r="47" fill="none" stroke="rgb(255 255 255 / 0.26)" strokeWidth="1.6" strokeDasharray="0.9 1.55" />
         <circle cx="50" cy="50" r="42.5" fill="none" stroke="rgb(255 255 255 / 0.1)" strokeWidth="0.4" />
