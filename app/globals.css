@@ -246,6 +246,104 @@ details > summary {
   }
 }
 
+/*
+ * The hero stage's camera (LandingPhone). --cam is how far the hero has
+ * scrolled away, 0 to 1 (lib/use-scroll-camera.ts); --mx and --my are the
+ * pointer across the stage, -0.5 to 0.5. With reduced motion neither is ever
+ * set, so the stage rests flat.
+ */
+.landing-rig {
+  transform: perspective(1600px) translateY(calc(var(--cam, 0) * -3rem))
+    rotateX(calc(var(--cam, 0) * 10deg - var(--my, 0) * 6deg)) rotateY(calc(var(--mx, 0) * 9deg))
+    rotateZ(calc(var(--cam, 0) * -2deg)) scale(calc(1 - var(--cam, 0) * 0.05));
+  transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* A layer of the stage travels by its depth (--d): widgets in front further than the phone, the disc behind the other way. */
+.landing-layer {
+  translate: calc(var(--mx, 0) * var(--d, 0) * 14px)
+    calc(var(--cam, 0) * var(--d, 0) * -5.5rem + var(--my, 0) * var(--d, 0) * 10px);
+  transition: translate 500ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The ink line from the pick to the payout, drawn by its dash. */
+.landing-ink {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.landing-ink-on {
+  stroke-dashoffset: 0;
+}
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--float-r, 0deg));
+  }
+  50% {
+    transform: translateY(-9px) rotate(calc(var(--float-r, 0deg) * -1));
+  }
+}
+
+/* On load the camera pushes in and settles on the stage. */
+@keyframes landing-dolly {
+  from {
+    transform: perspective(1600px) translateY(1.5rem) rotateX(8deg) scale(1.06);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* The payouts feed has just read the ledger: one ring goes out from its dot. */
+@keyframes landing-ping {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+
+@keyframes landing-coin-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing-float {
+    animation: landing-float var(--float-t, 6s) ease-in-out var(--float-delay, 0s) infinite;
+  }
+  .landing-dolly {
+    animation: landing-dolly 1200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .landing-coin-edge {
+    animation: landing-coin-turn 60s linear infinite;
+  }
+  .landing-ink {
+    transition: stroke-dashoffset 1400ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+/*
+ * The payouts board, seen from above as it comes up and settling flat as it
+ * arrives (PayoutFeed). --cam runs 0 to 1 as the section enters; without
+ * script it stays 1, flat. Phones keep the plain swipe row.
+ */
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .landing-plane {
+    transform-origin: 50% 0;
+    transform: perspective(1400px) rotateX(calc((1 - var(--cam, 1)) * 24deg))
+      translateY(calc((1 - var(--cam, 1)) * 2.5rem)) scale(calc(1 - (1 - var(--cam, 1)) * 0.06));
+  }
+  .landing-plane li {
+    translate: 0 calc((1 - var(--cam, 1)) * var(--i, 0) * 1rem);
+  }
+}
+
 /* The sticky header earns a hairline once the page has scrolled. */
 @supports (animation-timeline: scroll()) {
   @keyframes landing-header-rule {
