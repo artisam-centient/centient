@@ -39,7 +39,8 @@
     "qa:fixtures": "tsx scripts/qa-fixtures.ts",
     "qa:recipients:provision": "tsx scripts/qa-provision-recipients.ts",
     "qa:recipients:sponsor": "tsx scripts/qa-sponsor-recipient.ts",
-    "walletconnect:verify": "tsx scripts/walletconnect-verify.ts"
+    "walletconnect:verify": "tsx scripts/walletconnect-verify.ts",
+    "lint": "eslint app components lib services scripts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",
@@ -73,6 +74,8 @@
     "@types/react-dom": "^19.0.0",
     "@vitest/coverage-v8": "^4.1.12",
     "dotenv": "^16.6.1",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.3",
     "jsdom": "^29.1.1",
     "prisma": "^7.10.1",
     "railway": "3.13.1",
