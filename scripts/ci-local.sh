@@ -96,9 +96,12 @@ while nc -z localhost "$PORT" 2>/dev/null; do PORT=$((PORT + 1)); done
 
 # The runner's postgres:15-alpine image uses en_US.utf8. Use it when the host
 # has it, else C.UTF-8 (minimal Linux images), else plain C with UTF8 encoding.
+# (Read the list into a variable first: `locale -a | grep -q` under pipefail
+# fails whenever grep exits early and locale takes SIGPIPE.)
 PG_LOCALE=C
+HOST_LOCALES=$(locale -a 2>/dev/null || true)
 for want in en_US.UTF-8 en_US.utf8 C.UTF-8 C.utf8; do
-  if locale -a 2>/dev/null | grep -qx "$want"; then PG_LOCALE=$want; break; fi
+  if grep -qx "$want" <<<"$HOST_LOCALES"; then PG_LOCALE=$want; break; fi
 done
 
 say "Starting Postgres $PG_VERSION on port $PORT (UTC, locale $PG_LOCALE)"
