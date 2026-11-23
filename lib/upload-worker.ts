@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/nextjs";
 import { randomUUID } from "crypto";
 import prisma from "./prisma";
 import { parseCSV, type TaskRow } from "./csv-parser";
+import { emitFundedWorkAvailable } from "./email-queue";
 
 const CHUNK_SIZE = 500;
 const STALE_PROCESSING_MS = 60_000;
@@ -232,6 +233,24 @@ export async function processJob(jobId: string): Promise<void> {
     console.log(
       `[upload-worker] job ${jobId} done committed=${chunksCommitted}/${chunksTotal} upserted=${upsertedRows} parseErrors=${parseErrorCount}`
     );
+
+    // #260 (ADR-0013): an admin publish on a funded campaign is the Week 1
+    // trigger for the new-work notice. Keyed on the job, so a retry adds nothing.
+    // Email never fails the upload.
+    if (upsertedRows > 0) {
+      try {
+        const queued = await emitFundedWorkAvailable({
+          campaignId: job.campaignId,
+          source: "admin_publish",
+          sourceId: jobId,
+          taskCount: upsertedRows,
+          occurredAt: new Date().toISOString(),
+        });
+        console.log(`[upload-worker] job ${jobId} funded_work_available queued=${queued}`);
+      } catch (err) {
+        Sentry.captureException(err, { extra: { jobId } });
+      }
+    }
   } catch (err: any) {
     const message = err?.message ?? String(err);
     console.error(`[upload-worker] job ${jobId} failed:`, message);
