@@ -76,7 +76,20 @@ describe("requestVerification", () => {
   it("refuses the address that is already verified", async () => {
     const user = await createUser();
     await verified(user.id);
-    expect(await requestVerification(user.id, "ANA@example.com", T0)).toEqual({ ok: false, error: "already_verified" });
+    expect(await requestVerification(user.id, "ANA@example.com", T0)).toMatchObject({ ok: false, error: "already_verified" });
+  });
+
+  it("resubmitting the verified address cancels a pending change and kills its link", async () => {
+    const user = await createUser();
+    await verified(user.id, "a@example.com");
+    const change = await requestVerification(user.id, "b@example.com", T0);
+    if (!change.ok) throw new Error(change.error);
+
+    const undo = await requestVerification(user.id, "a@example.com", T0);
+    expect(undo).toMatchObject({ ok: false, error: "already_verified", settings: { address: "a@example.com", pendingAddress: null } });
+    expect(await verifyContactEmail(change.token, T0)).toEqual({ ok: false, error: "invalid_token" });
+    expect(await unsubscribe(change.unsubscribeToken, T0)).toBe(false);
+    expect((await getContactSettings(user.id)).address).toBe("a@example.com");
   });
 
   it("a second request replaces the first token", async () => {

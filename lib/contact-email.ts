@@ -91,7 +91,8 @@ export async function getContactSettings(userId: string): Promise<ContactSetting
 
 export type RequestVerificationResult =
   | { ok: true; address: string; token: string; unsubscribeToken: string; settings: ContactSettings }
-  | { ok: false; error: "invalid_email" | "already_verified" };
+  | { ok: false; error: "invalid_email" }
+  | { ok: false; error: "already_verified"; settings: ContactSettings };
 
 /**
  * Add or change the address: it becomes pending, and a fresh single-use token
@@ -108,7 +109,15 @@ export async function requestVerification(
 
   const existing = await prisma.contactEmail.findUnique({ where: { userId } });
   if (existing?.verifiedAt && existing.address === address) {
-    return { ok: false, error: "already_verified" };
+    // Resubmitting the verified address undoes a pending change: its link dies,
+    // so it can't replace this address later.
+    const row = existing.pendingAddress
+      ? await prisma.contactEmail.update({
+          where: { id: existing.id },
+          data: { pendingAddress: null, pendingUnsubscribeToken: null, verifyTokenHash: null, verifyTokenExpires: null },
+        })
+      : existing;
+    return { ok: false, error: "already_verified", settings: toSettings(row) };
   }
 
   // Resending to the same pending address keeps its unsubscribe token, so the

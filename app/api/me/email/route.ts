@@ -46,7 +46,9 @@ export async function PUT(req: NextRequest) {
 
   const result = await requestVerification(userId, input);
   if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: result.error === "invalid_email" ? 400 : 409 });
+    return result.error === "already_verified"
+      ? NextResponse.json({ error: result.error, settings: result.settings }, { status: 409 })
+      : NextResponse.json({ error: result.error }, { status: 400 });
   }
 
   const sent = await sendContactEmail(
