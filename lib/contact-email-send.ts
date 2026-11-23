@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { APP_URL } from "./constants";
+import { openLink } from "./deep-link";
 import { resendClient } from "./resend";
 
 // Mail to contributors' notice addresses (#248). Every message carries
@@ -78,32 +79,34 @@ function withFooter(body: { text: string; html: string }, unsubscribeToken: stri
   };
 }
 
-/** #260: new funded work is open. The link lands on the app; #261 deep-links it. */
-export function fundedWorkMessage(taskCount: number, unsubscribeToken: string): ContactMessage {
+/** #260: new funded work is open. #261: the link opens that campaign's work. */
+export function fundedWorkMessage(taskCount: number, unsubscribeToken: string, campaignId?: string): ContactMessage {
   const app = appUrl();
+  const start = campaignId ? openLink(app, { kind: "campaign", id: campaignId }) : `${app}/`;
   const what =
     taskCount === 1 ? "A new paid task is" : taskCount > 1 ? `${taskCount} new paid tasks are` : "New paid work is";
   return {
     subject: "New paid work on Centient",
     ...withFooter(
       {
-        text: `${what} open on Centient. Rewards are paid in USDC (testnet) as your answers are accepted.\n\nStart: ${app}/`,
-        html: `<p>${what} open on Centient. Rewards are paid in USDC (testnet) as your answers are accepted.</p><p><a href="${app}/">Start labeling</a></p>`,
+        text: `${what} open on Centient. Rewards are paid in USDC (testnet) as your answers are accepted.\n\nStart: ${start}`,
+        html: `<p>${what} open on Centient. Rewards are paid in USDC (testnet) as your answers are accepted.</p><p><a href="${start}">Start labeling</a></p>`,
       },
       unsubscribeToken,
     ),
   };
 }
 
-/** #260: the one reminder about an unfinished task. */
-export function reminderMessage(unsubscribeToken: string): ContactMessage {
+/** #260: the one reminder about an unfinished task. #261: the link opens that task. */
+export function reminderMessage(unsubscribeToken: string, taskId?: string): ContactMessage {
   const app = appUrl();
+  const cont = taskId ? openLink(app, { kind: "task", id: taskId }) : `${app}/`;
   return {
     subject: "You left a Centient task unfinished",
     ...withFooter(
       {
-        text: `You opened a task on Centient but didn't answer it. It's still open if you'd like to finish.\n\nContinue: ${app}/\n\nThis is the only reminder for that task.`,
-        html: `<p>You opened a task on Centient but didn't answer it. It's still open if you'd like to finish.</p><p><a href="${app}/">Continue</a></p><p>This is the only reminder for that task.</p>`,
+        text: `You opened a task on Centient but didn't answer it. It's still open if you'd like to finish.\n\nContinue: ${cont}\n\nThis is the only reminder for that task.`,
+        html: `<p>You opened a task on Centient but didn't answer it. It's still open if you'd like to finish.</p><p><a href="${cont}">Continue</a></p><p>This is the only reminder for that task.</p>`,
       },
       unsubscribeToken,
     ),

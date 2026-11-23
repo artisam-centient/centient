@@ -297,6 +297,17 @@ describe("unfinished-task reminder", () => {
   });
 });
 
+describe("unfinished-task reminder: quality checks (#280 review)", () => {
+  it("never reminds about a standalone quality check", async () => {
+    const user = await contributor(1);
+    const check = await prisma.task.create({
+      data: { prompt: "gold", responseA: "a", responseB: "b", isGold: true, goldAnswer: "A" },
+    });
+    await recordServed(user.id, check.id, new Date(MORNING.getTime() - 25 * 3_600_000));
+    expect(await enqueueReminders(MORNING)).toBe(0);
+  });
+});
+
 describe("send failures", () => {
   it("retries after a backoff and gives up after 3 attempts", async () => {
     await contributor(1);
