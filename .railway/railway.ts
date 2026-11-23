@@ -87,8 +87,18 @@ export default defineRailway(() => {
     deploy: { cronSchedule: "5 16 * * 0", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: cronSecret, WEB_DOMAIN: "centient.work" },
   });
+  // Every 10 minutes (#260, ADR-0013): queue due unfinished-task reminders and
+  // send due notices. Quiet hours and the daily limit live in the route, so a
+  // run at night only pushes due rows to 08:00 Manila.
+  const emailQueueCron = service("email-queue-cron", {
+    source: image("alpine:3.21"),
+    start: "sh -c 'wget -q -T 60 -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/email-queue\"'",
+    replicas: { "asia-southeast1-eqsg3a": 1 },
+    deploy: { cronSchedule: "*/10 * * * *", restartPolicyType: "NEVER" },
+    env: { CRON_SECRET: cronSecret, WEB_DOMAIN: "centient.work" },
+  });
 
   return project("centient-work", {
-    resources: [walletHealthCron, Postgres, Redis, cosigner, payoutReconcileCron, web, payoutRetryCron, reserveRefillCron, weeklyBoardCron, redisVolume, postgresVolume],
+    resources: [walletHealthCron, Postgres, Redis, cosigner, payoutReconcileCron, web, payoutRetryCron, reserveRefillCron, weeklyBoardCron, emailQueueCron, redisVolume, postgresVolume],
   });
 });

@@ -112,6 +112,24 @@ describe("/api/me/email", () => {
     expect(send).toHaveBeenCalledTimes(3);
   });
 
+  it("PUT logs each verification it sends, and refuses once the day's limit is spent", async () => {
+    vi.stubEnv("EMAIL_DAILY_LIMIT", "1");
+    const { user, session } = await signedIn();
+    expect((await PUT(meReq("PUT", session, { address: ADDRESS }))).status).toBe(202);
+    const log = await prisma.emailSend.findMany({ where: { userId: user.id } });
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ kind: "verification", status: "sent" });
+    // The log holds a hash, never the token or the address.
+    expect(JSON.stringify(log)).not.toContain(ADDRESS);
+    expect(JSON.stringify(log)).not.toContain(linkToken("verify"));
+
+    const second = await PUT(meReq("PUT", session, { address: "other@example.com" }));
+    expect(second.status).toBe(503);
+    expect((await second.json()).error).toBe("daily_limit");
+    expect(send).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
   it("PUT reports a failed send without logging or reporting the address", async () => {
     const { session } = await signedIn();
     send.mockResolvedValue({ data: null, error: { name: "validation_error", message: `Invalid to: ${ADDRESS}` } });

@@ -57,6 +57,10 @@ model User {
   inviteCode           String?  @unique
   invitedById          String?
   invitedBy            User?    @relation("Invites", fields: [invitedById], references: [id], onDelete: SetNull)
+  // The task last served to this contributor (#260, ADR-0013). Served and not
+  // answered for 24 h makes it "unfinished" for the one-time reminder.
+  lastServedTaskId     String?
+  lastServedAt         DateTime?
   invitees             User[]   @relation("Invites")
 
   submissions   Submission[]
@@ -75,6 +79,7 @@ model User {
   inviteRewardAsInvitee InviteReward? @relation("InviteRewardInvitee")
   inviteRewardsAsInviter InviteReward[] @relation("InviteRewardInviter")
   contactEmail  ContactEmail?
+  emailSends    EmailSend[]
 
   @@map("users")
 }
@@ -772,4 +777,36 @@ model ContactEmail {
   updatedAt          DateTime  @updatedAt
 
   @@map("contact_emails")
+}
+
+// The email send queue and send log (#260, ADR-0013). One row per (person, kind,
+// event): `dedupeKey` = "<userId>:<kind>:<eventKey>" is unique, so an event fired
+// twice makes one row and one send. Rows are never deleted; they are the evidence
+// for "0 duplicate sends". No address is stored here: it is read at send time.
+model EmailSend {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "verification" | "funded_work" | "task_reminder"
+  kind       String
+  eventKey   String
+  dedupeKey  String    @unique
+  // "queued" | "sending" | "sent" | "skipped" | "failed"
+  status     String    @default("queued")
+  // Why a row was skipped or deferred: "capped", "unsubscribed", "preference_off", "no_address"
+  reason     String?
+  // Not sent before this instant (quiet hours, retry backoff).
+  notBefore  DateTime  @default(now())
+  attempts   Int       @default(0)
+  sentAt     DateTime?
+  // Small, non-personal message inputs (campaign id, task id, counts).
+  payload    Json?
+  lastError  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status, notBefore])
+  @@index([sentAt])
+  @@index([userId, kind, sentAt])
+  @@map("email_sends")
 }

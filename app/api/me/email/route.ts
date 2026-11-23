@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getLabelerSession } from "@/lib/labeler-auth";
 import {
   getContactSettings,
+  hashToken,
   normalizeAddress,
   parsePreferenceUpdate,
   removeContactEmail,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/contact-email";
 import { sendContactEmail, verificationMessage } from "@/lib/contact-email-send";
 import { takeRateLimit } from "@/lib/rate-limit";
+import { logVerificationSend, verificationAllowed } from "@/lib/email-queue";
 
 // #248: the signed-in contributor's notice email and preferences.
 //   GET     current settings
@@ -44,6 +46,12 @@ export async function PUT(req: NextRequest) {
     );
   }
 
+  // #260: verification has the whole daily limit (notices stop at the reserve),
+  // so this only trips when Resend's free tier is spent for the day.
+  if (!(await verificationAllowed())) {
+    return NextResponse.json({ error: "daily_limit" }, { status: 503 });
+  }
+
   const result = await requestVerification(userId, input);
   if (!result.ok) {
     return result.error === "already_verified"
@@ -59,6 +67,7 @@ export async function PUT(req: NextRequest) {
   if (sent === "failed") {
     return NextResponse.json({ error: "send_failed", settings: result.settings }, { status: 502 });
   }
+  if (sent === "sent") await logVerificationSend(userId, hashToken(result.token));
   return NextResponse.json(result.settings, { status: 202 });
 }
 
