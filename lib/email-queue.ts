@@ -35,6 +35,12 @@ export function dailyLimit(): number {
   return Number.isInteger(n) && n > 0 ? n : 100;
 }
 
+/** Resend's free tier: 3,000 emails a month. */
+export function monthlyLimit(): number {
+  const n = Number(process.env.EMAIL_MONTHLY_LIMIT);
+  return Number.isInteger(n) && n > 0 ? n : 3000;
+}
+
 /** Sends held back from notices each day so verification always fits. */
 export function verificationReserve(): number {
   const n = Number(process.env.EMAIL_VERIFICATION_RESERVE);
@@ -75,6 +81,11 @@ export function utcDayStart(at: Date): Date {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
 }
 
+/** 00:00 UTC on the 1st, when Resend's monthly quota resets. */
+export function utcMonthStart(at: Date): Date {
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
+}
+
 /** 00:00 Asia/Manila of `at`'s Manila day. */
 export function manilaDayStart(at: Date): Date {
   const local = new Date(at.getTime() + MANILA_OFFSET_MS);
@@ -104,16 +115,30 @@ type Tx = Prisma.TransactionClient;
  * which inserts or claims a row as "sending" with `sentAt` = now, so it counts
  * at once. "full" when there is no room; "lost" when `write` found nothing.
  */
-async function reserve(now: Date, capacity: number, write: (tx: Tx) => Promise<boolean>): Promise<"ok" | "full" | "lost"> {
+async function reserve(
+  now: Date,
+  room: { day: number; month: number },
+  write: (tx: Tx) => Promise<boolean>,
+): Promise<"ok" | "full" | "lost"> {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${BUDGET_LOCK}))`;
-    const used = await tx.emailSend.count({
-      where: { status: { in: ["sent", "sending", "unknown"] }, sentAt: { gte: utcDayStart(now) } },
-    });
-    if (used >= capacity) return "full";
+    const counted = { status: { in: ["sent", "sending", "unknown"] } };
+    const [day, month] = await Promise.all([
+      tx.emailSend.count({ where: { ...counted, sentAt: { gte: utcDayStart(now) } } }),
+      tx.emailSend.count({ where: { ...counted, sentAt: { gte: utcMonthStart(now) } } }),
+    ]);
+    if (day >= room.day || month >= room.month) return "full";
     return (await write(tx)) ? "ok" : "lost";
   });
 }
+
+/** Verifications may use the whole day and month. */
+const verificationRoom = () => ({ day: dailyLimit(), month: monthlyLimit() });
+/** Notices stop short of both by the verification reserve. */
+const noticeRoom = () => ({
+  day: dailyLimit() - verificationReserve(),
+  month: monthlyLimit() - verificationReserve(),
+});
 
 /** Reserve a slot for a send that happens right now, outside the queue. */
 async function reserveImmediate(
@@ -123,7 +148,7 @@ async function reserveImmediate(
 ): Promise<string | null> {
   const id = randomUUID();
   const eventKey = randomUUID();
-  const outcome = await reserve(now, dailyLimit(), async (tx) => {
+  const outcome = await reserve(now, verificationRoom(), async (tx) => {
     await tx.emailSend.create({
       data: {
         id,
@@ -409,7 +434,7 @@ async function drainLocked(now: Date, send: Sender): Promise<DrainReport> {
 
     // Claim the row inside the day's budget: verifications reserving at the
     // same moment see it, and it sees them.
-    const claimed = await reserve(now, dailyLimit() - verificationReserve(), async (tx) => {
+    const claimed = await reserve(now, noticeRoom(), async (tx) => {
       const { count } = await tx.emailSend.updateMany({
         where: { id: row.id, status: "queued" },
         data: { status: "sending", attempts: { increment: 1 }, sentAt: now },

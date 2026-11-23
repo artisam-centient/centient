@@ -57,7 +57,10 @@ refused send stops counting. Admins' customer verification emails
 admin sees the usual "could not be sent" warning. Notices may reserve only up to the limit minus a
 verification reserve (`EMAIL_VERIFICATION_RESERVE`, default 20). A
 verification may use the whole limit and is refused (`daily_limit`) only when
-it is spent. A notice that doesn't fit
+it is spent. The same check applies to the month
+(`EMAIL_MONTHLY_LIMIT`, default 3,000, counted from 00:00 UTC on the 1st):
+notices stop at the month's limit minus the reserve, verifications at the
+limit, so 31 full days can't run past Resend's monthly quota. A notice that doesn't fit
 today stays `queued` for tomorrow: deferred, never dropped.
 
 **Quiet hours defer, they don't drop.** Notices are never sent between 21:00

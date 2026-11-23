@@ -64,6 +64,7 @@ beforeEach(async () => {
   sends = [];
   vi.stubEnv("EMAIL_DAILY_LIMIT", "");
   vi.stubEnv("EMAIL_VERIFICATION_RESERVE", "");
+  vi.stubEnv("EMAIL_MONTHLY_LIMIT", "");
 });
 
 afterEach(() => {
@@ -489,5 +490,31 @@ describe("Codex review on #275, second pass", () => {
     const { sendVerificationEmail } = await import("@/lib/email");
     expect(await sendVerificationEmail("customer@example.com", "tok")).toBeNull();
     expect(await prisma.emailSend.count({ where: { kind: "customer_verification" } })).toBe(0);
+  });
+});
+
+describe("the monthly limit (Resend free tier: 3,000)", () => {
+  it("refuses sends once the month is spent, even with room left today", async () => {
+    vi.stubEnv("EMAIL_MONTHLY_LIMIT", "3");
+    vi.stubEnv("EMAIL_VERIFICATION_RESERVE", "1");
+    const user = await createUser();
+    // Two sends earlier this month (25 Nov), one on another day.
+    const earlier = new Date("2026-11-03T02:00:00Z");
+    for (let i = 0; i < 2; i++) await finishSend((await reserveVerification(user.id, earlier))!, "sent", earlier);
+
+    // Notices stop at month − reserve = 2: none left.
+    await contributor(1);
+    const campaign = await fundedCampaign();
+    await emitFundedWorkAvailable(event(campaign.id), MORNING);
+    expect((await drainQueue(MORNING, fakeSend)).sent).toBe(0);
+
+    // Verification may use the last one, then nothing.
+    const last = await reserveVerification(user.id, MORNING);
+    expect(last).not.toBeNull();
+    await finishSend(last!, "sent", MORNING);
+    expect(await reserveVerification(user.id, MORNING)).toBeNull();
+
+    // A new month resets it.
+    expect(await reserveVerification(user.id, new Date("2026-12-01T02:00:00Z"))).not.toBeNull();
   });
 });
