@@ -51,19 +51,24 @@ export async function PUT(req: NextRequest) {
   const slot = await reserveVerification(userId);
   if (!slot) return NextResponse.json({ error: "daily_limit" }, { status: 503 });
 
-  const result = await requestVerification(userId, input);
-  if (!result.ok) {
-    await finishSend(slot, "not_sent");
-    return result.error === "already_verified"
-      ? NextResponse.json({ error: result.error, settings: result.settings }, { status: 409 })
-      : NextResponse.json({ error: result.error }, { status: 400 });
+  // Anything that throws before Resend is called gives the slot back.
+  let result: Awaited<ReturnType<typeof requestVerification>>;
+  let message: ReturnType<typeof verificationMessage>;
+  try {
+    result = await requestVerification(userId, input);
+    if (!result.ok) {
+      await finishSend(slot, "not_sent");
+      return result.error === "already_verified"
+        ? NextResponse.json({ error: result.error, settings: result.settings }, { status: 409 })
+        : NextResponse.json({ error: result.error }, { status: 400 });
+    }
+    message = verificationMessage(result.token, result.unsubscribeToken);
+  } catch (err) {
+    await finishSend(slot, "not_sent").catch(() => {});
+    throw err;
   }
 
-  const sent = await sendContactEmail(
-    result.address,
-    verificationMessage(result.token, result.unsubscribeToken),
-    result.unsubscribeToken,
-  );
+  const sent = await sendContactEmail(result.address, message, result.unsubscribeToken);
   await finishSend(slot, sent === "skipped" ? "not_sent" : sent);
   if (sent === "refused" || sent === "unknown") {
     return NextResponse.json({ error: "send_failed", settings: result.settings }, { status: 502 });
