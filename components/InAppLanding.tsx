@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { EmailPrompt } from "@/components/EmailNotices";
 import SubmitButton from "./SubmitButton";
 import Faq from "./Faq";
 import { REWARD_TOKEN_SYMBOL } from "@/lib/constants";
@@ -153,6 +154,7 @@ export default function InAppLanding({
                 <div className="h-[168px] w-full animate-pulse rounded-3xl bg-surface-container-high motion-reduce:animate-none" />
               </div>
             )}
+            <EmailPrompt />
             <div className="w-full pt-2">
               <SubmitButton label="Start Earning" onClick={onStart} />
             </div>
@@ -162,6 +164,7 @@ export default function InAppLanding({
           <>
             <Faq />
 
+            <EmailPrompt />
             <div className="w-full pt-2">
               <SubmitButton label="Start Earning" onClick={onStart} />
             </div>

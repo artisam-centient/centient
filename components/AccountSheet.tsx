@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { type ToastKind } from "@/components/Toast";
+import { EmailNoticesSection } from "@/components/EmailNotices";
 import { resetIdentity, track } from "@/lib/analytics";
 import { truncateAddress } from "@/lib/wallet";
 import { unitsToUsdcDisplay } from "@/lib/stellar/config";
@@ -536,6 +537,8 @@ export default function AccountSheet({
             View on explorer
           </a>
         )}
+
+        <EmailNoticesSection />
 
         <div>
           <h3 className="mb-3 font-label text-[10px] font-bold uppercase tracking-[0.2em] text-outline">
