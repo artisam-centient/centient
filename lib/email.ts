@@ -1,6 +1,8 @@
 import * as Sentry from "@sentry/nextjs";
 import { APP_URL } from "./constants";
+import { createHash } from "node:crypto";
 import { sendEmail } from "./resend";
+import { logCustomerVerificationSend } from "./email-queue";
 function escapeHtml(str: string): string {
     return String(str)
     .replace(/&/g, "&amp;")
@@ -41,6 +43,11 @@ export async function sendVerificationEmail(
                 <p>This link expires in 24 hours.</p>
             `,
         );
+        // #260: same Resend key as contributor email, so it counts toward the
+        // same daily limit. Best effort: logging never fails the send.
+        if (result && !result.error) {
+            await logCustomerVerificationSend(createHash("sha256").update(token).digest("hex")).catch(() => {});
+        }
         return result;
   } catch (error) {
     console.error("[email] Failed to send verification email:", { email, error });

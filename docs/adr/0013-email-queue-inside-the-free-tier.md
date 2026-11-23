@@ -27,9 +27,12 @@ Three facts shaped the design:
 per (person, kind, event), enforced by a unique `dedupeKey`
 `<userId>:<kind>:<eventKey>`. Enqueueing is `INSERT … ON CONFLICT DO NOTHING`,
 so the same event fired twice, or by two processes at once, makes one row and
-one send. A row moves `queued → sent`, or ends `skipped` (preferences changed,
-unsubscribed, capped) or `failed` (after 3 attempts). Nothing is deleted: the
-table is the evidence for the duplicate metric.
+one send. A row moves `queued → sending → sent`, or ends `skipped`
+(preferences changed, unsubscribed, capped, task done) or `failed` (after 3
+attempts). A row still `sending` 15 minutes after its claim was cut off
+mid-send; it becomes `unknown` and is never retried, because Resend may have
+taken it and a retry could send twice. Nothing is deleted: the table is the
+evidence for the duplicate metric.
 
 **Verification is sent at once, logged, and never queued.** The link's raw
 token exists only in the email, so it is never stored to send later. The
@@ -37,8 +40,11 @@ request sends immediately and writes a `verification` row (eventKey = the
 token hash) to the log, which counts toward the daily limit.
 
 **Verification goes first by reservation.** The daily limit (`EMAIL_DAILY_LIMIT`,
-default 100, Resend's free tier) counts every `sent` row since 00:00 UTC, when
-Resend's day resets. Notices may use only the limit minus a verification
+default 100, Resend's free tier) counts every row `sent`, `sending` or
+`unknown` whose send started since 00:00 UTC, when Resend's day resets. A
+refused send stops counting. Admins' customer verification emails
+(`lib/email.ts`) use the same Resend key, so they are logged here too
+(`customer_verification`, no user) and count toward the same day. Notices may use only the limit minus a verification
 reserve (`EMAIL_VERIFICATION_RESERVE`, default 20). A verification is refused
 (`daily_limit`) only when the whole limit is spent. A notice that doesn't fit
 today stays `queued` for tomorrow: deferred, never dropped.
@@ -83,6 +89,15 @@ are filled in by a later CSV. #253 emits it with
 records the task it serves (`users.lastServedTaskId`, `lastServedAt`). A
 contributor whose last served task is 24 h to 7 days old, still unanswered by
 them, and still open, gets one reminder (eventKey = the task id).
+
+**Drains run one at a time.** A drain reads its budget once, so two at once
+could each spend it. Each holds a Postgres advisory lock
+(`pg_try_advisory_xact_lock`) for its whole run; a second drain returns at
+once (`ran: false`).
+
+**A reminder is rechecked before it goes.** At send time the task must still
+be unanswered by that contributor, not disabled, its campaign not paused, and
+its response target not met; otherwise the row is `skipped`, `task_done`.
 
 **A cron route drains the queue.** `POST /api/cron/email-queue` enqueues due
 reminders, then sends due rows in order (verification never waits here),

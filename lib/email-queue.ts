@@ -1,5 +1,6 @@
 import { Prisma } from "@/app/generated/prisma/client";
 import prisma from "./prisma";
+import { REWARDED_STATUSES } from "./constants";
 import { isNotifiable, type NoticeKind } from "./contact-email";
 import {
   fundedWorkMessage,
@@ -18,9 +19,11 @@ import { effectiveTier } from "./gamification/tiers";
 // Notices wait for the cron drain, which applies Asia/Manila quiet hours, a
 // per-person cap and a daily budget that always leaves room for verification.
 
-export type EmailKind = "verification" | "funded_work" | "task_reminder";
+export type EmailKind = "verification" | "funded_work" | "task_reminder" | "customer_verification";
 
-const NOTICE_OF: Record<Exclude<EmailKind, "verification">, NoticeKind> = {
+type NoticeEmailKind = "funded_work" | "task_reminder";
+
+const NOTICE_OF: Record<NoticeEmailKind, NoticeKind> = {
   funded_work: "newWork",
   task_reminder: "reminders",
 };
@@ -38,6 +41,8 @@ export function verificationReserve(): number {
 }
 
 export const MAX_ATTEMPTS = 3;
+/** A row left in "sending" this long was cut off mid-send (ADR-0013). */
+export const STRANDED_AFTER_MS = 15 * 60 * 1000;
 export const RETRY_BACKOFF_MS = 15 * 60 * 1000;
 export const REMINDER_AFTER_MS = 24 * 60 * 60 * 1000;
 export const REMINDER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -77,13 +82,39 @@ export function manilaDayStart(at: Date): Date {
 
 // ------------------------------------------------------------- budget ----
 
+/**
+ * Sends that count against Resend's day: sent, in flight, and "unknown" (cut
+ * off mid-send, so Resend may have taken it). `sentAt` is stamped when a row
+ * is claimed and cleared if the provider refuses it.
+ */
 export async function sentToday(now: Date): Promise<number> {
-  return prisma.emailSend.count({ where: { status: "sent", sentAt: { gte: utcDayStart(now) } } });
+  return prisma.emailSend.count({
+    where: { status: { in: ["sent", "sending", "unknown"] }, sentAt: { gte: utcDayStart(now) } },
+  });
 }
 
 /** Whether a verification fits today: the whole limit, reserve included. */
 export async function verificationAllowed(now: Date = new Date()): Promise<boolean> {
   return (await sentToday(now)) < dailyLimit();
+}
+
+/**
+ * Log an admin's customer verification email (lib/email.ts). It goes out on
+ * the same Resend key, so it counts toward the same day. No user row: customers
+ * are admin accounts.
+ */
+export async function logCustomerVerificationSend(tokenHash: string, now: Date = new Date()): Promise<void> {
+  await prisma.emailSend.create({
+    data: {
+      kind: "customer_verification",
+      eventKey: tokenHash,
+      dedupeKey: `customer:customer_verification:${tokenHash}`,
+      status: "sent",
+      attempts: 1,
+      notBefore: now,
+      sentAt: now,
+    },
+  });
 }
 
 /** Log a verification that was just sent. Counts toward today's limit. */
@@ -175,6 +206,29 @@ export async function emitFundedWorkAvailable(event: FundedWorkAvailable, now: D
   return count;
 }
 
+/** SQL: task `t` is still open (not disabled, campaign not paused, target not met). */
+const TASK_OPEN = Prisma.sql`
+  t.disabled = false
+  AND (c.id IS NULL OR c."pausedAt" IS NULL)
+  AND (
+    COALESCE(t."responseTarget", c."defaultResponseTarget") IS NULL
+    OR (
+      SELECT COUNT(*) FROM submissions s2
+      WHERE s2."taskId" = t.id
+        AND s2."payoutStatus" IN (${Prisma.join([...REWARDED_STATUSES])})
+        AND s2."isGoldCheck" = false
+    ) < COALESCE(t."responseTarget", c."defaultResponseTarget")
+  )`;
+
+/** Whether `taskId` is still open and unanswered by `userId`. Rechecked at send time. */
+export async function taskStillUnfinished(userId: string, taskId: string): Promise<boolean> {
+  const rows = await prisma.$queryRaw<{ ok: number }[]>`
+    SELECT 1 AS ok FROM tasks t LEFT JOIN campaigns c ON c.id = t."campaignId"
+    WHERE t.id = ${taskId} AND ${TASK_OPEN}
+      AND NOT EXISTS (SELECT 1 FROM submissions s WHERE s."userId" = ${userId} AND s."taskId" = t.id)`;
+  return rows.length > 0;
+}
+
 /**
  * One reminder per unfinished task: the contributor's last served task, served
  * 24 h to 7 days ago, still unanswered by them and still open.
@@ -191,8 +245,7 @@ export async function enqueueReminders(now: Date = new Date()): Promise<number> 
       AND u."isBanned" = false
       AND ce.address IS NOT NULL AND ce."verifiedAt" IS NOT NULL
       AND ce."unsubscribedAt" IS NULL AND ce."notifyReminders" = true
-      AND t.disabled = false
-      AND (c.id IS NULL OR c."pausedAt" IS NULL)
+      AND ${TASK_OPEN}
       AND NOT EXISTS (SELECT 1 FROM submissions s WHERE s."userId" = u.id AND s."taskId" = t.id)
   `;
   if (due.length === 0) return 0;
@@ -216,14 +269,21 @@ export async function enqueueReminders(now: Date = new Date()): Promise<number> 
 export type Sender = (to: string, message: ContactMessage, unsubscribeToken: string) => Promise<SendResult>;
 
 export interface DrainReport {
+  /** False when another drain held the lock, so this one did nothing. */
+  ran: boolean;
   budget: number;
   sent: number;
   skipped: number;
   deferred: number;
   failed: number;
+  /** Rows found stuck in "sending" and marked "unknown". */
+  stranded: number;
 }
 
-function messageFor(kind: Exclude<EmailKind, "verification">, payload: Prisma.JsonValue, unsubscribeToken: string): ContactMessage {
+/** Drains are serialized: the budget is read once per drain, so two at once could overspend it. */
+const DRAIN_LOCK = "email-queue-drain";
+
+function messageFor(kind: NoticeEmailKind, payload: Prisma.JsonValue, unsubscribeToken: string): ContactMessage {
   const p = (payload ?? {}) as Record<string, unknown>;
   return kind === "funded_work"
     ? fundedWorkMessage(typeof p.taskCount === "number" ? p.taskCount : 0, unsubscribeToken)
@@ -237,7 +297,30 @@ function messageFor(kind: Exclude<EmailKind, "verification">, payload: Prisma.Js
  * queued. Preferences are checked again here, so an unsubscribe wins.
  */
 export async function drainQueue(now: Date = new Date(), send: Sender = sendContactEmail): Promise<DrainReport> {
-  const report: DrainReport = { budget: 0, sent: 0, skipped: 0, deferred: 0, failed: 0 };
+  // Held for the whole drain on one pooled connection; the sends themselves
+  // use others. pg_try_: a second drain returns at once instead of queueing.
+  return prisma.$transaction(
+    async (tx) => {
+      const [{ locked }] = await tx.$queryRaw<{ locked: boolean }[]>`
+        SELECT pg_try_advisory_xact_lock(hashtext(${DRAIN_LOCK})) AS locked`;
+      if (!locked) return { ran: false, budget: 0, sent: 0, skipped: 0, deferred: 0, failed: 0, stranded: 0 };
+      return drainLocked(now, send);
+    },
+    { timeout: 10 * 60 * 1000, maxWait: 10_000 },
+  );
+}
+
+async function drainLocked(now: Date, send: Sender): Promise<DrainReport> {
+  const report: DrainReport = { ran: true, budget: 0, sent: 0, skipped: 0, deferred: 0, failed: 0, stranded: 0 };
+
+  // A row still "sending" long after its claim was cut off mid-send. Resend
+  // may have taken it, so it is never retried (that could send twice) and it
+  // keeps counting toward its day.
+  const stranded = await prisma.emailSend.updateMany({
+    where: { status: "sending", updatedAt: { lt: new Date(now.getTime() - STRANDED_AFTER_MS) } },
+    data: { status: "unknown", reason: "stranded" },
+  });
+  report.stranded = stranded.count;
 
   if (inQuietHours(now)) {
     const { count } = await prisma.emailSend.updateMany({
@@ -259,18 +342,21 @@ export async function drainQueue(now: Date = new Date(), send: Sender = sendCont
 
   for (const row of due) {
     if (report.sent >= report.budget) break;
-    const kind = row.kind as Exclude<EmailKind, "verification">;
+    const kind = row.kind as NoticeEmailKind;
 
-    const contact = await prisma.contactEmail.findUnique({ where: { userId: row.userId } });
+    const contact = row.userId ? await prisma.contactEmail.findUnique({ where: { userId: row.userId } }) : null;
     let skip: string | null = null;
-    if (!contact?.address || !contact.verifiedAt) skip = "no_address";
+    if (!row.userId || !contact?.address || !contact.verifiedAt) skip = "no_address";
     else if (contact.unsubscribedAt) skip = "unsubscribed";
     else if (!isNotifiable(contact, NOTICE_OF[kind])) skip = "preference_off";
     else if (kind === "funded_work") {
       const already = await prisma.emailSend.count({
-        where: { userId: row.userId, kind: "funded_work", status: "sent", sentAt: { gte: manilaDayStart(now) } },
+        where: { userId: row.userId!, kind: "funded_work", status: { in: ["sent", "sending", "unknown"] }, sentAt: { gte: manilaDayStart(now) } },
       });
       if (already > 0) skip = "capped";
+    } else if (kind === "task_reminder") {
+      const taskId = (row.payload as Record<string, unknown> | null)?.taskId;
+      if (typeof taskId !== "string" || !(await taskStillUnfinished(row.userId!, taskId))) skip = "task_done";
     }
     if (skip) {
       await prisma.emailSend.updateMany({ where: { id: row.id, status: "queued" }, data: { status: "skipped", reason: skip } });
@@ -281,7 +367,7 @@ export async function drainQueue(now: Date = new Date(), send: Sender = sendCont
     // Claim the row, so two drains running at once can't both send it.
     const claimed = await prisma.emailSend.updateMany({
       where: { id: row.id, status: "queued" },
-      data: { status: "sending", attempts: { increment: 1 } },
+      data: { status: "sending", attempts: { increment: 1 }, sentAt: now },
     });
     if (claimed.count === 0) continue;
 
@@ -301,8 +387,8 @@ export async function drainQueue(now: Date = new Date(), send: Sender = sendCont
         where: { id: row.id },
         data:
           attempts >= MAX_ATTEMPTS
-            ? { status: "failed", lastError: "send_failed" }
-            : { status: "queued", notBefore: new Date(now.getTime() + RETRY_BACKOFF_MS), lastError: "send_failed" },
+            ? { status: "failed", lastError: "send_failed", sentAt: null }
+            : { status: "queued", notBefore: new Date(now.getTime() + RETRY_BACKOFF_MS), lastError: "send_failed", sentAt: null },
       });
       report.failed++;
     }

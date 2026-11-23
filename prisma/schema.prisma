@@ -785,19 +785,22 @@ model ContactEmail {
 // for "0 duplicate sends". No address is stored here: it is read at send time.
 model EmailSend {
   id         String    @id @default(uuid())
-  userId     String
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // "verification" | "funded_work" | "task_reminder"
+  // Null only for "customer_verification": an admin's customer email on the
+  // same Resend key, logged so it counts toward the day.
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "verification" | "funded_work" | "task_reminder" | "customer_verification"
   kind       String
   eventKey   String
   dedupeKey  String    @unique
-  // "queued" | "sending" | "sent" | "skipped" | "failed"
+  // "queued" | "sending" | "sent" | "skipped" | "failed" | "unknown" (cut off mid-send)
   status     String    @default("queued")
-  // Why a row was skipped or deferred: "capped", "unsubscribed", "preference_off", "no_address"
+  // Why: "capped", "unsubscribed", "preference_off", "no_address", "task_done", "stranded"
   reason     String?
   // Not sent before this instant (quiet hours, retry backoff).
   notBefore  DateTime  @default(now())
   attempts   Int       @default(0)
+  // Stamped at the claim, cleared if the provider refuses: counts toward the day.
   sentAt     DateTime?
   // Small, non-personal message inputs (campaign id, task id, counts).
   payload    Json?

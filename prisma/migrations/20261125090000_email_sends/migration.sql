@@ -8,7 +8,7 @@ ADD COLUMN "lastServedAt" TIMESTAMP(3);
 -- CreateTable
 CREATE TABLE "email_sends" (
     "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
+    "userId" TEXT,
     "kind" TEXT NOT NULL,
     "eventKey" TEXT NOT NULL,
     "dedupeKey" TEXT NOT NULL,

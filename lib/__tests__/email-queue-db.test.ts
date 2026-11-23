@@ -4,6 +4,7 @@ import {
   emitFundedWorkAvailable,
   enqueueReminders,
   inQuietHours,
+  logCustomerVerificationSend,
   logVerificationSend,
   nextSendableAt,
   recordServed,
@@ -338,5 +339,91 @@ describe("Week 1 trigger: an admin CSV publish on a funded campaign", () => {
     const campaign = await createCampaign({ adminUserId: admin.id, rewardUnits: REWARD });
     await upload(campaign.id, admin.id, "prompt,responseA,responseB\nq1,a,b\n");
     expect(await rows("funded_work")).toHaveLength(0);
+  });
+});
+
+describe("Codex review on #275", () => {
+  it("counts an admin's customer verification email toward the same day", async () => {
+    vi.stubEnv("EMAIL_DAILY_LIMIT", "2");
+    vi.stubEnv("EMAIL_VERIFICATION_RESERVE", "0");
+    await logCustomerVerificationSend("cust-hash", MORNING);
+    expect(await sentToday(MORNING)).toBe(1);
+
+    for (let n = 1; n <= 3; n++) await contributor(n);
+    const campaign = await fundedCampaign();
+    await emitFundedWorkAvailable(event(campaign.id), MORNING);
+    expect((await drainQueue(MORNING, fakeSend)).sent).toBe(1);
+  });
+
+  it("serializes overlapping drains, so together they stay inside the budget", async () => {
+    vi.stubEnv("EMAIL_DAILY_LIMIT", "3");
+    vi.stubEnv("EMAIL_VERIFICATION_RESERVE", "0");
+    for (let n = 1; n <= 6; n++) await contributor(n);
+    const campaign = await fundedCampaign();
+    await emitFundedWorkAvailable(event(campaign.id), MORNING);
+    const slowSend: Sender = async (to, message) => {
+      await new Promise((r) => setTimeout(r, 40));
+      return fakeSend(to, message, "");
+    };
+
+    const reports = await Promise.all([drainQueue(MORNING, slowSend), drainQueue(MORNING, slowSend)]);
+    expect(reports.filter((r) => r.ran)).toHaveLength(1);
+    expect(sends).toHaveLength(3);
+    expect(await sentToday(MORNING)).toBe(3);
+  });
+
+  it("rechecks a reminder's task at send time and skips one answered since", async () => {
+    const user = await contributor(1);
+    const campaign = await fundedCampaign();
+    const task = await prisma.task.create({ data: { prompt: "p", responseA: "a", responseB: "b", campaignId: campaign.id } });
+    await recordServed(user.id, task.id, new Date(MORNING.getTime() - 25 * 3_600_000));
+    expect(await enqueueReminders(MORNING)).toBe(1);
+
+    await prisma.submission.create({
+      data: { userId: user.id, taskId: task.id, choice: "A", reason: "Response A is clearer and more accurate overall.", payoutAmountUnits: 0n },
+    });
+    const report = await drainQueue(MORNING, fakeSend);
+    expect(report).toMatchObject({ sent: 0, skipped: 1 });
+    expect((await rows("task_reminder"))[0]).toMatchObject({ status: "skipped", reason: "task_done" });
+  });
+
+  it("skips a reminder whose task filled its response target", async () => {
+    const user = await contributor(1);
+    const other = await createUser({ walletAddress: makeWallet(50) });
+    const campaign = await fundedCampaign();
+    const task = await prisma.task.create({
+      data: { prompt: "p", responseA: "a", responseB: "b", campaignId: campaign.id, responseTarget: 1 },
+    });
+    await recordServed(user.id, task.id, new Date(MORNING.getTime() - 25 * 3_600_000));
+    await enqueueReminders(MORNING);
+    await prisma.submission.create({
+      data: { userId: other.id, taskId: task.id, choice: "B", reason: "Response B is clearer and more accurate overall.", payoutAmountUnits: 0n, payoutStatus: "confirmed" },
+    });
+    await drainQueue(MORNING, fakeSend);
+    expect((await rows("task_reminder"))[0]).toMatchObject({ status: "skipped", reason: "task_done" });
+  });
+
+  it("marks a row stuck in sending as unknown: never resent, still counted", async () => {
+    await contributor(1);
+    const campaign = await fundedCampaign();
+    await emitFundedWorkAvailable(event(campaign.id), MORNING);
+    const [row] = await rows("funded_work");
+    await prisma.$executeRaw`
+      UPDATE email_sends SET status = 'sending', "sentAt" = ${MORNING}, "updatedAt" = ${new Date(MORNING.getTime() - 20 * 60_000)}
+      WHERE id = ${row.id}`;
+
+    const report = await drainQueue(MORNING, fakeSend);
+    expect(report).toMatchObject({ stranded: 1, sent: 0 });
+    expect(sends).toHaveLength(0);
+    expect((await rows("funded_work"))[0]).toMatchObject({ status: "unknown", reason: "stranded" });
+    expect(await sentToday(MORNING)).toBe(1);
+  });
+
+  it("a refused send no longer counts toward the day", async () => {
+    await contributor(1);
+    const campaign = await fundedCampaign();
+    await emitFundedWorkAvailable(event(campaign.id), MORNING);
+    await drainQueue(MORNING, async () => "failed");
+    expect(await sentToday(MORNING)).toBe(0);
   });
 });
