@@ -274,9 +274,14 @@ export async function emitFundedWorkAvailable(event: FundedWorkAvailable, now: D
   return count;
 }
 
-/** SQL: task `t` is still open (not disabled, campaign not paused, target not met). */
+/**
+ * SQL: task `t` is still open (not disabled, campaign not paused, target not
+ * met) and is real work. A standalone quality check (gold, no campaign) never
+ * gets a reminder: it's served at random, and #261's link can't reopen it.
+ */
 const TASK_OPEN = Prisma.sql`
-  t.disabled = false
+  NOT (t."isGold" = true AND t."campaignId" IS NULL)
+  AND t.disabled = false
   AND (c.id IS NULL OR c."pausedAt" IS NULL)
   AND (
     COALESCE(t."responseTarget", c."defaultResponseTarget") IS NULL
@@ -353,9 +358,10 @@ const DRAIN_LOCK = "email-queue-drain";
 
 function messageFor(kind: NoticeEmailKind, payload: Prisma.JsonValue, unsubscribeToken: string): ContactMessage {
   const p = (payload ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   return kind === "funded_work"
-    ? fundedWorkMessage(typeof p.taskCount === "number" ? p.taskCount : 0, unsubscribeToken)
-    : reminderMessage(unsubscribeToken);
+    ? fundedWorkMessage(typeof p.taskCount === "number" ? p.taskCount : 0, unsubscribeToken, str(p.campaignId))
+    : reminderMessage(unsubscribeToken, str(p.taskId));
 }
 
 /**
