@@ -4,12 +4,12 @@ import {
   emitFundedWorkAvailable,
   enqueueReminders,
   inQuietHours,
-  logCustomerVerificationSend,
-  logVerificationSend,
+  finishSend,
+  reserveCustomerVerification,
+  reserveVerification,
   nextSendableAt,
   recordServed,
   sentToday,
-  verificationAllowed,
   type FundedWorkAvailable,
   type Sender,
 } from "@/lib/email-queue";
@@ -202,13 +202,15 @@ describe("the daily limit, verification first", () => {
     expect((await rows("funded_work")).filter((r) => r.status === "queued")).toHaveLength(3);
 
     // Notices are spent, but the reserve keeps verification open…
-    expect(await verificationAllowed(MORNING)).toBe(true);
     const someone = await createUser({ walletAddress: makeWallet(99) });
-    await logVerificationSend(someone.id, "hash-1", MORNING);
-    await logVerificationSend(someone.id, "hash-2", MORNING);
+    for (let i = 0; i < 2; i++) {
+      const slot = await reserveVerification(someone.id, MORNING);
+      expect(slot).not.toBeNull();
+      await finishSend(slot!, "sent", MORNING);
+    }
     // …until the whole limit is used.
     expect(await sentToday(MORNING)).toBe(5);
-    expect(await verificationAllowed(MORNING)).toBe(false);
+    expect(await reserveVerification(someone.id, MORNING)).toBeNull();
     expect((await drainQueue(MORNING, fakeSend)).sent).toBe(0);
 
     // Tomorrow's budget sends what waited.
@@ -299,7 +301,7 @@ describe("send failures", () => {
     await contributor(1);
     const campaign = await fundedCampaign();
     await emitFundedWorkAvailable(event(campaign.id), MORNING);
-    const failing: Sender = async () => "failed";
+    const failing: Sender = async () => "refused";
 
     let at = MORNING;
     for (let i = 0; i < 3; i++) {
@@ -346,7 +348,8 @@ describe("Codex review on #275", () => {
   it("counts an admin's customer verification email toward the same day", async () => {
     vi.stubEnv("EMAIL_DAILY_LIMIT", "2");
     vi.stubEnv("EMAIL_VERIFICATION_RESERVE", "0");
-    await logCustomerVerificationSend("cust-hash", MORNING);
+    const slot = await reserveCustomerVerification(MORNING);
+    await finishSend(slot!, "sent", MORNING);
     expect(await sentToday(MORNING)).toBe(1);
 
     for (let n = 1; n <= 3; n++) await contributor(n);
@@ -423,7 +426,68 @@ describe("Codex review on #275", () => {
     await contributor(1);
     const campaign = await fundedCampaign();
     await emitFundedWorkAvailable(event(campaign.id), MORNING);
-    await drainQueue(MORNING, async () => "failed");
+    await drainQueue(MORNING, async () => "refused");
     expect(await sentToday(MORNING)).toBe(0);
+  });
+});
+
+describe("Codex review on #275, second pass", () => {
+  it("concurrent verification reservations never pass the daily limit", async () => {
+    vi.stubEnv("EMAIL_DAILY_LIMIT", "3");
+    const users = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => createUser({ walletAddress: makeWallet(n) })));
+    const slots = await Promise.all(users.map((u) => reserveVerification(u.id, MORNING)));
+    expect(slots.filter(Boolean)).toHaveLength(3);
+    expect(await sentToday(MORNING)).toBe(3);
+  });
+
+  it("a refused or never-made send gives its slot back", async () => {
+    vi.stubEnv("EMAIL_DAILY_LIMIT", "1");
+    const user = await createUser();
+    const a = await reserveVerification(user.id, MORNING);
+    await finishSend(a!, "refused", MORNING);
+    const b = await reserveVerification(user.id, MORNING);
+    expect(b).not.toBeNull();
+    await finishSend(b!, "not_sent", MORNING);
+    expect(await sentToday(MORNING)).toBe(0);
+  });
+
+  it("an ambiguous send is marked unknown, kept on the count and never retried", async () => {
+    await contributor(1);
+    const campaign = await fundedCampaign();
+    await emitFundedWorkAvailable(event(campaign.id), MORNING);
+    await drainQueue(MORNING, async () => "unknown");
+    await drainQueue(new Date(MORNING.getTime() + 30 * 60_000), fakeSend);
+
+    expect(sends).toHaveLength(0);
+    expect((await rows("funded_work"))[0]).toMatchObject({ status: "unknown", reason: "ambiguous", attempts: 1 });
+    expect(await sentToday(MORNING)).toBe(1);
+  });
+
+  it("a drain stops claiming once verifications fill the notice budget mid-run", async () => {
+    vi.stubEnv("EMAIL_DAILY_LIMIT", "4");
+    vi.stubEnv("EMAIL_VERIFICATION_RESERVE", "1");
+    for (let n = 1; n <= 5; n++) await contributor(n);
+    const campaign = await fundedCampaign();
+    await emitFundedWorkAvailable(event(campaign.id), MORNING);
+    const someone = await createUser({ walletAddress: makeWallet(77) });
+    // Two verifications land while the drain is sending.
+    const sendAndVerify: Sender = async (to, message) => {
+      if (sends.length === 0) {
+        for (let i = 0; i < 2; i++) await finishSend((await reserveVerification(someone.id, MORNING))!, "sent", MORNING);
+      }
+      return fakeSend(to, message, "");
+    };
+    await drainQueue(MORNING, sendAndVerify);
+    expect(await sentToday(MORNING)).toBeLessThanOrEqual(4);
+    expect(sends).toHaveLength(1);
+  });
+
+  it("an admin's customer verification is not sent once the day is spent", async () => {
+    vi.stubEnv("EMAIL_DAILY_LIMIT", "1");
+    const user = await createUser();
+    await finishSend((await reserveVerification(user.id))!, "sent");
+    const { sendVerificationEmail } = await import("@/lib/email");
+    expect(await sendVerificationEmail("customer@example.com", "tok")).toBeNull();
+    expect(await prisma.emailSend.count({ where: { kind: "customer_verification" } })).toBe(0);
   });
 });

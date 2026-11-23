@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@/app/generated/prisma/client";
 import prisma from "./prisma";
 import { REWARDED_STATUSES } from "./constants";
@@ -93,44 +94,86 @@ export async function sentToday(now: Date): Promise<number> {
   });
 }
 
-/** Whether a verification fits today: the whole limit, reserve included. */
-export async function verificationAllowed(now: Date = new Date()): Promise<boolean> {
-  return (await sentToday(now)) < dailyLimit();
+const BUDGET_LOCK = "email-budget";
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Reserve one of today's sends before calling the provider (ADR-0013). Under
+ * one advisory lock: count the day's sends and, below `capacity`, run `write`,
+ * which inserts or claims a row as "sending" with `sentAt` = now, so it counts
+ * at once. "full" when there is no room; "lost" when `write` found nothing.
+ */
+async function reserve(now: Date, capacity: number, write: (tx: Tx) => Promise<boolean>): Promise<"ok" | "full" | "lost"> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${BUDGET_LOCK}))`;
+    const used = await tx.emailSend.count({
+      where: { status: { in: ["sent", "sending", "unknown"] }, sentAt: { gte: utcDayStart(now) } },
+    });
+    if (used >= capacity) return "full";
+    return (await write(tx)) ? "ok" : "lost";
+  });
+}
+
+/** Reserve a slot for a send that happens right now, outside the queue. */
+async function reserveImmediate(
+  kind: "verification" | "customer_verification",
+  userId: string | null,
+  now: Date,
+): Promise<string | null> {
+  const id = randomUUID();
+  const eventKey = randomUUID();
+  const outcome = await reserve(now, dailyLimit(), async (tx) => {
+    await tx.emailSend.create({
+      data: {
+        id,
+        userId,
+        kind,
+        eventKey,
+        dedupeKey: `${userId ?? "customer"}:${kind}:${eventKey}`,
+        status: "sending",
+        attempts: 1,
+        notBefore: now,
+        sentAt: now,
+      },
+    });
+    return true;
+  });
+  return outcome === "ok" ? id : null;
 }
 
 /**
- * Log an admin's customer verification email (lib/email.ts). It goes out on
- * the same Resend key, so it counts toward the same day. No user row: customers
- * are admin accounts.
+ * A contributor's verification email: the whole daily limit, reserve included.
+ * Null when the day is spent. Pass the id to `finishSend` after sending.
  */
-export async function logCustomerVerificationSend(tokenHash: string, now: Date = new Date()): Promise<void> {
-  await prisma.emailSend.create({
-    data: {
-      kind: "customer_verification",
-      eventKey: tokenHash,
-      dedupeKey: `customer:customer_verification:${tokenHash}`,
-      status: "sent",
-      attempts: 1,
-      notBefore: now,
-      sentAt: now,
-    },
-  });
+export function reserveVerification(userId: string, now: Date = new Date()): Promise<string | null> {
+  return reserveImmediate("verification", userId, now);
 }
 
-/** Log a verification that was just sent. Counts toward today's limit. */
-export async function logVerificationSend(userId: string, tokenHash: string, now: Date = new Date()): Promise<void> {
-  await prisma.emailSend.create({
-    data: {
-      userId,
-      kind: "verification",
-      eventKey: tokenHash,
-      dedupeKey: `${userId}:verification:${tokenHash}`,
-      status: "sent",
-      attempts: 1,
-      notBefore: now,
-      sentAt: now,
-    },
-  });
+/**
+ * An admin's customer verification email (lib/email.ts): same Resend key, same
+ * day, same limit. No user row: customers are admin accounts.
+ */
+export function reserveCustomerVerification(now: Date = new Date()): Promise<string | null> {
+  return reserveImmediate("customer_verification", null, now);
+}
+
+/** How a provider call ended. */
+export type SendOutcome = "sent" | "refused" | "unknown" | "not_sent";
+
+/**
+ * Settle a reserved row. "refused" (Resend said no) and "not_sent" (we never
+ * called it) give the slot back; "unknown" (no answer) keeps it and is never
+ * retried, since Resend may have taken the message.
+ */
+export async function finishSend(id: string, outcome: SendOutcome, now: Date = new Date()): Promise<void> {
+  const data =
+    outcome === "sent"
+      ? { status: "sent", sentAt: now }
+      : outcome === "unknown"
+        ? { status: "unknown", reason: "ambiguous" }
+        : { status: outcome === "refused" ? "failed" : "skipped", reason: outcome, sentAt: null, lastError: outcome === "refused" ? "refused" : null };
+  await prisma.emailSend.update({ where: { id }, data });
 }
 
 // ------------------------------------------------------------ enqueue ----
@@ -364,19 +407,29 @@ async function drainLocked(now: Date, send: Sender): Promise<DrainReport> {
       continue;
     }
 
-    // Claim the row, so two drains running at once can't both send it.
-    const claimed = await prisma.emailSend.updateMany({
-      where: { id: row.id, status: "queued" },
-      data: { status: "sending", attempts: { increment: 1 }, sentAt: now },
+    // Claim the row inside the day's budget: verifications reserving at the
+    // same moment see it, and it sees them.
+    const claimed = await reserve(now, dailyLimit() - verificationReserve(), async (tx) => {
+      const { count } = await tx.emailSend.updateMany({
+        where: { id: row.id, status: "queued" },
+        data: { status: "sending", attempts: { increment: 1 }, sentAt: now },
+      });
+      return count === 1;
     });
-    if (claimed.count === 0) continue;
+    if (claimed === "full") break;
+    if (claimed === "lost") continue;
 
     const result = await send(
       contact!.address!,
       messageFor(kind, row.payload, contact!.unsubscribeToken),
       contact!.unsubscribeToken,
     );
-    if (result === "sent" || result === "skipped") {
+    if (result === "unknown") {
+      // No answer from Resend: it may have sent. Never retry (a duplicate is
+      // worse than a miss); the slot stays counted.
+      await prisma.emailSend.update({ where: { id: row.id }, data: { status: "unknown", reason: "ambiguous" } });
+      report.failed++;
+    } else if (result === "sent" || result === "skipped") {
       // "skipped": Resend isn't configured (local dev). Logged as sent so the
       // drain behaves the same; production always has a key.
       await prisma.emailSend.update({ where: { id: row.id }, data: { status: "sent", sentAt: now, lastError: null } });

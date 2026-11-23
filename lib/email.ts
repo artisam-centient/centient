@@ -1,8 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { APP_URL } from "./constants";
-import { createHash } from "node:crypto";
 import { sendEmail } from "./resend";
-import { logCustomerVerificationSend } from "./email-queue";
+import { finishSend, reserveCustomerVerification } from "./email-queue";
 function escapeHtml(str: string): string {
     return String(str)
     .replace(/&/g, "&amp;")
@@ -31,6 +30,13 @@ export async function sendVerificationEmail(
         throw new Error("[email] Fatal: APP_URL contains 'localhost' in production. Set NEXT_PUBLIC_APP_URL to your deployed URL.")
     } 
     const verificationUrl = `${APP_URL}/verify-email?token=${token}`;
+    // #260: the same Resend key as contributor email, so it takes a slot from
+    // the same daily limit first. No slot: not sent, and the caller warns.
+    const slot = await reserveCustomerVerification();
+    if (!slot) {
+        console.warn("[email] daily email limit reached; customer verification not sent");
+        return null;
+    }
     try {
         const result = await sendEmail(
             email,
@@ -43,13 +49,11 @@ export async function sendVerificationEmail(
                 <p>This link expires in 24 hours.</p>
             `,
         );
-        // #260: same Resend key as contributor email, so it counts toward the
-        // same daily limit. Best effort: logging never fails the send.
-        if (result && !result.error) {
-            await logCustomerVerificationSend(createHash("sha256").update(token).digest("hex")).catch(() => {});
-        }
+        await finishSend(slot, !result ? "not_sent" : result.error ? "refused" : "sent");
         return result;
   } catch (error) {
+    // No answer: it may have gone out, so the slot stays counted.
+    await finishSend(slot, "unknown").catch(() => {});
     console.error("[email] Failed to send verification email:", { email, error });
     Sentry.captureException(error, {
       extra: { email },

@@ -64,7 +64,11 @@ export function verificationMessage(token: string, unsubscribeToken: string): Co
   };
 }
 
-export type SendResult = "sent" | "skipped" | "failed";
+/**
+ * "refused": Resend answered no, so nothing went out. "unknown": no usable
+ * answer (network, timeout), so it may have gone out; never retry that.
+ */
+export type SendResult = "sent" | "skipped" | "refused" | "unknown";
 
 function withFooter(body: { text: string; html: string }, unsubscribeToken: string): { text: string; html: string } {
   const unsub = unsubscribeLink(unsubscribeToken);
@@ -132,13 +136,13 @@ export async function sendContactEmail(
       // Resend's error message can echo the recipient; log its name only.
       console.error("[contact-email] send rejected:", error.name);
       Sentry.captureMessage(`contact-email send rejected: ${error.name}`, "error");
-      return "failed";
+      return "refused";
     }
     return "sent";
   } catch (err) {
     const name = err instanceof Error ? err.name : "unknown";
     console.error("[contact-email] send threw:", name);
     Sentry.captureMessage(`contact-email send threw: ${name}`, "error");
-    return "failed";
+    return "unknown";
   }
 }

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getLabelerSession } from "@/lib/labeler-auth";
 import {
   getContactSettings,
-  hashToken,
   normalizeAddress,
   parsePreferenceUpdate,
   removeContactEmail,
@@ -12,7 +11,7 @@ import {
 } from "@/lib/contact-email";
 import { sendContactEmail, verificationMessage } from "@/lib/contact-email-send";
 import { takeRateLimit } from "@/lib/rate-limit";
-import { logVerificationSend, verificationAllowed } from "@/lib/email-queue";
+import { finishSend, reserveVerification } from "@/lib/email-queue";
 
 // #248: the signed-in contributor's notice email and preferences.
 //   GET     current settings
@@ -46,14 +45,15 @@ export async function PUT(req: NextRequest) {
     );
   }
 
-  // #260: verification has the whole daily limit (notices stop at the reserve),
-  // so this only trips when Resend's free tier is spent for the day.
-  if (!(await verificationAllowed())) {
-    return NextResponse.json({ error: "daily_limit" }, { status: 503 });
-  }
+  // #260: reserve today's slot before anything else. Verification has the whole
+  // daily limit (notices stop at the reserve), so this only refuses once
+  // Resend's free tier is spent for the day.
+  const slot = await reserveVerification(userId);
+  if (!slot) return NextResponse.json({ error: "daily_limit" }, { status: 503 });
 
   const result = await requestVerification(userId, input);
   if (!result.ok) {
+    await finishSend(slot, "not_sent");
     return result.error === "already_verified"
       ? NextResponse.json({ error: result.error, settings: result.settings }, { status: 409 })
       : NextResponse.json({ error: result.error }, { status: 400 });
@@ -64,10 +64,10 @@ export async function PUT(req: NextRequest) {
     verificationMessage(result.token, result.unsubscribeToken),
     result.unsubscribeToken,
   );
-  if (sent === "failed") {
+  await finishSend(slot, sent === "skipped" ? "not_sent" : sent);
+  if (sent === "refused" || sent === "unknown") {
     return NextResponse.json({ error: "send_failed", settings: result.settings }, { status: 502 });
   }
-  if (sent === "sent") await logVerificationSend(userId, hashToken(result.token));
   return NextResponse.json(result.settings, { status: 202 });
 }
 

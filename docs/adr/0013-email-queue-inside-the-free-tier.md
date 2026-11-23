@@ -34,19 +34,30 @@ mid-send; it becomes `unknown` and is never retried, because Resend may have
 taken it and a retry could send twice. Nothing is deleted: the table is the
 evidence for the duplicate metric.
 
-**Verification is sent at once, logged, and never queued.** The link's raw
-token exists only in the email, so it is never stored to send later. The
-request sends immediately and writes a `verification` row (eventKey = the
-token hash) to the log, which counts toward the daily limit.
+**Verification is sent at once and never queued.** The link's raw token exists
+only in the email, so it is never stored to send later. The request first
+reserves a slot (below), then sends.
+
+**Every send reserves its slot before calling Resend.** Under one Postgres
+advisory lock, a short transaction counts the day's sends and, if there is
+room, inserts or claims the row as `sending` with `sentAt` = now. Concurrent
+verifications, admin customer emails and the drain therefore all see each
+other, and none can push the day past its limit. Afterwards a send that went
+out becomes `sent`. A definite refusal from Resend gives the slot back:
+notices retry, verifications report `send_failed`. No answer at all
+(network error, timeout) becomes `unknown`: it keeps the slot and is never
+retried, because Resend may have taken it and a duplicate is worse than a miss.
 
 **Verification goes first by reservation.** The daily limit (`EMAIL_DAILY_LIMIT`,
 default 100, Resend's free tier) counts every row `sent`, `sending` or
 `unknown` whose send started since 00:00 UTC, when Resend's day resets. A
 refused send stops counting. Admins' customer verification emails
-(`lib/email.ts`) use the same Resend key, so they are logged here too
-(`customer_verification`, no user) and count toward the same day. Notices may use only the limit minus a verification
-reserve (`EMAIL_VERIFICATION_RESERVE`, default 20). A verification is refused
-(`daily_limit`) only when the whole limit is spent. A notice that doesn't fit
+(`lib/email.ts`) use the same Resend key, so they reserve from the same day
+(`customer_verification`, no user) and aren't sent once it is spent; the
+admin sees the usual "could not be sent" warning. Notices may reserve only up to the limit minus a
+verification reserve (`EMAIL_VERIFICATION_RESERVE`, default 20). A
+verification may use the whole limit and is refused (`daily_limit`) only when
+it is spent. A notice that doesn't fit
 today stays `queued` for tomorrow: deferred, never dropped.
 
 **Quiet hours defer, they don't drop.** Notices are never sent between 21:00
