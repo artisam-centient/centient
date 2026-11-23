@@ -74,6 +74,7 @@ model User {
   weeklyResults WeeklyResult[]
   inviteRewardAsInvitee InviteReward? @relation("InviteRewardInvitee")
   inviteRewardsAsInviter InviteReward[] @relation("InviteRewardInviter")
+  contactEmail  ContactEmail?
 
   @@map("users")
 }
@@ -738,4 +739,37 @@ model InviteReward {
 
   @@index([inviterId])
   @@map("invite_rewards")
+}
+
+// Contributor email notices (#248, D3). Separate from User.email, which is the
+// legacy email/password login: adding a notice address never changes how anyone
+// signs in. The address is server-side only and never reaches PostHog, logs or a
+// URL (#165). Notices go only to a verified `address`; every notice type is off
+// until the contributor turns it on.
+model ContactEmail {
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // The verified address notices go to; null until the first verification.
+  address            String?
+  verifiedAt         DateTime?
+  // An address waiting on its link. Verifying it replaces `address`.
+  pendingAddress     String?
+  // SHA-256 of the single-use verification token; the raw token is only in the email.
+  verifyTokenHash    String?   @unique
+  verifyTokenExpires DateTime?
+  // One-click unsubscribe capability for the verified address. Each address has
+  // its own: mail to an old or pending address can't touch the verified one.
+  unsubscribeToken   String    @unique
+  // The pending address's token, carried by its verification email. Verifying
+  // promotes it; unsubscribing with it drops the pending address.
+  pendingUnsubscribeToken String? @unique
+  unsubscribedAt     DateTime?
+  notifyNewWork      Boolean   @default(false)
+  notifyReminders    Boolean   @default(false)
+  promptDismissedAt  DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@map("contact_emails")
 }
