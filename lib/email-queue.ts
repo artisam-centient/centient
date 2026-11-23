@@ -353,9 +353,10 @@ const DRAIN_LOCK = "email-queue-drain";
 
 function messageFor(kind: NoticeEmailKind, payload: Prisma.JsonValue, unsubscribeToken: string): ContactMessage {
   const p = (payload ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   return kind === "funded_work"
-    ? fundedWorkMessage(typeof p.taskCount === "number" ? p.taskCount : 0, unsubscribeToken)
-    : reminderMessage(unsubscribeToken);
+    ? fundedWorkMessage(typeof p.taskCount === "number" ? p.taskCount : 0, unsubscribeToken, str(p.campaignId))
+    : reminderMessage(unsubscribeToken, str(p.taskId));
 }
 
 /**
