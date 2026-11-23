@@ -177,7 +177,8 @@ describe("the emailed links", () => {
 
     const opened = verifyGet(new NextRequest(`http://localhost/api/email/verify?t=${token}`));
     expect(opened.status).toBe(303);
-    expect(opened.headers.get("location")).toBe("http://localhost/email/verify");
+    // Relative, so the proxy's internal host can't leak into it (it did: localhost:8080).
+    expect(opened.headers.get("location")).toBe("/email/verify");
     const cookie = opened.cookies.get("ce_verify")!;
     expect(cookie.value).toBe(token);
     expect(cookie.httpOnly).toBe(true);
@@ -194,6 +195,13 @@ describe("the emailed links", () => {
     const reused = await post();
     expect(reused.status).toBe(400);
     expect((await reused.json()).error).toBe("invalid_token");
+  });
+
+  it("the redirect ignores the request's host, as behind Railway's proxy", async () => {
+    const opened = verifyGet(new NextRequest("https://localhost:8080/api/email/verify?t=abc", { headers: { host: "localhost:8080" } }));
+    expect(opened.status).toBe(303);
+    expect(opened.headers.get("location")).toBe("/email/verify");
+    expect(opened.headers.get("location")).not.toContain("localhost");
   });
 
   it("verify: POST without the cookie is refused", async () => {
@@ -226,7 +234,7 @@ describe("the emailed links", () => {
     await confirm();
 
     const opened = unsubGet(new NextRequest(`http://localhost/api/email/unsubscribe?t=${token}`));
-    expect(opened.headers.get("location")).toBe("http://localhost/email/unsubscribe");
+    expect(opened.headers.get("location")).toBe("/email/unsubscribe");
     expect(opened.cookies.get("ce_unsub")?.value).toBe(token);
 
     const res = await unsubPost(
