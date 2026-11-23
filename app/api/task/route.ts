@@ -10,6 +10,7 @@ import {
 import { resolveRewardUnits } from "@/lib/payout";
 import { unitsToUsdcDisplay } from "@/lib/stellar/config";
 import { getLabelerSession } from "@/lib/labeler-auth";
+import { recordServed } from "@/lib/email-queue";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
 import {
   isInCooldown,
@@ -184,6 +185,10 @@ export async function GET(req: NextRequest) {
   const shownDifficulty = task.isGold
     ? await checkStandIn(`${task.id}:${userId}`, gatingOn() ? maxDifficulty(user.tier, user.tierOnHold) : TIERS[TIERS.length - 1].maxDifficulty)
     : task.difficulty;
+
+  // #260: the unfinished-task reminder keys on the last task served. Never
+  // block serving on it.
+  await recordServed(userId, task.id).catch((err) => Sentry.captureException(err));
 
   return NextResponse.json({
     task: {

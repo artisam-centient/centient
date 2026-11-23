@@ -14,12 +14,13 @@ export interface EmailSettings {
   promptDismissed: boolean;
 }
 
-type Failure = "invalid_email" | "already_verified" | "rate_limited" | "send_failed" | "network";
+type Failure = "invalid_email" | "already_verified" | "rate_limited" | "daily_limit" | "send_failed" | "network";
 
 const FAILURE_TEXT: Record<Failure, string> = {
   invalid_email: "That doesn't look like an email address.",
   already_verified: "That address is already confirmed.",
   rate_limited: "Too many links sent. Try again in an hour.",
+  daily_limit: "We've sent all the email we can today. Try again tomorrow.",
   send_failed: "We couldn't send the link. Try again in a minute.",
   network: "Something went wrong. Try again.",
 };

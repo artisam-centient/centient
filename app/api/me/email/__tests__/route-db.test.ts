@@ -10,6 +10,7 @@ import { DELETE, GET, PATCH, PUT } from "@/app/api/me/email/route";
 import { POST as verifyPost, GET as verifyGet } from "@/app/api/email/verify/route";
 import { POST as unsubPost, GET as unsubGet } from "@/app/api/email/unsubscribe/route";
 import { signLabelerJWT } from "@/lib/labeler-auth";
+import * as contactEmail from "@/lib/contact-email";
 import { prisma, truncateAll } from "@/tests/helpers/db";
 import { createUser } from "@/tests/helpers/factories";
 
@@ -110,6 +111,35 @@ describe("/api/me/email", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toMatch(/^\d+$/);
     expect(send).toHaveBeenCalledTimes(3);
+  });
+
+  it("PUT logs each verification it sends, and refuses once the day's limit is spent", async () => {
+    vi.stubEnv("EMAIL_DAILY_LIMIT", "1");
+    const { user, session } = await signedIn();
+    expect((await PUT(meReq("PUT", session, { address: ADDRESS }))).status).toBe(202);
+    const log = await prisma.emailSend.findMany({ where: { userId: user.id } });
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ kind: "verification", status: "sent" });
+    // The log holds a hash, never the token or the address.
+    expect(JSON.stringify(log)).not.toContain(ADDRESS);
+    expect(JSON.stringify(log)).not.toContain(linkToken("verify"));
+
+    const second = await PUT(meReq("PUT", session, { address: "other@example.com" }));
+    expect(second.status).toBe(503);
+    expect((await second.json()).error).toBe("daily_limit");
+    expect(send).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
+  it("PUT gives the day's slot back when preparing the email throws", async () => {
+    const { session } = await signedIn();
+    const spy = vi.spyOn(contactEmail, "requestVerification").mockRejectedValueOnce(new Error("db down"));
+    await expect(PUT(meReq("PUT", session, { address: ADDRESS }))).rejects.toThrow("db down");
+    spy.mockRestore();
+    const rows = await prisma.emailSend.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "skipped", reason: "not_sent", sentAt: null });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("PUT reports a failed send without logging or reporting the address", async () => {

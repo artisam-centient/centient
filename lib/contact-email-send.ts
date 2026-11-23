@@ -64,7 +64,51 @@ export function verificationMessage(token: string, unsubscribeToken: string): Co
   };
 }
 
-export type SendResult = "sent" | "skipped" | "failed";
+/**
+ * "refused": Resend answered no, so nothing went out. "unknown": no usable
+ * answer (network, timeout), so it may have gone out; never retry that.
+ */
+export type SendResult = "sent" | "skipped" | "refused" | "unknown";
+
+function withFooter(body: { text: string; html: string }, unsubscribeToken: string): { text: string; html: string } {
+  const unsub = unsubscribeLink(unsubscribeToken);
+  return {
+    text: `${body.text}\n\nYou get this because you turned this notice on in Centient. Stop all Centient email: ${unsub}`,
+    html: `${body.html}<p style="color:#666;font-size:12px">You get this because you turned this notice on in Centient. <a href="${unsub}">Stop all Centient email</a></p>`,
+  };
+}
+
+/** #260: new funded work is open. The link lands on the app; #261 deep-links it. */
+export function fundedWorkMessage(taskCount: number, unsubscribeToken: string): ContactMessage {
+  const app = appUrl();
+  const what =
+    taskCount === 1 ? "A new paid task is" : taskCount > 1 ? `${taskCount} new paid tasks are` : "New paid work is";
+  return {
+    subject: "New paid work on Centient",
+    ...withFooter(
+      {
+        text: `${what} open on Centient. Rewards are paid in USDC (testnet) as your answers are accepted.\n\nStart: ${app}/`,
+        html: `<p>${what} open on Centient. Rewards are paid in USDC (testnet) as your answers are accepted.</p><p><a href="${app}/">Start labeling</a></p>`,
+      },
+      unsubscribeToken,
+    ),
+  };
+}
+
+/** #260: the one reminder about an unfinished task. */
+export function reminderMessage(unsubscribeToken: string): ContactMessage {
+  const app = appUrl();
+  return {
+    subject: "You left a Centient task unfinished",
+    ...withFooter(
+      {
+        text: `You opened a task on Centient but didn't answer it. It's still open if you'd like to finish.\n\nContinue: ${app}/\n\nThis is the only reminder for that task.`,
+        html: `<p>You opened a task on Centient but didn't answer it. It's still open if you'd like to finish.</p><p><a href="${app}/">Continue</a></p><p>This is the only reminder for that task.</p>`,
+      },
+      unsubscribeToken,
+    ),
+  };
+}
 
 /** Send one message to a notice address. "skipped" when Resend isn't configured. */
 export async function sendContactEmail(
@@ -92,13 +136,13 @@ export async function sendContactEmail(
       // Resend's error message can echo the recipient; log its name only.
       console.error("[contact-email] send rejected:", error.name);
       Sentry.captureMessage(`contact-email send rejected: ${error.name}`, "error");
-      return "failed";
+      return "refused";
     }
     return "sent";
   } catch (err) {
     const name = err instanceof Error ? err.name : "unknown";
     console.error("[contact-email] send threw:", name);
     Sentry.captureMessage(`contact-email send threw: ${name}`, "error");
-    return "failed";
+    return "unknown";
   }
 }
