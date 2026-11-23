@@ -94,10 +94,20 @@ PG_VERSION=$("$PG_BIN/postgres" --version | awk '{print $3}')
 PORT=${CI_LOCAL_PORT:-5446}
 while nc -z localhost "$PORT" 2>/dev/null; do PORT=$((PORT + 1)); done
 
-say "Starting Postgres $PG_VERSION on port $PORT (UTC)"
-LC_ALL=en_US.UTF-8 "$PG_BIN/initdb" -D "$PGDATA" -U postgres --auth=trust -E UTF8 \
-  --locale=en_US.UTF-8 >"$LOGS/initdb.log" 2>&1
-LC_ALL=en_US.UTF-8 "$PG_BIN/pg_ctl" -D "$PGDATA" -l "$LOGS/postgres.log" -w \
+# The runner's postgres:15-alpine image uses en_US.utf8. Use it when the host
+# has it, else C.UTF-8 (minimal Linux images), else plain C with UTF8 encoding.
+PG_LOCALE=C
+for want in en_US.UTF-8 en_US.utf8 C.UTF-8 C.utf8; do
+  if locale -a 2>/dev/null | grep -qx "$want"; then PG_LOCALE=$want; break; fi
+done
+
+say "Starting Postgres $PG_VERSION on port $PORT (UTC, locale $PG_LOCALE)"
+if ! LC_ALL=$PG_LOCALE "$PG_BIN/initdb" -D "$PGDATA" -U postgres --auth=trust -E UTF8 \
+  --locale="$PG_LOCALE" >"$LOGS/initdb.log" 2>&1; then
+  cat "$LOGS/initdb.log" >&2
+  die "initdb failed with locale $PG_LOCALE"
+fi
+LC_ALL=$PG_LOCALE "$PG_BIN/pg_ctl" -D "$PGDATA" -l "$LOGS/postgres.log" -w \
   -o "-p $PORT -c listen_addresses=localhost -c unix_socket_directories='' -c timezone=UTC" \
   start >/dev/null
 PG_STARTED=1
@@ -155,7 +165,7 @@ print_summary() {
     echo "### CI evidence: \`scripts/ci-local.sh\` (#243)"
     echo
     echo "- Commit \`$SHA\` (tree \`$TREE\`)"
-    echo "- Node $(node --version), Postgres $PG_VERSION, TZ=UTC, $(uname -s) $(uname -m)"
+    echo "- Node $(node --version), Postgres $PG_VERSION ($PG_LOCALE), TZ=UTC, $(uname -s) $(uname -m)"
     echo
     echo "| Step | Result | Time |"
     echo "|---|---|---:|"
