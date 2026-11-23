@@ -12,7 +12,11 @@ const MAX_AGE_SECONDS = 15 * 60;
 /** GET handler body: stash `?t=` in the cookie and redirect to the clean page. */
 export function stashAndRedirect(req: NextRequest, purpose: EmailLinkPurpose): NextResponse {
   const token = req.nextUrl.searchParams.get("t");
-  const res = NextResponse.redirect(new URL(`/email/${purpose}`, req.url), 303);
+  // A relative Location. Behind Railway's proxy `req.url` carries the
+  // container's internal host (https://localhost:8080), so an absolute URL
+  // built from it sent every emailed link there. A path keeps the browser on
+  // the site it opened the link from.
+  const res = new NextResponse(null, { status: 303, headers: { Location: `/email/${purpose}` } });
   if (token && token.length <= 200) {
     res.cookies.set(COOKIE[purpose], token, {
       httpOnly: true,
