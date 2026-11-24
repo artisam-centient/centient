@@ -108,6 +108,33 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/centient_test
 
+      # The Soroban contracts (#244). Inside `build` rather than a job of their
+      # own, so they're part of the merge gate without a branch-protection change.
+      # rustup picks the toolchain from contracts/rust-toolchain.toml, which it
+      # reads only from the directory cargo runs in, hence working-directory.
+      - name: Rust toolchain
+        working-directory: contracts
+        run: |
+          rustup toolchain install
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            contracts/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/rust-toolchain.toml', 'contracts/Cargo.lock') }}
+
+      - name: Contract tests
+        working-directory: contracts
+        run: cargo test --workspace --locked
+        env:
+          CARGO_PROFILE_DEV_DEBUG: "0"
+
   # The payments lane, as its own linkable job (#12).
   #
   # `build` above already runs these tests inside the full suite, so this adds no

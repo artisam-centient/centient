@@ -8,9 +8,10 @@
 #
 #   scripts/ci-local.sh [<commit-ish>]     default: HEAD
 #
-# Needs: git, curl, shasum, and Postgres 15 binaries (`brew install
-# postgresql@15`, or PG_BIN=/path/to/bin). The pinned Node is downloaded from
-# nodejs.org once, checked against its SHASUMS256.txt, and cached.
+# Needs: git, curl, shasum, rustup (`brew install rustup`), and Postgres 15
+# binaries (`brew install postgresql@15`, or PG_BIN=/path/to/bin). The pinned
+# Node is downloaded from nodejs.org once, checked against its SHASUMS256.txt,
+# and cached.
 #
 # Env:
 #   PG_BIN            Postgres 15 bin directory (default: brew's postgresql@15)
@@ -199,12 +200,15 @@ step "Payments migrate deploy" env DATABASE_URL="$PAYMENTS_DB" TEST_DATABASE_URL
 step "payments lane" env DATABASE_URL="$PAYMENTS_DB" TEST_DATABASE_URL="$PAYMENTS_DB" \
   npm run test:payments
 
-# The Soroban contract's tests join the gate as soon as M2-P2 (#244) adds them.
-for manifest in Cargo.toml contracts/Cargo.toml; do
-  if [[ -f "$SRC/$manifest" ]]; then
-    step "cargo test" cargo test --manifest-path "$manifest" --workspace --locked
-    break
-  fi
-done
+# job: build, its last step: the Soroban contracts (#244). Run from contracts/
+# because rustup reads rust-toolchain.toml from the working directory only. The
+# target directory is cached across runs, as actions/cache does in ci.yml.
+if [[ -f "$SRC/contracts/Cargo.toml" ]]; then
+  command -v rustup >/dev/null \
+    || die "rustup not found; brew install rustup and put \$(brew --prefix rustup)/bin on PATH"
+  CARGO_TARGET_DIR=${CI_LOCAL_CACHE:-$HOME/.cache/centient-ci}/cargo-target
+  step "Contract tests" env CARGO_TARGET_DIR="$CARGO_TARGET_DIR" CARGO_PROFILE_DEV_DEBUG=0 \
+    bash -c 'cd contracts && rustup toolchain install >/dev/null && cargo test --workspace --locked'
+fi
 
 print_summary
