@@ -26,6 +26,8 @@
     "stellar:sponsorship:reclaim": "tsx scripts/stellar-sponsorship-reclaim.ts",
     "test": "vitest run",
     "test:payments": "vitest run --config vitest.payments.config.ts",
+    "contracts:test": "cd contracts && cargo test --workspace --locked",
+    "contracts:build": "cd contracts && stellar contract build --locked",
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
