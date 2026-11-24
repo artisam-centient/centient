@@ -193,13 +193,13 @@ describe("lanternOpenUrl", () => {
 
 describe("walletCopy", () => {
   it("names Lantern inside Lantern", () => {
-    expect(walletCopy("You declined the request in Freighter. Open the Freighter app.", "lantern")).toBe(
+    expect(walletCopy("You declined the request in Varial. Open the Varial app.", "lantern")).toBe(
       "You declined the request in Lantern. Open Lantern.",
     );
   });
 
-  it("leaves Freighter copy alone everywhere else", () => {
-    expect(walletCopy("Approve in Freighter.", "walletconnect")).toBe("Approve in Freighter.");
-    expect(walletCopy("Approve in Freighter.", null)).toBe("Approve in Freighter.");
+  it("leaves Varial copy alone everywhere else", () => {
+    expect(walletCopy("Approve in Varial.", "walletconnect")).toBe("Approve in Varial.");
+    expect(walletCopy("Approve in Varial.", null)).toBe("Approve in Varial.");
   });
 });

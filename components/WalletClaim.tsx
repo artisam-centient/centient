@@ -15,7 +15,7 @@ import {
   type WalletClaimResult,
 } from "@/lib/stellar/wallet-claim";
 
-const FREIGHTER_INSTALL_URL = "https://www.freighter.app/";
+const VARIAL_INSTALL_URL = "https://varialwallet.com/";
 
 export type WalletClaimPhase = "idle" | "connecting" | "failed";
 
@@ -48,17 +48,17 @@ export function WalletClaimView({
   const inLantern = transport === "lantern";
   const label = connecting
     ? mobile
-      ? "Waiting for the Freighter app…"
+      ? "Waiting for the Varial app…"
       : inLantern
         ? "Waiting for Lantern…"
-        : "Waiting for Freighter…"
+        : "Waiting for Varial…"
     : failure
       ? "Try again"
       : mobile
-        ? "Open Freighter app"
+        ? "Open Varial app"
         : inLantern
           ? "Connect Lantern"
-          : "Connect Freighter";
+          : "Connect Varial";
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-surface px-6 text-center">
@@ -71,7 +71,7 @@ export function WalletClaimView({
         <div className="flex flex-col items-center gap-2">
           <h2 className="text-2xl font-headline font-bold text-on-surface">Connect your wallet to keep earning</h2>
           <p className="font-body text-sm text-on-surface-variant">
-            Centient now pays to a Stellar wallet you prove is yours. Connect {inLantern ? "Lantern" : "Freighter"}{" "}
+            Centient now pays to a Stellar wallet you prove is yours. Connect {inLantern ? "Lantern" : "Varial"}{" "}
             once: your balance stays with this account, and from then on you sign in with the wallet — no email or
             password.
           </p>
@@ -109,12 +109,12 @@ export function WalletClaimView({
           )}
           {failure === "freighter_missing" && (
             <a
-              href={FREIGHTER_INSTALL_URL}
+              href={VARIAL_INSTALL_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-1 inline-block font-label text-sm font-semibold text-primary underline-offset-2 hover:underline"
             >
-              Get Freighter
+              Get Varial
             </a>
           )}
         </div>

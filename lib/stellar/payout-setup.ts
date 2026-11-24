@@ -303,9 +303,9 @@ async function submitEarlySignature(
  */
 export const PAYOUT_SIGNING_NOTICE: Record<SponsorshipEnvelopeKind, string> = {
   trustline:
-    "Approve in Freighter to add USDC to your wallet. Centient pays the network fee and the reserve — the fee Freighter shows is not charged to you, and you need no XLM.",
+    "Approve in Varial to add USDC to your wallet. Centient pays the network fee and the reserve — the fee Varial shows is not charged to you, and you need no XLM.",
   "account+trustline":
-    "Approve in Freighter to create your Stellar account and add USDC. Centient pays the network fee and the reserves — the fee Freighter shows is not charged to you, and you need no XLM.",
+    "Approve in Varial to create your Stellar account and add USDC. Centient pays the network fee and the reserves — the fee Varial shows is not charged to you, and you need no XLM.",
 };
 
 /** Shown while a rate limit is waited out; setup carries on by itself. */
@@ -317,16 +317,16 @@ export function payoutWaitingNotice(seconds: number): string {
 export const PAYOUT_SETUP_MESSAGES: Record<PayoutSetupFailure, string> = {
   wallet_required: "Connect your Stellar wallet to this account first.",
   freighter_missing:
-    "We couldn't reach Freighter. Install the Freighter browser extension, or open this " +
-    "page on a phone with the Freighter app, then try again.",
-  rejected: "You declined in Freighter. Nothing was submitted — try again when you're ready.",
-  cancelled: "You cancelled the request to Freighter. Nothing was submitted — try again when you're ready.",
-  timed_out: "Freighter didn't answer in time. Open the Freighter app, then try again.",
+    "We couldn't reach Varial. Install the Varial browser extension, or open this " +
+    "page on a phone with the Varial app, then try again.",
+  rejected: "You declined in Varial. Nothing was submitted — try again when you're ready.",
+  cancelled: "You cancelled the request to Varial. Nothing was submitted — try again when you're ready.",
+  timed_out: "Varial didn't answer in time. Open the Varial app, then try again.",
   wrong_account:
-    "Freighter signed with a different account. Switch to the wallet you signed in with, then try again.",
+    "Varial signed with a different account. Switch to the wallet you signed in with, then try again.",
   wrong_network:
-    "Freighter is on a different Stellar network than Centient. Switch networks in " +
-    "Freighter, then try again.",
+    "Varial is on a different Stellar network than Centient. Switch networks in " +
+    "Varial, then try again.",
   pending: "Your wallet setup is still confirming on the network. Try again in a minute.",
   cap_reached:
     "You've reached the limit of payout wallets we can set up for your account. Contact centient@artisam.xyz.",
