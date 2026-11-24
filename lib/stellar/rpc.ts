@@ -266,8 +266,21 @@ export function createRpcClient(options: RpcClientOptions = {}): StellarRpcClien
 }
 
 function defaultTransport(env: Env, timeoutMs: number): RpcTransport {
-  const url = rpcUrl(env);
-  return new rpc.Server(url, { timeout: timeoutMs, allowHttp: url.startsWith("http://") });
+  return createRpcTransport(rpcUrl(env), timeoutMs);
+}
+
+/**
+ * An `rpc.Server` whose HTTP requests abort at `timeoutMs`.
+ *
+ * The SDK's constructor ignores a `timeout` option (16.4.1 reads only `headers`
+ * and `allowHttp`), so it is set on the HTTP client's defaults instead, which
+ * every request merges in. The fetch client turns it into an abort signal, so a
+ * stalled RPC's connection is torn down, not just raced and left running.
+ */
+export function createRpcTransport(url: string, timeoutMs: number): rpc.Server {
+  const server = new rpc.Server(url, { allowHttp: url.startsWith("http://") });
+  server.httpClient.defaults.timeout = timeoutMs;
+  return server;
 }
 
 /**

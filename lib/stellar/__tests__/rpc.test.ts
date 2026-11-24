@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { Networks } from "@stellar/stellar-sdk";
 import {
   DEFAULT_RPC_TIMEOUT_MS,
@@ -6,6 +8,7 @@ import {
   TESTNET_RPC_URL,
   checkRpcHealth,
   createRpcClient,
+  createRpcTransport,
   mapRpcError,
   rpcTimeoutMs,
   rpcUrl,
@@ -242,6 +245,51 @@ describe("checkRpcHealth", () => {
       status: "error",
       network: "public",
       error: { code: "config", retryable: false },
+    });
+  });
+});
+
+describe("createRpcTransport", () => {
+  let hung: Server | undefined;
+
+  afterEach(async () => {
+    hung?.closeAllConnections();
+    await new Promise<void>((resolve) => (hung ? hung.close(() => resolve()) : resolve()));
+    hung = undefined;
+  });
+
+  /** An HTTP server that takes the request and never answers. */
+  async function hangingServer(): Promise<{ url: string; closed: Promise<void> }> {
+    let onClose!: () => void;
+    const closed = new Promise<void>((resolve) => (onClose = resolve));
+    hung = createServer((req: IncomingMessage) => {
+      req.resume();
+      req.socket.on("close", onClose);
+    });
+    await new Promise<void>((resolve) => hung!.listen(0, "127.0.0.1", resolve));
+    const { port } = hung.address() as AddressInfo;
+    return { url: `http://127.0.0.1:${port}/rpc`, closed };
+  }
+
+  it("aborts the HTTP request itself at the deadline, not just the wait", async () => {
+    const { url, closed } = await hangingServer();
+    const transport = createRpcTransport(url, 300);
+    expect(transport.httpClient.defaults.timeout).toBe(300);
+
+    const started = Date.now();
+    await expect(transport.getHealth()).rejects.toThrow(/timeout/i);
+    // The client hung up: the server sees its socket close, so nothing is left running.
+    await closed;
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("surfaces the aborted request as a retryable timeout through the client", async () => {
+    const { url } = await hangingServer();
+    const client = createRpcClient({ transport: createRpcTransport(url, 300), timeoutMs: 5_000 });
+    await expect(client.getHealth()).rejects.toMatchObject({
+      name: "StellarRpcError",
+      code: "timeout",
+      retryable: true,
     });
   });
 });
