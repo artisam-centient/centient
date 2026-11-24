@@ -46,7 +46,7 @@ export interface StellarProofAndTransaction {
  * no extension, and no Freighter mobile to pair with.
  */
 export const FREIGHTER_REQUIRED_MESSAGE =
-  "Freighter is required. Install the Freighter browser extension, or connect the Freighter mobile app, then try again.";
+  "Varial is required. Install the Varial browser extension, or connect the Varial mobile app, then try again.";
 
 /**
  * Why a wallet call failed, so a caller can pick a state instead of parsing

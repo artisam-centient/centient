@@ -219,17 +219,17 @@ export async function signInWithWallet(
 /** What the contributor sees for each failure. */
 export const WALLET_SIGN_IN_MESSAGES: Record<WalletSignInFailure, string> = {
   freighter_missing:
-    "We couldn't reach Freighter. Install the Freighter browser extension, or open this " +
-    "page on a phone with the Freighter app, then try again.",
-  rejected: "You declined the request in Freighter. Nothing was signed — try again when you're ready.",
-  cancelled: "You cancelled the request to Freighter. Nothing was signed — try again when you're ready.",
-  timed_out: "Freighter didn't answer in time. Open the Freighter app, then try again.",
+    "We couldn't reach Varial. Install the Varial browser extension, or open this " +
+    "page on a phone with the Varial app, then try again.",
+  rejected: "You declined the request in Varial. Nothing was signed — try again when you're ready.",
+  cancelled: "You cancelled the request to Varial. Nothing was signed — try again when you're ready.",
+  timed_out: "Varial didn't answer in time. Open the Varial app, then try again.",
   wrong_account:
-    "Freighter signed with a different account. Switch to the account you connected, then try again.",
+    "Varial signed with a different account. Switch to the account you connected, then try again.",
   wrong_network:
-    "Freighter is on a different Stellar network than Centient. Switch networks in " +
-    "Freighter, then try again.",
-  unsupported: "This version of Freighter can't sign in. Update Freighter, then try again.",
+    "Varial is on a different Stellar network than Centient. Switch networks in " +
+    "Varial, then try again.",
+  unsupported: "This version of Varial can't sign in. Update Varial, then try again.",
   expired: "That sign-in request expired. Try again to get a fresh one.",
   banned:
     "This account can't sign in. If you think that's a mistake, contact centient@artisam.xyz.",

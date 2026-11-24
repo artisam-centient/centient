@@ -24,10 +24,10 @@ function render(node: ReturnType<typeof createElement>): string {
 describe("LoginScreen — wallet-first entry (#26)", () => {
   const props = { onWalletSignedIn: () => {}, onEmailSignIn: () => {}, error: null };
 
-  it("makes Freighter sign-in the primary call to action", () => {
+  it("makes Varial sign-in the primary call to action", () => {
     const html = render(createElement(LoginScreen, props));
-    expect(html).toContain("Connect Freighter");
-    expect(html.indexOf("Connect Freighter")).toBeLessThan(html.indexOf("Sign in with email"));
+    expect(html).toContain("Connect Varial");
+    expect(html.indexOf("Connect Varial")).toBeLessThan(html.indexOf("Sign in with email"));
   });
 
   it("does not require email or password to start", () => {

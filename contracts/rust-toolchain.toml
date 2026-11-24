@@ -1,0 +1,7 @@
+# The Rust that builds and tests the contracts, locally and in CI. rustup reads
+# this file and installs the toolchain and the wasm target on first use.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32v1-none"]

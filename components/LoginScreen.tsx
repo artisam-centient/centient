@@ -248,7 +248,7 @@ export default function LoginScreen({ onWalletSignedIn, onEmailSignIn, error }: 
                 </h2>
                 <p className="mt-4 font-body text-base leading-relaxed text-on-surface-variant sm:text-lg">
                   Your <span className="font-semibold text-on-surface">wallet address</span>{" "}
-                  {`is your account and where your ${REWARD_TOKEN_SYMBOL} is paid. Freighter asks you to sign a one-time message to prove it's yours. It never moves funds, and there's no email or password needed.`}
+                  {`is your account and where your ${REWARD_TOKEN_SYMBOL} is paid. Varial asks you to sign a one-time message to prove it's yours. It never moves funds, and there's no email or password needed.`}
                 </p>
                 <div className="mt-8 border-t border-dashed border-outline-variant pt-8">
                   {/* The hero's sign-in already carries the phone pairing prompt. */}

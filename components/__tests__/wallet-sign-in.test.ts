@@ -16,18 +16,18 @@ function render(props: Parameters<typeof WalletSignInView>[0]): string {
 }
 
 describe("WalletSignInView", () => {
-  it("offers Freighter as the connect action when idle", () => {
+  it("offers Varial as the connect action when idle", () => {
     const html = render({ phase: "idle", onConnect: noop });
-    expect(html).toContain("Connect Freighter");
+    expect(html).toContain("Connect Varial");
     // The class list carries `disabled:opacity-60`, so match the attribute itself.
     expect(html).not.toMatch(/disabled=""/);
     expect(html).toContain('aria-busy="false"');
     expect(html).not.toContain("data-failure");
   });
 
-  it("disables the button and marks it busy while Freighter is open", () => {
+  it("disables the button and marks it busy while Varial is open", () => {
     const html = render({ phase: "connecting", onConnect: noop });
-    expect(html).toContain("Waiting for Freighter");
+    expect(html).toContain("Waiting for Varial");
     expect(html).toMatch(/disabled=""/);
     expect(html).toContain('aria-busy="true"');
   });
@@ -57,16 +57,16 @@ describe("WalletSignInView", () => {
     expect(html).toContain(`data-failure="${reason}"`);
   });
 
-  it("links to the Freighter install page only when Freighter is missing", () => {
+  it("links to the Varial install page only when Varial is missing", () => {
     const missing = render({ phase: "failed", reason: "freighter_missing", onConnect: noop });
-    expect(missing).toContain('href="https://www.freighter.app/"');
+    expect(missing).toContain('href="https://varialwallet.com/"');
     expect(missing).toContain('rel="noopener noreferrer"');
 
     const other = render({ phase: "failed", reason: "expired", onConnect: noop });
-    expect(other).not.toContain("freighter.app");
+    expect(other).not.toContain("varialwallet.com");
   });
 
-  it("offers Cancel while waiting on the Freighter app, where a request can go unanswered", () => {
+  it("offers Cancel while waiting on the Varial app, where a request can go unanswered", () => {
     const html = render({ phase: "connecting", transport: "walletconnect", onConnect: noop, onCancel: noop });
     expect(html).toMatch(/>Cancel</);
   });
@@ -96,22 +96,22 @@ describe("WalletSignInView", () => {
 describe("WalletSignInView — Lantern", () => {
   const HREF = "intent://open?url=x#Intent;scheme=lantern;package=com.lantern.wallet;end";
 
-  it("leads with Open in Lantern on a phone that has it, with Freighter one tap behind", () => {
+  it("leads with Open in Lantern on a phone that has it, with Varial one tap behind", () => {
     const html = render({ phase: "idle", onConnect: noop, lanternHref: HREF, onUseFreighter: noop });
     expect(html).toContain("Open in Lantern");
     expect(html).toContain('data-lantern="open"');
     expect(html).toContain(`href="${HREF.replace(/&/g, "&amp;")}"`);
-    expect(html).toContain("Use Freighter instead");
-    expect(html).not.toContain("Connect Freighter");
+    expect(html).toContain("Use Varial instead");
+    expect(html).not.toContain("Connect Varial");
   });
 
-  it("keeps the Freighter button when there is no Lantern to open", () => {
+  it("keeps the Varial button when there is no Lantern to open", () => {
     const html = render({ phase: "idle", onConnect: noop, lanternHref: null });
-    expect(html).toContain("Connect Freighter");
+    expect(html).toContain("Connect Varial");
     expect(html).not.toContain("Lantern");
   });
 
-  it("shows a Freighter attempt's own state rather than the Lantern offer", () => {
+  it("shows a Varial attempt's own state rather than the Lantern offer", () => {
     const html = render({ phase: "failed", reason: "rejected", onConnect: noop, lanternHref: HREF });
     expect(html).toContain("Try again");
     expect(html).not.toContain("Open in Lantern");
@@ -129,6 +129,6 @@ describe("WalletSignInView — Lantern", () => {
       "Waiting for Lantern",
     );
     const failed = render({ phase: "failed", reason: "rejected", transport: "lantern", onConnect: noop });
-    expect(failed).not.toContain("Freighter");
+    expect(failed).not.toContain("Varial");
   });
 });

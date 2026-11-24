@@ -30,7 +30,7 @@ import {
  * this falls back to rather than stranding the user.
  */
 
-const FREIGHTER_DOWNLOAD_URL = "https://www.freighter.app/";
+const VARIAL_DOWNLOAD_URL = "https://varialwallet.com/";
 
 interface FreighterPairingViewProps {
   pairing: WalletConnectPairing;
@@ -58,18 +58,18 @@ export function FreighterPairingView({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Connect the Freighter mobile app"
+      aria-label="Connect the Varial mobile app"
       data-pairing={onWalletDevice ? "mobile" : "desktop"}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6 backdrop-blur-sm"
     >
       <div className="flex w-full max-w-sm flex-col items-center gap-5 rounded-2xl border border-outline-variant/40 bg-surface-container-lowest p-6 text-center shadow-[0_24px_48px_rgba(25,28,30,0.24)]">
         <h2 className="font-headline text-xl font-bold text-on-surface">
-          {onWalletDevice ? "Approve in Freighter" : "Scan with Freighter"}
+          {onWalletDevice ? "Approve in Varial" : "Scan with Varial"}
         </h2>
         <p className="font-body text-sm text-on-surface-variant">
           {onWalletDevice
-            ? "Freighter should open so you can approve the connection. Come back here once you have."
-            : "Open the Freighter app on your phone and scan this code to connect."}
+            ? "Varial should open so you can approve the connection. Come back here once you have."
+            : "Open the Varial app on your phone and scan this code to connect."}
         </p>
 
         {onWalletDevice ? (
@@ -89,10 +89,10 @@ export function FreighterPairingView({
               <span className="material-symbols-outlined text-[22px]" aria-hidden="true">
                 open_in_new
               </span>
-              Open Freighter
+              Open Varial
             </button>
             <p className="font-body text-sm text-on-surface-variant">
-              Nothing happened? Copy the pairing link below, open Freighter, and
+              Nothing happened? Copy the pairing link below, open Varial, and
               paste it into <span className="whitespace-nowrap">Connect&nbsp;dApp</span>.
             </p>
           </>
@@ -127,12 +127,12 @@ export function FreighterPairingView({
         </button>
 
         <a
-          href={FREIGHTER_DOWNLOAD_URL}
+          href={VARIAL_DOWNLOAD_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="font-label text-sm font-semibold text-on-surface-variant underline-offset-2 hover:underline"
         >
-          Don&apos;t have Freighter yet?
+          Don&apos;t have Varial yet?
         </a>
 
         {/* The only way out short of the timeout: an abandoned pairing must
