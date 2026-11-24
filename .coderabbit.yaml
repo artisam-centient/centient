@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit stays installed on the org but stays quiet here: no automatic
+# reviews, no PR summaries, no status comments, no chat replies. Since
+# 2026-11-23 the owner reviews every Centient PR by hand.
+reviews:
+  auto_review:
+    enabled: false
+    drafts: false
+  high_level_summary: false
+  high_level_summary_in_walkthrough: false
+  changed_files_summary: false
+  sequence_diagrams: false
+  review_status: false
+  poem: false
+  request_changes_workflow: false
+chat:
+  auto_reply: false
