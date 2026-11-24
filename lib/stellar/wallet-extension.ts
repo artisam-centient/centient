@@ -50,7 +50,7 @@ export function freighterSignatureToBase64(
   signedMessage: string | ArrayBufferView | null | undefined,
 ): string {
   if (signedMessage == null) {
-    throw new Error("Freighter returned no signature (signing was rejected).");
+    throw new Error("Varial returned no signature (signing was rejected).");
   }
   if (typeof signedMessage === "string") return signedMessage; // V4: already base64
   // V3: raw signature bytes.
@@ -84,7 +84,7 @@ export async function connect(): Promise<StellarConnection> {
 
   const { requestAccess } = await import("@stellar/freighter-api");
   const { address, error } = await requestAccess();
-  if (error) throw freighterError(error, "Freighter access denied");
+  if (error) throw freighterError(error, "Varial access denied");
   assertAddress(address);
   return { address, wallet: "freighter" };
 }
@@ -111,13 +111,13 @@ export async function signOwnership(
   if (typeof signMessage !== "function") {
     throw new WalletError(
       "unsupported",
-      "This version of Freighter cannot sign messages. Update Freighter, then try again.",
+      "This version of Varial cannot sign messages. Update Varial, then try again.",
     );
   }
   const res = await signMessage(message, { address: expectedAddress });
-  if (res.error) throw freighterError(res.error, "Freighter signing failed");
+  if (res.error) throw freighterError(res.error, "Varial signing failed");
   if (res.signedMessage == null) {
-    throw new WalletError("rejected", "Freighter returned no signature (signing was rejected).");
+    throw new WalletError("rejected", "Varial returned no signature (signing was rejected).");
   }
   if (res.signerAddress !== expectedAddress) {
     throw new WalletError(
@@ -157,7 +157,7 @@ export async function signTransaction(
     address: expectedAddress,
     networkPassphrase: clientNetworkPassphrase(),
   });
-  if (res.error) throw freighterError(res.error, "Freighter signing failed");
+  if (res.error) throw freighterError(res.error, "Varial signing failed");
   if (res.signerAddress !== expectedAddress) {
     throw new WalletError(
       "wrong_account",

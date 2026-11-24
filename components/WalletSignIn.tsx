@@ -14,7 +14,7 @@ import {
   type WalletSignInResult,
 } from "@/lib/stellar/wallet-sign-in";
 
-const FREIGHTER_INSTALL_URL = "https://www.freighter.app/";
+const VARIAL_INSTALL_URL = "https://varialwallet.com/";
 
 export type WalletSignInPhase = "idle" | "connecting" | "failed";
 
@@ -93,17 +93,17 @@ export function WalletSignInView({
   const inLantern = transport === "lantern";
   const label = connecting
     ? mobile
-      ? "Waiting for the Freighter app…"
+      ? "Waiting for the Varial app…"
       : inLantern
         ? "Waiting for Lantern…"
-        : "Waiting for Freighter…"
+        : "Waiting for Varial…"
     : failure
       ? "Try again"
       : mobile
-        ? "Open Freighter app"
+        ? "Open Varial app"
         : inLantern
           ? "Connect Lantern"
-          : "Connect Freighter";
+          : "Connect Varial";
 
   // An Android phone with Lantern: offer the wallet it already has. Nothing has
   // been attempted on this page yet, so there is no state to show beside it.
@@ -116,7 +116,7 @@ export function WalletSignInView({
           onClick={onUseFreighter}
           className={`font-label text-sm font-semibold ${t.quiet} underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}
         >
-          Use Freighter instead
+          Use Varial instead
         </button>
       </div>
     );
@@ -158,12 +158,12 @@ export function WalletSignInView({
         )}
         {failure === "freighter_missing" && (
           <a
-            href={FREIGHTER_INSTALL_URL}
+            href={VARIAL_INSTALL_URL}
             target="_blank"
             rel="noopener noreferrer"
             className={`mt-1 inline-block font-label text-sm font-semibold ${t.link} underline-offset-2 hover:underline`}
           >
-            Get Freighter
+            Get Varial
           </a>
         )}
       </div>
