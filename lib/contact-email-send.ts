@@ -1,13 +1,13 @@
 import * as Sentry from "@sentry/nextjs";
 import { APP_URL } from "./constants";
 import { openLink } from "./deep-link";
-import { resendClient } from "./resend";
+import { sendEmail, type SendResult } from "./zender";
 
-// Mail to contributors' notice addresses (#248). Every message carries
-// RFC 8058 one-click unsubscribe headers. Failures are logged and reported
-// without the address: it never reaches logs or Sentry (#165).
-
-const FROM = process.env.RESEND_EMAIL_FROM ?? "Centient <onboarding@resend.dev>";
+// Mail to contributors' notice addresses (#248), sent through Zender (#268).
+// Every message ends with a "Stop all Centient email" link. Zender's API takes
+// no custom headers, so the RFC 8058 List-Unsubscribe headers are off until it
+// can carry an application's own unsubscribe URL. Failures are logged and
+// reported without the address: it never reaches logs or Sentry (#165).
 
 function appUrl(): string {
   if (APP_URL.includes("localhost") && process.env.NODE_ENV === "production") {
@@ -27,13 +27,6 @@ export function verifyLink(token: string): string {
 
 export function unsubscribeLink(unsubscribeToken: string): string {
   return `${appUrl()}/api/email/unsubscribe?t=${encodeURIComponent(unsubscribeToken)}`;
-}
-
-export function unsubscribeHeaders(unsubscribeToken: string): Record<string, string> {
-  return {
-    "List-Unsubscribe": `<${unsubscribeLink(unsubscribeToken)}>`,
-    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-  };
 }
 
 export interface ContactMessage {
@@ -66,10 +59,10 @@ export function verificationMessage(token: string, unsubscribeToken: string): Co
 }
 
 /**
- * "refused": Resend answered no, so nothing went out. "unknown": no usable
+ * "refused": Zender answered no, so nothing went out. "unknown": no usable
  * answer (network, timeout), so it may have gone out; never retry that.
  */
-export type SendResult = "sent" | "skipped" | "refused" | "unknown";
+export type { SendResult };
 
 function withFooter(body: { text: string; html: string }, unsubscribeToken: string): { text: string; html: string } {
   const unsub = unsubscribeLink(unsubscribeToken);
@@ -113,39 +106,29 @@ export function reminderMessage(unsubscribeToken: string, taskId?: string): Cont
   };
 }
 
-/** Send one message to a notice address. "skipped" when Resend isn't configured. */
-export async function sendContactEmail(
-  to: string,
-  message: ContactMessage,
-  unsubscribeToken: string,
-): Promise<SendResult> {
-  if (!resendClient) {
-    console.log("[contact-email] RESEND_API_KEY not set, skipping send");
+/** Which email_sends row a send settles: its id is Zender's Idempotency-Key. */
+export interface SendRef {
+  id: string;
+  kind: string;
+}
+
+/** Send one message to a notice address. "skipped" when Zender isn't configured. */
+export async function sendContactEmail(to: string, message: ContactMessage, ref: SendRef): Promise<SendResult> {
+  const result = await sendEmail({
+    to,
+    subject: message.subject,
+    html: message.html,
+    text: message.text,
+    kind: ref.kind,
+    idempotencyKey: ref.id,
+  });
+  if (result === "skipped" && process.env.NODE_ENV === "development") {
     // Local dev only: print the message body (links, never the address) so the
     // flow can be clicked through without a mail account.
-    if (process.env.NODE_ENV === "development") console.log(message.text);
-    return "skipped";
+    console.log(message.text);
   }
-  try {
-    const { error } = await resendClient.emails.send({
-      from: FROM,
-      to,
-      subject: message.subject,
-      html: message.html,
-      text: message.text,
-      headers: unsubscribeHeaders(unsubscribeToken),
-    });
-    if (error) {
-      // Resend's error message can echo the recipient; log its name only.
-      console.error("[contact-email] send rejected:", error.name);
-      Sentry.captureMessage(`contact-email send rejected: ${error.name}`, "error");
-      return "refused";
-    }
-    return "sent";
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "unknown";
-    console.error("[contact-email] send threw:", name);
-    Sentry.captureMessage(`contact-email send threw: ${name}`, "error");
-    return "unknown";
+  if (result === "refused" || result === "unknown") {
+    Sentry.captureMessage(`contact-email send ${result}: ${ref.kind}`, "error");
   }
+  return result;
 }

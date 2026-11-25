@@ -1,6 +1,6 @@
 # ADR-0013: Contributor email goes through one idempotent queue, inside Resend's free tier
 
-- **Status:** Accepted — 2026-11-25
+- **Status:** Accepted — 2026-11-25. Amended 2026-11-25: the provider is now Zender (see the end).
 - **Scope:** Contributor email notices (Month 2, D3): the send queue, the send log, the `funded_work_available` event and the unfinished-task reminder.
 - **Relates to:** [#260](https://github.com/webnxt-2030/Centient/issues/260) (this change), [#248](https://github.com/webnxt-2030/Centient/issues/248) (opt-in, verification, unsubscribe), [#253](https://github.com/webnxt-2030/Centient/issues/253) (emits the event on a tranche release), [#261](https://github.com/webnxt-2030/Centient/issues/261) (deep links).
 
@@ -133,3 +133,34 @@ is read at send time. Logs and Sentry get Resend's error name only.
   is the signal. Once per task bounds the cost of a wrong guess.
 - The cron is the only sender of notices: if it stops, notices wait in the
   queue (verification still works).
+
+## Amendment, 2026-11-25: the provider is Zender
+
+Resend refused our sends on 25 Nov (a suspended key, then a replacement whose
+account didn't have `theblokc.com` verified), and the owner moved Centient's
+email to **Zender**, Artisam Labs' notification service (#268). Everything
+above stays as decided: the queue, the send log, the budgets, quiet hours, the
+cap and consent all live in Centient. Only the last call changes.
+
+- **One call per message:** `POST {ZENDER_API_URL}/emails` (`lib/zender.ts`)
+  with inline HTML and text, `Authorization: Bearer ZENDER_API_KEY`, and
+  metadata holding only the kind and the row id. Zender sends through its
+  Postmark account.
+- **The `Idempotency-Key` is the `email_sends` row id** (`centient-<id>`).
+  Zender honours it for 24 h, so the same row can't become two emails. The
+  `unknown` rule above (never retry a send that got no answer) is unchanged for
+  now; the key makes relaxing it safe later.
+- **Sender:** `EMAIL_FROM`, default `Centient <centient@artisam.xyz>`.
+  `artisam.xyz` is already verified in Zender's Postmark account, so no DNS
+  work was needed.
+- **A suppressed recipient is refused.** Zender won't send to an address that
+  bounced or complained, and returns it in `suppressed`; we record a refusal.
+- **No `List-Unsubscribe` headers for now.** Zender's API takes no custom
+  headers, so Gmail's one-click button doesn't appear. Every email still ends
+  with "Stop all Centient email", whose link unsubscribes by one-click POST or
+  a one-button page. The SOW asks for one-click unsubscribe, not the header;
+  the header returns once Zender can carry an application's own unsubscribe
+  URL. The owner deferred it on 25 Nov.
+- The budgets keep Resend's free-tier defaults (100 a day, 3,000 a month)
+  until we know our Zender quota. Zender limits each key to 60 requests a
+  minute, far above a 10-minute drain.
