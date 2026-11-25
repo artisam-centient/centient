@@ -2,7 +2,7 @@
 
 What Centient sends to its analytics provider, and why one event carries a wallet address. Centient runs on the Stellar **testnet** only (D-7).
 
-*Published 28 September 2026 for the D4 public release. This page covers analytics. It is not a full privacy policy.*
+*Published 28 September 2026 for the D4 public release. Updated 25 November 2026: analytics no longer records IP addresses or locations. This page covers analytics. It is not a full privacy policy.*
 
 ## In the browser
 
@@ -10,6 +10,8 @@ Centient uses [PostHog](https://posthog.com) for product analytics. The browser 
 
 * **Identity.** Events are tied to Centient's internal user id (or an admin id on the admin console), never to an email address or wallet address.
 * **Never sent as event data:** email address, wallet address, demographics (country, gender, age range).
+* **No IP address or location.** Since 25 November 2026 PostHog discards the IP address of every event and does not look up a location. Centient never uses GPS or the device's location. The only location Centient keeps is the country a contributor picks during onboarding, which stays in Centient's own database and is not sent to analytics.
+* **Before 25 November.** From 15 September to 25 November 2026, PostHog stored each browser event's IP address and an approximate country, region and city looked up from it. That city often names a mobile carrier's gateway rather than where the person was. Those older events still hold this data. Centient's analytics reports only ever showed totals per country or city, never one person's location.
 * **Which events.** Named product steps, such as `task_presented`, `submission_approved`, `onboarding_completed` and `payout_ready`, plus PostHog's automatic page views and page leaves. Click autocapture is off, because clicked elements on this app can show wallet addresses and balances.
 * **Page addresses.** PostHog records the page URL with every event. Two kinds of URL hold more than a page name: the email-verification link carries its one-time token, which is wiped once used, and the admin console's user pages carry that user's wallet address, recorded under the viewing admin's id. On 28 September PostHog held neither kind. Stripping both before they are sent is tracked in [#165](https://github.com/webnxt-2030/Centient/issues/165).
 * **Session replay** keeps layout and clicks but masks all text and every input. It records the URLs visited, as above.
@@ -27,7 +29,7 @@ Each on-chain payout attempt is recorded once as a `payout_transaction` event. *
 | `success`, `status`, `error_code` | Whether the payout settled and, if not, why |
 | `reference_kind`, `reference_id` | The internal submission or withdrawal the payout belongs to |
 
-**Why this event sends the address.** A payout's destination address, amount and transaction hash are already public on the Stellar ledger: anyone can look up the transaction on [stellar.expert](https://stellar.expert/explorer/testnet). The event copies public ledger facts so payouts can be listed per wallet. It adds no email address and no demographics. A contributor's own browser events never carry the address, and the two are recorded under different person ids (the wallet here, the internal user id in the browser), so PostHog does not merge them into one profile.
+**Why this event sends the address.** A payout's destination address, amount and transaction hash are already public on the Stellar ledger: anyone can look up the transaction on [stellar.expert](https://stellar.expert/explorer/testnet). The event copies public ledger facts so payouts can be listed per wallet. It adds no email address, no demographics and no location. A contributor's own browser events never carry the address, and the two are recorded under different person ids (the wallet here, the internal user id in the browser), so PostHog does not merge them into one profile.
 
 ## What is public anyway
 
