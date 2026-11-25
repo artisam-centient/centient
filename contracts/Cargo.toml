@@ -1,10 +1,10 @@
 # Soroban contracts for Centient (M2-P2, #244).
 #
 # One Cargo workspace for every contract, so `cargo test --workspace` in the CI
-# gate covers all of them. The escrow (#246) joins `members` next to `smoke`.
+# gate covers all of them.
 [workspace]
 resolver = "2"
-members = ["smoke"]
+members = ["escrow", "smoke"]
 
 [workspace.package]
 edition = "2021"
