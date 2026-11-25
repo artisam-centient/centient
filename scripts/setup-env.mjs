@@ -91,9 +91,9 @@ ensure("CRON_SECRET", hex(32), (v) => isMissing(v) || looksPlaceholder(v));
 ensure("ANALYTICS_HMAC_SECRET", hex(32), (v) => isMissing(v) || looksPlaceholder(v));
 
 // Email — leave unset in dev so sends are graceful no-ops instead of failing on
-// a fake key. A real key (re_...) / verified sender is left untouched.
-disablePlaceholder("RESEND_API_KEY", (v) => isMissing(v) || looksPlaceholder(v), "email no-ops in dev");
-disablePlaceholder("RESEND_EMAIL_FROM", (v) => isMissing(v) || looksPlaceholder(v), "uses Resend default sender");
+// a fake key. A real Zender key (zen_live_...) / sender is left untouched.
+disablePlaceholder("ZENDER_API_KEY", (v) => isMissing(v) || looksPlaceholder(v), "email no-ops in dev");
+disablePlaceholder("EMAIL_FROM", (v) => isMissing(v) || looksPlaceholder(v), "uses the default Centient sender");
 
 writeFileSync(ENV_PATH, lines.join("\n"));
 

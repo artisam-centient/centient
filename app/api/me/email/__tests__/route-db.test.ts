@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const send = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/resend", () => ({ resendClient: { emails: { send } } }));
+vi.mock("@/lib/zender", () => ({ sendEmail: send }));
 const sentry = vi.hoisted(() => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
 vi.mock("@sentry/nextjs", () => sentry);
 
@@ -54,7 +54,7 @@ beforeEach(async () => {
   await truncateAll();
   await prisma.$executeRawUnsafe("DELETE FROM rate_limit_buckets").catch(() => {});
   send.mockReset();
-  send.mockResolvedValue({ data: { id: "email_1" }, error: null });
+  send.mockResolvedValue("sent");
   sentry.captureMessage.mockReset();
 });
 
@@ -77,8 +77,8 @@ describe("/api/me/email", () => {
     });
   });
 
-  it("PUT sends a verification link with one-click unsubscribe headers", async () => {
-    const { session } = await signedIn();
+  it("PUT sends a verification link through Zender, keyed to its send-log row", async () => {
+    const { user, session } = await signedIn();
     const res = await PUT(meReq("PUT", session, { address: " Ana.Labeler@Example.com " }));
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ address: null, pendingAddress: ADDRESS });
@@ -86,8 +86,13 @@ describe("/api/me/email", () => {
     expect(send).toHaveBeenCalledTimes(1);
     const mail = send.mock.calls[0][0];
     expect(mail.to).toBe(ADDRESS);
-    expect(mail.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
-    expect(mail.headers["List-Unsubscribe"]).toMatch(/^<http:\/\/localhost:3000\/api\/email\/unsubscribe\?t=[A-Za-z0-9_-]+>$/);
+    expect(mail.kind).toBe("verification");
+    // The Idempotency-Key is the email_sends row, so a repeat can't send twice.
+    const [row] = await prisma.emailSend.findMany({ where: { userId: user.id } });
+    expect(mail.idempotencyKey).toBe(row.id);
+    // Every email carries its own "Stop all Centient email" link.
+    expect(mail.html).toMatch(/\/api\/email\/unsubscribe\?t=[A-Za-z0-9_-]+/);
+    expect(mail.text).toMatch(/\/api\/email\/unsubscribe\?t=[A-Za-z0-9_-]+/);
     // The address is never part of a link.
     expect(mail.html).not.toContain(encodeURIComponent(ADDRESS));
     expect(mail.html).not.toContain(ADDRESS);
@@ -142,19 +147,20 @@ describe("/api/me/email", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("PUT reports a failed send without logging or reporting the address", async () => {
+  it("PUT reports a refused send without reporting the address", async () => {
     const { session } = await signedIn();
-    send.mockResolvedValue({ data: null, error: { name: "validation_error", message: `Invalid to: ${ADDRESS}` } });
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    send.mockResolvedValue("refused");
 
     const res = await PUT(meReq("PUT", session, { address: ADDRESS }));
     expect(res.status).toBe(502);
     expect((await res.json()).error).toBe("send_failed");
 
-    const logged = JSON.stringify([errors.mock.calls, sentry.captureMessage.mock.calls]);
-    expect(logged).toContain("validation_error");
-    expect(logged).not.toContain(ADDRESS);
-    errors.mockRestore();
+    const reported = JSON.stringify(sentry.captureMessage.mock.calls);
+    expect(reported).toContain("verification");
+    expect(reported).not.toContain(ADDRESS);
+    // A refusal gives the day's slot back.
+    const [row] = await prisma.emailSend.findMany();
+    expect(row).toMatchObject({ status: "failed", sentAt: null });
   });
 
   it("PATCH saves preferences and DELETE forgets the address", async () => {
@@ -209,13 +215,12 @@ describe("the emailed links", () => {
     expect(res.status).toBe(400);
   });
 
-  it("unsubscribe: one-click POST from the mail client works signed out and twice", async () => {
+  it("unsubscribe: one-click POST to the link's URL works signed out and twice", async () => {
     const { session } = await signedIn();
     await PATCH(meReq("PATCH", session, { notifyNewWork: true, notifyReminders: true }));
     await PUT(meReq("PUT", session, { address: ADDRESS }));
+    const url = `http://localhost/api/email/unsubscribe?t=${encodeURIComponent(linkToken("unsubscribe"))}`;
     await confirm();
-    const header: string = send.mock.calls[0][0].headers["List-Unsubscribe"];
-    const url = header.slice(1, -1).replace("http://localhost:3000", "http://localhost");
 
     for (let i = 0; i < 2; i++) {
       const res = await unsubPost(
