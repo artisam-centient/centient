@@ -104,12 +104,12 @@ export async function POST(req: NextRequest) {
     const result = await sendVerificationEmail(normalizedEmail, verificationToken, companyName);
     if (!result) {
       emailDelivered = false;
-      warning = "Customer created but verification email could not be sent. Verify that RESEND_EMAIL_FROM is set to a verified domain in Resend.";
+      warning = "Customer created but verification email could not be sent. Check ZENDER_API_KEY and EMAIL_FROM on the web service.";
     }
   }
   catch{
       emailDelivered = false;
-      warning = "Customer created but verification email could not be sent. Verify that RESEND_EMAIL_FROM is set to a verified domain in Resend.";
+      warning = "Customer created but verification email could not be sent. Check ZENDER_API_KEY and EMAIL_FROM on the web service.";
     }
   return NextResponse.json({customer, emailDelivered, warning}, { status: 201 });
 }

@@ -8,6 +8,7 @@ import {
   reminderMessage,
   sendContactEmail,
   type ContactMessage,
+  type SendRef,
   type SendResult,
 } from "./contact-email-send";
 import { gatingOn } from "./gamification/flag";
@@ -176,7 +177,7 @@ export function reserveVerification(userId: string, now: Date = new Date()): Pro
 }
 
 /**
- * An admin's customer verification email (lib/email.ts): same Resend key, same
+ * An admin's customer verification email (lib/email.ts): same sender, same
  * day, same limit. No user row: customers are admin accounts.
  */
 export function reserveCustomerVerification(now: Date = new Date()): Promise<string | null> {
@@ -187,7 +188,7 @@ export function reserveCustomerVerification(now: Date = new Date()): Promise<str
 export type SendOutcome = "sent" | "refused" | "unknown" | "not_sent";
 
 /**
- * Settle a reserved row. "refused" (Resend said no) and "not_sent" (we never
+ * Settle a reserved row. "refused" (the provider said no) and "not_sent" (we never
  * called it) give the slot back; "unknown" (no answer) keeps it and is never
  * retried, since Resend may have taken the message.
  */
@@ -339,7 +340,7 @@ export async function enqueueReminders(now: Date = new Date()): Promise<number> 
 
 // -------------------------------------------------------------- drain ----
 
-export type Sender = (to: string, message: ContactMessage, unsubscribeToken: string) => Promise<SendResult>;
+export type Sender = (to: string, message: ContactMessage, ref: SendRef) => Promise<SendResult>;
 
 export interface DrainReport {
   /** False when another drain held the lock, so this one did nothing. */
@@ -453,15 +454,15 @@ async function drainLocked(now: Date, send: Sender): Promise<DrainReport> {
     const result = await send(
       contact!.address!,
       messageFor(kind, row.payload, contact!.unsubscribeToken),
-      contact!.unsubscribeToken,
+      { id: row.id, kind },
     );
     if (result === "unknown") {
-      // No answer from Resend: it may have sent. Never retry (a duplicate is
+      // No answer from Zender: it may have sent. Never retry (a duplicate is
       // worse than a miss); the slot stays counted.
       await prisma.emailSend.update({ where: { id: row.id }, data: { status: "unknown", reason: "ambiguous" } });
       report.failed++;
     } else if (result === "sent" || result === "skipped") {
-      // "skipped": Resend isn't configured (local dev). Logged as sent so the
+      // "skipped": Zender isn't configured (local dev). Logged as sent so the
       // drain behaves the same; production always has a key.
       await prisma.emailSend.update({ where: { id: row.id }, data: { status: "sent", sentAt: now, lastError: null } });
       report.sent++;

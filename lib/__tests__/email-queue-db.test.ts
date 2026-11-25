@@ -14,6 +14,7 @@ import {
   type Sender,
 } from "@/lib/email-queue";
 import { requestVerification, unsubscribe, updatePreferences, verifyContactEmail } from "@/lib/contact-email";
+import type { SendRef } from "@/lib/contact-email-send";
 import { processJob } from "@/lib/upload-worker";
 import { prisma, truncateAll } from "@/tests/helpers/db";
 import { createAdminUser, createCampaign, createCampaignBalance, createUser, makeWallet } from "@/tests/helpers/factories";
@@ -28,8 +29,10 @@ const NIGHT = new Date("2026-11-25T14:30:00Z");
 const REWARD = 10_000n;
 
 let sends: { to: string; subject: string }[] = [];
-const fakeSend: Sender = async (to, message) => {
+const refs: SendRef[] = [];
+const fakeSend: Sender = async (to, message, ref) => {
   sends.push({ to, subject: message.subject });
+  refs.push(ref);
   return "sent";
 };
 
@@ -62,6 +65,7 @@ async function rows(kind?: string) {
 beforeEach(async () => {
   await truncateAll();
   sends = [];
+  refs.length = 0;
   vi.stubEnv("EMAIL_DAILY_LIMIT", "");
   vi.stubEnv("EMAIL_VERIFICATION_RESERVE", "");
   vi.stubEnv("EMAIL_MONTHLY_LIMIT", "");
@@ -102,6 +106,9 @@ describe("funded_work_available: 0 duplicate sends per person per event", () => 
     expect(sends.map((s) => s.to).sort()).toEqual(["c1@example.com", "c2@example.com"]);
     const log = await rows("funded_work");
     expect(log.map((r) => [r.userId, r.status]).sort()).toEqual([[a.id, "sent"], [b.id, "sent"]].sort());
+    // Each send names its own row, which becomes Zender's Idempotency-Key.
+    expect(refs.map((r) => r.id).sort()).toEqual(log.map((r) => r.id).sort());
+    expect(refs.every((r) => r.kind === "funded_work")).toBe(true);
 
     // The SOW metric, as the evidence query runs it.
     const dupes = await prisma.$queryRaw<unknown[]>`
@@ -376,9 +383,9 @@ describe("Codex review on #275", () => {
     for (let n = 1; n <= 6; n++) await contributor(n);
     const campaign = await fundedCampaign();
     await emitFundedWorkAvailable(event(campaign.id), MORNING);
-    const slowSend: Sender = async (to, message) => {
+    const slowSend: Sender = async (to, message, ref) => {
       await new Promise((r) => setTimeout(r, 40));
-      return fakeSend(to, message, "");
+      return fakeSend(to, message, ref);
     };
 
     const reports = await Promise.all([drainQueue(MORNING, slowSend), drainQueue(MORNING, slowSend)]);
@@ -483,11 +490,11 @@ describe("Codex review on #275, second pass", () => {
     await emitFundedWorkAvailable(event(campaign.id), MORNING);
     const someone = await createUser({ walletAddress: makeWallet(77) });
     // Two verifications land while the drain is sending.
-    const sendAndVerify: Sender = async (to, message) => {
+    const sendAndVerify: Sender = async (to, message, ref) => {
       if (sends.length === 0) {
         for (let i = 0; i < 2; i++) await finishSend((await reserveVerification(someone.id, MORNING))!, "sent", MORNING);
       }
-      return fakeSend(to, message, "");
+      return fakeSend(to, message, ref);
     };
     await drainQueue(MORNING, sendAndVerify);
     expect(await sentToday(MORNING)).toBeLessThanOrEqual(4);

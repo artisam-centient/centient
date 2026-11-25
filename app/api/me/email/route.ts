@@ -47,11 +47,11 @@ export async function PUT(req: NextRequest) {
 
   // #260: reserve today's slot before anything else. Verification has the whole
   // daily limit (notices stop at the reserve), so this only refuses once
-  // Resend's free tier is spent for the day.
+  // the day's email budget is spent.
   const slot = await reserveVerification(userId);
   if (!slot) return NextResponse.json({ error: "daily_limit" }, { status: 503 });
 
-  // Anything that throws before Resend is called gives the slot back.
+  // Anything that throws before Zender is called gives the slot back.
   let result: Awaited<ReturnType<typeof requestVerification>>;
   let message: ReturnType<typeof verificationMessage>;
   try {
@@ -68,7 +68,7 @@ export async function PUT(req: NextRequest) {
     throw err;
   }
 
-  const sent = await sendContactEmail(result.address, message, result.unsubscribeToken);
+  const sent = await sendContactEmail(result.address, message, { id: slot, kind: "verification" });
   await finishSend(slot, sent === "skipped" ? "not_sent" : sent);
   if (sent === "refused" || sent === "unknown") {
     return NextResponse.json({ error: "send_failed", settings: result.settings }, { status: 502 });
