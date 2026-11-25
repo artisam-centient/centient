@@ -1,0 +1,17 @@
+[package]
+name = "centient-escrow"
+version = "0.1.0"
+description = "Campaign escrow: partner USDC held through the SAC, released in 24 h-delayed tranches to the 2-of-3 payout account (#246)"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
