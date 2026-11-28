@@ -120,5 +120,5 @@ export function lanternOpenUrl(target: string): string {
  * every one of them means Lantern, so they are rewritten rather than forked.
  */
 export function walletCopy(text: string, transport: string | null | undefined): string {
-  return transport === "lantern" ? text.replace(/the Freighter app|Freighter/g, "Lantern") : text;
+  return transport === "lantern" ? text.replace(/the Varial app|Varial/g, "Lantern") : text;
 }

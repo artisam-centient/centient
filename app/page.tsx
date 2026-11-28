@@ -27,6 +27,7 @@ import TierUpScreen from "@/components/gamification/TierUpScreen";
 import ProgressScreen, { type ProgressTab } from "@/components/gamification/ProgressScreen";
 import { captureCodeFromUrl, clearPendingCode, pendingCode as storedCode } from "@/lib/gamification/event-link";
 import { captureInviteFromUrl } from "@/lib/gamification/invite-link";
+import { captureOpenFromUrl, clearOpenTarget, pendingOpenTarget, taskQuery, type DeepLinkTarget } from "@/lib/deep-link";
 import { DESKTOP_QUERY } from "@/lib/use-media-query";
 
 const MIN_LOADING_MS = 1500;
@@ -223,6 +224,14 @@ export default function Home() {
     setPendingCode(storedCode());
   }, []);
 
+  // #261: an emailed link's ?open= waits in this tab through sign-in, payout
+  // setup and onboarding, then opens that task (or that campaign's work) once
+  // the contributor reaches home. Read once: a later home visit is ordinary.
+  useEffect(() => {
+    captureOpenFromUrl();
+  }, []);
+
+
   useEffect(() => {
     if (screen === "landing" && pendingCode) {
       setProgressTab("stamps");
@@ -249,12 +258,12 @@ export default function Home() {
    * Loads the next task for this session onto the ranking surface, clearing the
    * previous task's submit error; with none left, shows no_tasks.
    */
-  const fetchTask = useCallback(async () => {
+  const fetchTask = useCallback(async (target: DeepLinkTarget | null = null) => {
     // Board 08: the workspace holds its shape while the next task loads.
     setScreen("task_loading");
     let data: { task?: TaskData & { xp?: number | null; tier?: unknown } };
     try {
-      const res = await fetch("/api/task");
+      const res = await fetch(`/api/task${taskQuery(target)}`);
       // #30: an account without a bound wallet is served no work until it claims one.
       if (res.status === 409) {
         setScreen("claim_wallet");
@@ -288,6 +297,15 @@ export default function Home() {
       setScreen("no_tasks");
     }
   }, []);
+
+  useEffect(() => {
+    if (screen !== "landing" || pendingCode) return;
+    const target = pendingOpenTarget();
+    if (!target) return;
+    clearOpenTarget();
+    track("deep_link_opened", { kind: target.kind });
+    void fetchTask(target);
+  }, [screen, pendingCode, fetchTask]);
 
   /**
    * #30: where a session belongs in first connect. Sign-in, email sign-in and a
@@ -397,6 +415,7 @@ export default function Home() {
   const handleStartEarning = useCallback(() => {
     void fetchTask();
   }, [fetchTask]);
+
 
   /**
    * Logging out clears the session cookie server-side; everything the signed-in

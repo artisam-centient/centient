@@ -1,0 +1,32 @@
+# Soroban contracts for Centient (M2-P2, #244).
+#
+# One Cargo workspace for every contract, so `cargo test --workspace` in the CI
+# gate covers all of them.
+[workspace]
+resolver = "2"
+members = ["escrow", "smoke"]
+
+[workspace.package]
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+
+[workspace.dependencies]
+# Pinned exactly: a contract's behaviour and its wasm hash depend on the SDK.
+# Move it deliberately, together with stellar-cli (see README.md).
+soroban-sdk = "=29.0.1"
+
+# Soroban's recommended release profile: small wasm, overflow checks kept on.
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

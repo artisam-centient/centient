@@ -103,7 +103,7 @@ describe("FreighterPairingView", () => {
       }),
     );
 
-    expect(screen.getByRole("button", { name: /open freighter/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /open varial/i })).toBeTruthy();
     // A QR is useless on the device doing the scanning.
     expect(document.querySelector("[data-qr]")).toBeNull();
   });
@@ -121,7 +121,7 @@ describe("FreighterPairingView", () => {
       }),
     );
 
-    const button = screen.getByRole("button", { name: /open freighter/i });
+    const button = screen.getByRole("button", { name: /open varial/i });
     expect(button.getAttribute("data-link")).toBe("fallback");
     expect(button.hasAttribute("disabled")).toBe(false);
     // The recovery path is what makes a wrong guess survivable.
@@ -142,7 +142,7 @@ describe("FreighterPairingView", () => {
       }),
     );
 
-    const button = screen.getByRole("button", { name: /open freighter/i });
+    const button = screen.getByRole("button", { name: /open varial/i });
     expect(button.getAttribute("data-link")).toBe("pending");
     expect(button.hasAttribute("disabled")).toBe(true);
   });
@@ -161,7 +161,7 @@ describe("FreighterPairingView", () => {
     );
 
     expect(document.querySelector('[data-qr="ready"]')).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /open freighter/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /open varial/i })).toBeNull();
   });
 });
 
@@ -171,7 +171,7 @@ describe("FreighterPairing", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("hands the pairing to the Freighter app by itself, on a phone", async () => {
+  it("hands the pairing to the Varial app by itself, on a phone", async () => {
     setUserAgent(PHONE_UA);
     const nav = captureNavigation();
     render(createElement(FreighterPairing));
@@ -212,7 +212,7 @@ describe("FreighterPairing", () => {
     expect(nav.href).toBeNull();
   });
 
-  it("copies the pairing uri, not the deep link, for pasting into Freighter", async () => {
+  it("copies the pairing uri, not the deep link, for pasting into Varial", async () => {
     setUserAgent(PHONE_UA);
     captureNavigation();
     const writeText = vi.fn().mockResolvedValue(undefined);

@@ -57,6 +57,10 @@ model User {
   inviteCode           String?  @unique
   invitedById          String?
   invitedBy            User?    @relation("Invites", fields: [invitedById], references: [id], onDelete: SetNull)
+  // The task last served to this contributor (#260, ADR-0013). Served and not
+  // answered for 24 h makes it "unfinished" for the one-time reminder.
+  lastServedTaskId     String?
+  lastServedAt         DateTime?
   invitees             User[]   @relation("Invites")
 
   submissions   Submission[]
@@ -74,6 +78,8 @@ model User {
   weeklyResults WeeklyResult[]
   inviteRewardAsInvitee InviteReward? @relation("InviteRewardInvitee")
   inviteRewardsAsInviter InviteReward[] @relation("InviteRewardInviter")
+  contactEmail  ContactEmail?
+  emailSends    EmailSend[]
 
   @@map("users")
 }
@@ -738,4 +744,72 @@ model InviteReward {
 
   @@index([inviterId])
   @@map("invite_rewards")
+}
+
+// Contributor email notices (#248, D3). Separate from User.email, which is the
+// legacy email/password login: adding a notice address never changes how anyone
+// signs in. The address is server-side only and never reaches PostHog, logs or a
+// URL (#165). Notices go only to a verified `address`; every notice type is off
+// until the contributor turns it on.
+model ContactEmail {
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // The verified address notices go to; null until the first verification.
+  address            String?
+  verifiedAt         DateTime?
+  // An address waiting on its link. Verifying it replaces `address`.
+  pendingAddress     String?
+  // SHA-256 of the single-use verification token; the raw token is only in the email.
+  verifyTokenHash    String?   @unique
+  verifyTokenExpires DateTime?
+  // One-click unsubscribe capability for the verified address. Each address has
+  // its own: mail to an old or pending address can't touch the verified one.
+  unsubscribeToken   String    @unique
+  // The pending address's token, carried by its verification email. Verifying
+  // promotes it; unsubscribing with it drops the pending address.
+  pendingUnsubscribeToken String? @unique
+  unsubscribedAt     DateTime?
+  notifyNewWork      Boolean   @default(false)
+  notifyReminders    Boolean   @default(false)
+  promptDismissedAt  DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@map("contact_emails")
+}
+
+// The email send queue and send log (#260, ADR-0013). One row per (person, kind,
+// event): `dedupeKey` = "<userId>:<kind>:<eventKey>" is unique, so an event fired
+// twice makes one row and one send. Rows are never deleted; they are the evidence
+// for "0 duplicate sends". No address is stored here: it is read at send time.
+model EmailSend {
+  id         String    @id @default(uuid())
+  // Null only for "customer_verification": an admin's customer email on the
+  // same Resend key, logged so it counts toward the day.
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // "verification" | "funded_work" | "task_reminder" | "customer_verification"
+  kind       String
+  eventKey   String
+  dedupeKey  String    @unique
+  // "queued" | "sending" | "sent" | "skipped" | "failed" | "unknown" (cut off mid-send)
+  status     String    @default("queued")
+  // Why: "capped", "unsubscribed", "preference_off", "no_address", "task_done", "stranded"
+  reason     String?
+  // Not sent before this instant (quiet hours, retry backoff).
+  notBefore  DateTime  @default(now())
+  attempts   Int       @default(0)
+  // Stamped at the claim, cleared if the provider refuses: counts toward the day.
+  sentAt     DateTime?
+  // Small, non-personal message inputs (campaign id, task id, counts).
+  payload    Json?
+  lastError  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status, notBefore])
+  @@index([sentAt])
+  @@index([userId, kind, sentAt])
+  @@map("email_sends")
 }

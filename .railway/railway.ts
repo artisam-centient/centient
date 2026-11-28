@@ -41,13 +41,15 @@ export default defineRailway(() => {
   // .node-version (#214); the pre-deploy migrates, then seeds when SEED_ON_DEPLOY=true.
   // .node-version is the only Node pin: don't add NODE_VERSION (or the Nixpacks-era
   // NIXPKGS_COMMIT) back to web's env.
+  // STELLAR_RPC_URL (#244) is a literal, not a secret: Soroban reads go to SDF's
+  // testnet RPC (D-7). /api/health/rpc shows whether web reaches it.
   const web = service("web", {
     source: github("webnxt-2030/Centient", { branch: "staging", checkSuites: true }),
     build: { builder: "RAILPACK" },
     preDeploy: "npx prisma migrate deploy && if [ \"$SEED_ON_DEPLOY\" = \"true\" ]; then npx prisma db seed; else echo 'SEED_ON_DEPLOY not set — skipping seed'; fi",
     replicas: { "asia-southeast1-eqsg3a": 1 },
     domains: ["beta.centient.work", "centient.work"],
-    env: { ADMIN_JWT_SECRET: preserve(), ADMIN_SESSION_PASSWORD: preserve(), COSIGNER_ISOLATION_LEVEL: preserve(), COSIGNER_SHARED_SECRET: preserve(), COSIGNER_URL: preserve(), CRON_SECRET: preserve(), DAILY_PAYOUT_CAP_UNITS: preserve(), DATABASE_URL: preserve(), DISCORD_WEBHOOK_URL: preserve(), HEALTH_ALERT_COOLDOWN_MS: preserve(), NEXT_PUBLIC_APP_URL: preserve(), NEXT_PUBLIC_EXPLORER_URL: preserve(), NEXT_PUBLIC_GAMIFICATION: preserve(), NEXT_PUBLIC_LANTERN_ORIGINS: preserve(), NEXT_PUBLIC_POSTHOG_KEY: preserve(), NEXT_PUBLIC_REWARD_AMOUNT: preserve(), NEXT_PUBLIC_REWARD_TOKEN_DECIMALS: preserve(), NEXT_PUBLIC_REWARD_TOKEN_SYMBOL: preserve(), NEXT_PUBLIC_STELLAR_NETWORK: preserve(), NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: preserve(), REDIS_URL: preserve(), RESEND_API_KEY: preserve(), RESEND_EMAIL_FROM: preserve(), SEED_ON_DEPLOY: preserve(), STELLAR_COLD_MIN_RETAIN_UNITS: preserve(), STELLAR_COLD_OPS_SIGNER_PUBLIC: preserve(), STELLAR_COLD_POLICY_SIGNER_PUBLIC: preserve(), STELLAR_COLD_RESERVE_ACCOUNT: preserve(), STELLAR_HOT_FLOAT_TARGET_UNITS: preserve(), STELLAR_HOT_FLOAT_TRIGGER_UNITS: preserve(), STELLAR_NETWORK: preserve(), STELLAR_OPS_SIGNER_SECRET: preserve(), STELLAR_PLATFORM_ACCOUNT: preserve(), STELLAR_POLICY_SIGNER_PUBLIC: preserve(), STELLAR_SPONSOR_SECRET: preserve(), STELLAR_USDC_CODE: preserve(), STELLAR_USDC_ISSUER: preserve() },
+    env: { ADMIN_JWT_SECRET: preserve(), ADMIN_SESSION_PASSWORD: preserve(), COSIGNER_ISOLATION_LEVEL: preserve(), COSIGNER_SHARED_SECRET: preserve(), COSIGNER_URL: preserve(), CRON_SECRET: preserve(), DAILY_PAYOUT_CAP_UNITS: preserve(), DATABASE_URL: preserve(), DISCORD_WEBHOOK_URL: preserve(), EMAIL_FROM: "Centient <centient@artisam.xyz>", HEALTH_ALERT_COOLDOWN_MS: preserve(), NEXT_PUBLIC_APP_URL: preserve(), NEXT_PUBLIC_EXPLORER_URL: preserve(), NEXT_PUBLIC_GAMIFICATION: preserve(), NEXT_PUBLIC_LANTERN_ORIGINS: preserve(), NEXT_PUBLIC_POSTHOG_KEY: preserve(), NEXT_PUBLIC_REWARD_AMOUNT: preserve(), NEXT_PUBLIC_REWARD_TOKEN_DECIMALS: preserve(), NEXT_PUBLIC_REWARD_TOKEN_SYMBOL: preserve(), NEXT_PUBLIC_STELLAR_NETWORK: preserve(), NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: preserve(), REDIS_URL: preserve(), RESEND_API_KEY: preserve(), RESEND_EMAIL_FROM: preserve(), SEED_ON_DEPLOY: preserve(), STELLAR_COLD_MIN_RETAIN_UNITS: preserve(), STELLAR_COLD_OPS_SIGNER_PUBLIC: preserve(), STELLAR_COLD_POLICY_SIGNER_PUBLIC: preserve(), STELLAR_COLD_RESERVE_ACCOUNT: preserve(), STELLAR_HOT_FLOAT_TARGET_UNITS: preserve(), STELLAR_HOT_FLOAT_TRIGGER_UNITS: preserve(), STELLAR_NETWORK: preserve(), STELLAR_OPS_SIGNER_SECRET: preserve(), STELLAR_PLATFORM_ACCOUNT: preserve(), STELLAR_POLICY_SIGNER_PUBLIC: preserve(), STELLAR_RPC_URL: "https://soroban-testnet.stellar.org", STELLAR_SPONSOR_SECRET: preserve(), STELLAR_USDC_CODE: preserve(), STELLAR_USDC_ISSUER: preserve(), ZENDER_API_KEY: preserve(), ZENDER_API_URL: "https://zender.artisam.xyz/api/v1" },
   });
   // Cron callers for the authenticated /api/cron/* routes (#222). Railway cron
   // runs at most every 5 minutes, so each wallet-health run calls the route five
@@ -87,8 +89,18 @@ export default defineRailway(() => {
     deploy: { cronSchedule: "5 16 * * 0", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: cronSecret, WEB_DOMAIN: "centient.work" },
   });
+  // Every 10 minutes (#260, ADR-0013): queue due unfinished-task reminders and
+  // send due notices. Quiet hours and the daily limit live in the route, so a
+  // run at night only pushes due rows to 08:00 Manila.
+  const emailQueueCron = service("email-queue-cron", {
+    source: image("alpine:3.21"),
+    start: "sh -c 'wget -q -T 60 -O - --header=\"Authorization: Bearer $CRON_SECRET\" --post-data=\"\" \"https://$WEB_DOMAIN/api/cron/email-queue\"'",
+    replicas: { "asia-southeast1-eqsg3a": 1 },
+    deploy: { cronSchedule: "*/10 * * * *", restartPolicyType: "NEVER" },
+    env: { CRON_SECRET: cronSecret, WEB_DOMAIN: "centient.work" },
+  });
 
   return project("centient-work", {
-    resources: [walletHealthCron, Postgres, Redis, cosigner, payoutReconcileCron, web, payoutRetryCron, reserveRefillCron, weeklyBoardCron, redisVolume, postgresVolume],
+    resources: [walletHealthCron, Postgres, Redis, cosigner, payoutReconcileCron, web, payoutRetryCron, reserveRefillCron, weeklyBoardCron, emailQueueCron, redisVolume, postgresVolume],
   });
 });

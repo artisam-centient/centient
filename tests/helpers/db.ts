@@ -32,6 +32,8 @@ export async function truncateAll(): Promise<void> {
     }
   };
 
+  // #260: customer_verification rows have no user, so the cascade misses them.
+  await tryDelete(() => prisma.emailSend.deleteMany());
   await tryDelete(() => prisma.xpEvent.deleteMany());
   await tryDelete(() => prisma.inviteReward.deleteMany());
   await tryDelete(() => prisma.eventRedemption.deleteMany());

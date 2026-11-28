@@ -237,7 +237,7 @@ async function getProvider(): Promise<WalletConnectProvider> {
   if (!projectId) {
     throw new WalletError(
       "walletconnect_unconfigured",
-      "Connecting the Freighter mobile app isn't available on this deployment.",
+      "Connecting the Varial mobile app isn't available on this deployment.",
     );
   }
 
@@ -402,7 +402,7 @@ function walletConnectError(err: unknown, prefix: string): WalletError {
   const code = (err as { code?: number })?.code;
   const message = err instanceof Error ? err.message : String(err);
   if (code === WC_USER_REJECTED || /reject|declin|denied|cancell?ed/i.test(message)) {
-    return new WalletError("rejected", "You declined the request in Freighter.");
+    return new WalletError("rejected", "You declined the request in Varial.");
   }
   return new WalletError("failed", `${prefix}: ${message}`);
 }
@@ -452,7 +452,7 @@ export function pairingIsPending(): boolean {
  * dialog can call it without checking first.
  */
 export function cancelPairing(): void {
-  abandonPairing?.(new WalletError("cancelled", "You cancelled connecting Freighter."));
+  abandonPairing?.(new WalletError("cancelled", "You cancelled connecting Varial."));
 }
 
 /** Rejects the signing request a caller is waiting on; null when none is. */
@@ -464,7 +464,7 @@ let abandonRequest: ((reason: WalletError) => void) | null = null;
  */
 export function cancelWalletRequest(): void {
   cancelPairing();
-  abandonRequest?.(new WalletError("cancelled", "You cancelled the request to Freighter."));
+  abandonRequest?.(new WalletError("cancelled", "You cancelled the request to Varial."));
 }
 
 /** How long dropping a session waits for the relay before forgetting it anyway. */
@@ -546,7 +546,7 @@ async function awaitAnswer<T>(
         reject(
           new WalletError(
             "timed_out",
-            "Freighter didn't answer in time. Open Freighter, then try again.",
+            "Varial didn't answer in time. Open Varial, then try again.",
           ),
         ),
       REQUEST_TIMEOUT_MS,
@@ -611,7 +611,7 @@ export async function connect(
         reject(
           new WalletError(
             "timed_out",
-            "Freighter didn't answer in time. Open Freighter, then try again.",
+            "Varial didn't answer in time. Open Varial, then try again.",
           ),
         ),
       PAIRING_TIMEOUT_MS,
@@ -642,7 +642,7 @@ export async function connect(
   try {
     await Promise.race([approval, approvedAny, givenUp]);
   } catch (err) {
-    throw walletConnectError(err, "Freighter connection failed");
+    throw walletConnectError(err, "Varial connection failed");
   } finally {
     clearTimeout(timer);
     // Only clear our own: a newer attempt may already have taken the slot.
@@ -654,7 +654,7 @@ export async function connect(
   if (accounts.length === 0) {
     throw new WalletError(
       "wrong_network",
-      `Freighter approved the connection but not on ${caipChainId()}. Switch the network in Freighter, then try again.`,
+      `Varial approved the connection but not on ${caipChainId()}. Switch the network in Varial, then try again.`,
     );
   }
   return { address: accounts[0], wallet: "freighter" };
@@ -685,7 +685,7 @@ export async function signOwnership(
     focusWallet(provider);
     result = await awaitAnswer(provider, pending);
   } catch (err) {
-    throw walletConnectError(err, "Freighter signing failed");
+    throw walletConnectError(err, "Varial signing failed");
   }
   return readProof(result, message, expectedAddress);
 }
@@ -696,7 +696,7 @@ function assertSessionAccount(provider: WalletConnectProvider, expectedAddress: 
   if (accounts.length > 0 && !accounts.includes(expectedAddress)) {
     throw new WalletError(
       "wrong_account",
-      `Freighter is connected as ${accounts[0]}, not ${expectedAddress}. Switch accounts in Freighter, then try again.`,
+      `Varial is connected as ${accounts[0]}, not ${expectedAddress}. Switch accounts in Varial, then try again.`,
     );
   }
 }
@@ -726,7 +726,7 @@ function readProof(
 ): StellarSignedMessage {
   const signature = result?.signature;
   if (typeof signature !== "string" || signature.length === 0) {
-    throw new WalletError("rejected", "Freighter returned no signature (signing was rejected).");
+    throw new WalletError("rejected", "Varial returned no signature (signing was rejected).");
   }
   if (!verify(expectedAddress, message, signature)) {
     throw new WalletError(
@@ -760,7 +760,7 @@ export async function signTransaction(
     focusWallet(provider);
     result = await awaitAnswer(provider, pending);
   } catch (err) {
-    throw walletConnectError(err, "Freighter signing failed");
+    throw walletConnectError(err, "Varial signing failed");
   }
   return readSignedEnvelope(result, expectedAddress);
 }
@@ -772,7 +772,7 @@ async function readSignedEnvelope(
 ): Promise<string> {
   const signedXdr = result?.signedXDR;
   if (typeof signedXdr !== "string" || signedXdr.length === 0) {
-    throw new WalletError("rejected", "Freighter returned no signature (signing was rejected).");
+    throw new WalletError("rejected", "Varial returned no signature (signing was rejected).");
   }
   await assertSignedBy(signedXdr, expectedAddress);
   return signedXdr;
@@ -826,7 +826,7 @@ export async function signOwnershipAndTransaction(
     focusWallet(provider);
     result = await awaitAnswer(provider, pendingMessage);
   } catch (err) {
-    throw walletConnectError(err, "Freighter signing failed");
+    throw walletConnectError(err, "Varial signing failed");
   }
 
   const proof = readProof(result, message, expectedAddress);
@@ -851,7 +851,7 @@ async function collectTransaction(
   try {
     result = await awaitAnswer(provider, pending, { focusAfterMs: BATCHED_ANSWER_GRACE_MS });
   } catch (err) {
-    throw walletConnectError(err, "Freighter signing failed");
+    throw walletConnectError(err, "Varial signing failed");
   }
   return readSignedEnvelope(result, expectedAddress);
 }
@@ -874,13 +874,13 @@ async function assertSignedBy(signedXdr: string, expectedAddress: string): Promi
   } catch (err) {
     throw new WalletError(
       "failed",
-      `Freighter returned a transaction we couldn't read: ${err instanceof Error ? err.message : String(err)}`,
+      `Varial returned a transaction we couldn't read: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   if (!signedBy) {
     throw new WalletError(
       "wrong_account",
-      `Freighter signed with a different account: the envelope carries no signature from ${expectedAddress}.`,
+      `Varial signed with a different account: the envelope carries no signature from ${expectedAddress}.`,
     );
   }
 }

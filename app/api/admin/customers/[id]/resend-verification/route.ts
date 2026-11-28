@@ -57,11 +57,11 @@ export async function POST(
     const result = await sendVerificationEmail(customer.email, verificationToken, customer.companyName ?? undefined);
     if (!result) {
       emailDelivered = false;
-      warning = "Verification email could not be sent. Verify that RESEND_EMAIL_FROM is set to a verified domain in Resend.";
+      warning = "Verification email could not be sent. Check ZENDER_API_KEY and EMAIL_FROM on the web service.";
     }
   } catch {
     emailDelivered = false;
-    warning = "Verification email could not be sent. Verify that RESEND_EMAIL_FROM is set to a verified domain in Resend.";
+    warning = "Verification email could not be sent. Check ZENDER_API_KEY and EMAIL_FROM on the web service.";
   }
 
   return NextResponse.json({ emailDelivered, warning });

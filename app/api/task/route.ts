@@ -10,6 +10,8 @@ import {
 import { resolveRewardUnits } from "@/lib/payout";
 import { unitsToUsdcDisplay } from "@/lib/stellar/config";
 import { getLabelerSession } from "@/lib/labeler-auth";
+import { recordServed } from "@/lib/email-queue";
+import { deepLinkTarget } from "@/lib/deep-link";
 import { isValidStellarAddress } from "@/lib/stellar/signature";
 import {
   isInCooldown,
@@ -77,7 +79,11 @@ export async function GET(req: NextRequest) {
   });
   const doneIds = done.map((s) => s.taskId);
 
-  const useGold = inRetest || Math.random() < GOLD_TASK_RATIO;
+  // #261: an emailed deep link asks for a task or a campaign's work. It's a
+  // preference: served when still open to this labeler, otherwise the usual
+  // pick. A labeler in retest still gets their check first.
+  const prefer = deepLinkTarget(req.nextUrl.searchParams);
+  const useGold = inRetest || (!prefer && Math.random() < GOLD_TASK_RATIO);
 
   let task: {
     id: string;
@@ -126,7 +132,13 @@ export async function GET(req: NextRequest) {
         AND COALESCE(c."minTier", 0) <= ${effectiveTier(user.tier, user.tierOnHold)}`
       : Prisma.empty;
 
-    const available = await prisma.$queryRaw<{ id: string }[]>`
+    const preferCondition = !prefer
+      ? Prisma.empty
+      : prefer.kind === "task"
+        ? Prisma.sql`AND t.id = ${prefer.id}`
+        : Prisma.sql`AND t."campaignId" = ${prefer.id}`;
+
+    const pick = (extra: Prisma.Sql) => prisma.$queryRaw<{ id: string }[]>`
       SELECT t.id
       FROM "tasks" t
       LEFT JOIN "campaigns" c ON t."campaignId" = c.id
@@ -138,6 +150,7 @@ export async function GET(req: NextRequest) {
         AND t."disabled" = false
         ${doneIdCondition}
         ${tierCondition}
+        ${extra}
         AND (
           COALESCE(t."responseTarget", c."defaultResponseTarget") IS NULL
           OR (
@@ -151,6 +164,9 @@ export async function GET(req: NextRequest) {
       ORDER BY t."createdAt" ASC
       LIMIT 1
     `;
+
+    let available = prefer ? await pick(preferCondition) : [];
+    if (available.length === 0) available = await pick(Prisma.empty);
 
     if (available.length > 0) {
       task = await prisma.task.findFirst({
@@ -184,6 +200,10 @@ export async function GET(req: NextRequest) {
   const shownDifficulty = task.isGold
     ? await checkStandIn(`${task.id}:${userId}`, gatingOn() ? maxDifficulty(user.tier, user.tierOnHold) : TIERS[TIERS.length - 1].maxDifficulty)
     : task.difficulty;
+
+  // #260: the unfinished-task reminder keys on the last task served. Never
+  // block serving on it.
+  await recordServed(userId, task.id).catch((err) => Sentry.captureException(err));
 
   return NextResponse.json({
     task: {

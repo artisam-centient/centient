@@ -39,7 +39,7 @@ describe("PayoutSetupView", () => {
   });
 
   it.each(["trustline", "account+trustline"] as const)(
-    "shows the %s fee notice while Freighter is open",
+    "shows the %s fee notice while Varial is open",
     (kind) => {
       const html = render({ phase: "signing", signingKind: kind, onRetry: noop });
       expect(html).toContain(escaped(PAYOUT_SIGNING_NOTICE[kind]));
@@ -104,13 +104,13 @@ describe("WalletClaimView", () => {
     expect(html).toContain("Connect your wallet to keep earning");
     expect(html).toContain("your balance");
     expect(html).toContain("stays with this account");
-    expect(html).toContain("Connect Freighter");
+    expect(html).toContain("Connect Varial");
     expect(html).not.toContain('type="password"');
   });
 
-  it("disables the button and marks it busy while Freighter is open", () => {
+  it("disables the button and marks it busy while Varial is open", () => {
     const html = render({ phase: "connecting", onConnect: noop });
-    expect(html).toContain("Waiting for Freighter");
+    expect(html).toContain("Waiting for Varial");
     expect(html).toMatch(/disabled=""/);
     expect(html).toContain('aria-busy="true"');
   });
@@ -126,12 +126,12 @@ describe("WalletClaimView", () => {
     expect(html).toContain("Try again");
   });
 
-  it("links to the Freighter install page only when Freighter is missing", () => {
+  it("links to the Varial install page only when Varial is missing", () => {
     expect(render({ phase: "failed", reason: "freighter_missing", onConnect: noop })).toContain(
-      "https://www.freighter.app/",
+      "https://varialwallet.com/",
     );
     expect(render({ phase: "failed", reason: "expired", onConnect: noop })).not.toContain(
-      "https://www.freighter.app/",
+      "https://varialwallet.com/",
     );
   });
 });
